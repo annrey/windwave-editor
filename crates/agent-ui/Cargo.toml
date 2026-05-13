@@ -1,0 +1,14 @@
+[package]
+name = "agent-ui"
+version.workspace = true
+edition.workspace = true
+description = "Agent chat UI and conversation interface"
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+bevy-adapter = { path = "../bevy-adapter" }
+bevy = { workspace = true, features = ["bevy_ui", "bevy_text", "bevy_sprite", "bevy_render", "bevy_asset"] }
+bevy_egui = "0.38"
+log = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

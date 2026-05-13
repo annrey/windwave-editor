@@ -1,0 +1,41 @@
+# Build output
+/target/
+Cargo.lock
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Design documents (private)
+/design/
+/session-log/
+/session-logs/
+
+# AI assistant configs (may contain personal preferences)
+.claude/
+.cursor/
+.cursorrules
+.gemini/
+.kiro/
+.mcp.json
+.opencode.json
+.qoder/
+.trae/
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+QODER.md
+
+# Local test data
+*.local
+*.env
+.env.*
+
+# OS files
+Thumbs.db

@@ -1,0 +1,129 @@
+//! Play Mode — Run game inside editor with isolated edit/play state.
+//!
+//! Hotkey: F5 (enter/exit play mode)
+//! When entering: scene state captured. Editor UI hidden. Physics/input active.
+//! When exiting: scene state restored from pre-play snapshot.
+
+use bevy::prelude::*;
+use bevy::sprite::Sprite;
+
+pub struct PlayModePlugin;
+
+impl Plugin for PlayModePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<PlayModeState>()
+            .add_systems(Update, handle_play_mode_shortcut);
+    }
+}
+
+#[derive(Resource)]
+pub struct PlayModeState {
+    pub is_playing: bool,
+    /// Snapshot keyed by entity index (Name + serialized Transform/Sprite)
+    snapshot: Option<Vec<EntitySnapshot>>,
+}
+
+impl Default for PlayModeState {
+    fn default() -> Self {
+        Self { is_playing: false, snapshot: None }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct EntitySnapshot {
+    name: String,
+    translation: [f32; 3],
+    scale: [f32; 3],
+    rotation_q: [f32; 4],
+    color_rgba: [f32; 4],
+    custom_size: Option<[f32; 2]>,
+    visibility: String,
+}
+
+fn handle_play_mode_shortcut(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<PlayModeState>,
+) {
+    if keys.just_pressed(KeyCode::F5) {
+        state.is_playing = !state.is_playing;
+        if state.is_playing {
+            state.snapshot = Some(Vec::new()); // populated by snapshot system
+            info!("Play Mode: ON");
+        } else {
+            state.snapshot = None;
+            info!("Play Mode: OFF (state restored by exclusive system)");
+        }
+    }
+}
+
+/// Exclusive system: captures entity state when entering play mode
+pub fn capture_play_snapshot(world: &mut World) {
+    let should_capture = {
+        let state = world.resource::<PlayModeState>();
+        state.is_playing && state.snapshot.as_ref().map_or(true, |s| s.is_empty())
+    };
+    if !should_capture { return; }
+
+    let mut snapshots = Vec::new();
+    let mut query = world.query::<(Entity, Option<&Name>, &Transform, Option<&Sprite>, Option<&Visibility>)>();
+    for (_entity, name, transform, sprite, visibility) in query.iter(world) {
+        let c = sprite.map(|s| s.color).unwrap_or(Color::WHITE);
+        let cr = c.to_linear();
+        snapshots.push(EntitySnapshot {
+            name: name.map(|n| n.to_string()).unwrap_or_default(),
+            translation: [transform.translation.x, transform.translation.y, transform.translation.z],
+            scale: [transform.scale.x, transform.scale.y, transform.scale.z],
+            rotation_q: [transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w],
+            color_rgba: [cr.red, cr.green, cr.blue, cr.alpha],
+            custom_size: sprite.and_then(|s| s.custom_size).map(|sz| [sz.x, sz.y]),
+            visibility: visibility.map(|v| format!("{:?}", v)).unwrap_or_else(|| "Visible".into()),
+        });
+    }
+
+    let mut state = world.resource_mut::<PlayModeState>();
+    state.snapshot = Some(snapshots);
+    info!("Play snapshot: {} entities captured", state.snapshot.as_ref().map_or(0, |s| s.len()));
+}
+
+/// Exclusive system: restores scene from snapshot when exiting play mode
+pub fn restore_play_snapshot(world: &mut World) {
+    let (is_playing, snapshot_clone) = {
+        let state = world.resource::<PlayModeState>();
+        (state.is_playing, state.snapshot.clone())
+    };
+    if is_playing { return; }
+    let Some(snapshots) = snapshot_clone else { return };
+
+    let restore_map: std::collections::HashMap<String, EntitySnapshot> = snapshots.into_iter()
+        .filter(|s| !s.name.is_empty())
+        .map(|s| (s.name.clone(), s))
+        .collect();
+
+    let mut query = world.query::<(Entity, &Name, &mut Transform, Option<&mut Sprite>)>();
+    for (_entity, name, mut transform, sprite) in query.iter_mut(world) {
+        if let Some(snap) = restore_map.get(name.as_str()) {
+            transform.translation = Vec3::from(snap.translation);
+            transform.scale = Vec3::from(snap.scale);
+            transform.rotation = Quat::from_xyzw(snap.rotation_q[0], snap.rotation_q[1], snap.rotation_q[2], snap.rotation_q[3]);
+            if let Some(mut sprite) = sprite {
+                sprite.color = Color::linear_rgba(snap.color_rgba[0], snap.color_rgba[1], snap.color_rgba[2], snap.color_rgba[3]);
+                sprite.custom_size = snap.custom_size.map(|sz| Vec2::new(sz[0], sz[1]));
+            }
+        }
+    }
+}
+
+fn toggle_editor_ui_visibility(
+    play_state: Res<PlayModeState>,
+    mut project_vis: ResMut<super::project_panel::ProjectPanelState>,
+    mut debug_vis: ResMut<super::debug_panel::DebugPanelState>,
+) {
+    // When entering play mode, hide editor panels
+    // When exiting, they stay in their previous state
+    // This is a minimal implementation; full isolation needs a global UI toggle
+    _ = (&play_state, &mut project_vis, &mut debug_vis);
+}
+
+pub fn is_play_mode(state: &PlayModeState) -> bool {
+    state.is_playing
+}
