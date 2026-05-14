@@ -874,6 +874,7 @@ mod tests {
                 "query_entities".into(),
             ],
             scene_entity_names: vec!["Player".into(), "Camera".into(), "Ground".into()],
+            memory_context: None,
         }
     }
 

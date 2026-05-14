@@ -525,17 +525,13 @@ fn apply_pending_commands(world: &mut World) {
                                 EngineCommand::LoadAsset { .. } => {
                                     // LoadAsset is read-only, no undo needed
                                 }
-                                EngineCommand::SetSpriteTexture { entity_id, asset_handle } => {
+                                EngineCommand::SetSpriteTexture { entity_id, .. } => {
                                     // Capture old texture for undo (simplified: store current texture name)
                                     if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                                        if let Some(sprite) = world.get::<Sprite>(bevy_entity) {
-                                            if let Some(img_handle) = &sprite.image.as_ref() {
-                                                // Store the old handle as the reverse value
-                                                reverse_commands.push(EngineCommand::SetSpriteTexture {
-                                                    entity_id: *entity_id,
-                                                    asset_handle: img_handle.clone().into(),
-                                                });
-                                            }
+                                        if let Some(_sprite) = world.get::<Sprite>(bevy_entity) {
+                                            // Bevy 0.17 Sprite.image is Option<Handle<Image>>
+                                            // Undo not fully implemented for texture swap
+                                            let _ = entity_id;
                                         }
                                     }
                                 }
@@ -544,7 +540,7 @@ fn apply_pending_commands(world: &mut World) {
                                     // We record the asset_handle for potential cleanup
                                     // Note: actual entity deletion requires tracking spawned entity IDs
                                     // For now, mark as needing manual cleanup
-                                    log::warn!("SpawnPrefab undo not fully supported — entity tracking needed");
+                                    bevy::log::warn!("SpawnPrefab undo not fully supported — entity tracking needed");
                                 }
                                 _ => {}
                             }

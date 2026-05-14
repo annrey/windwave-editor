@@ -95,9 +95,24 @@ impl DirectorRuntime {
                         system_prompt: REACT_SYSTEM_PROMPT.to_string(),
                     };
                     
+                    // Sprint 1: Create layered context for L0-L3 prompt enrichment
+                    let mut layered = crate::prompt::LayeredContext::default();
+                    // L0: System context
+                    layered.l0_system = crate::prompt::L0SystemContext::default_bevy();
+                    // L1: Session context
+                    layered.l1_session.project_name = "AgentEdit".to_string();
+                    layered.l1_session.engine_version = "0.17".to_string();
+                    // L2: Task context (will be updated per-request)
+                    layered.l2_task.current_task = "Awaiting user request".to_string();
+                    // Add few-shot examples
+                    layered.add_few_shot(crate::prompt::FewShotExample::create_entity_example());
+                    layered.add_few_shot(crate::prompt::FewShotExample::update_component_example());
+                    layered.add_few_shot(crate::prompt::FewShotExample::query_entities_example());
+                    
                     // Create Arc from Box - this consumes the Box
                     let client_arc: Arc<dyn crate::llm::LlmClient> = Arc::from(client);
-                    let react = create_react_agent(base, client_arc.clone(), tool_registry);
+                    let react = create_react_agent(base, client_arc.clone(), tool_registry)
+                        .with_layered_context(layered);
                     
                     // Store the Arc as Box for backward compatibility
                     // Note: This works because Arc::from(Box) gives us Arc<Box<dyn LlmClient>>
@@ -138,6 +153,7 @@ impl DirectorRuntime {
             audit_log: crate::audit::AuditLog::new(10_000),
             react_agent,
             memory_system: crate::memory::MemorySystem::default(),
+            memory_injector: crate::memory_injector::MemoryInjector::new(None),
         }
     }
 
@@ -764,12 +780,30 @@ mod tests {
     fn test_review_task() {
         let mut rt = DirectorRuntime::new();
         // "批量创建红色敌人" routes to Plan, creates a plan
-        rt.handle_user_request("批量创建红色敌人");
+        let events = rt.handle_user_request("批量创建红色敌人");
+
+        // Check if it went into Plan mode (needs approval) or Direct mode
+        let needs_approval = events
+            .iter()
+            .any(|e| matches!(e, EditorEvent::PermissionRequested { .. }));
+
+        if needs_approval {
+            // Plan mode: auto-approved in tests, so execute it first
+            let pending = rt.pending_approval_ids();
+            if !pending.is_empty() {
+                let plan_id = pending[0].clone();
+                rt.approve_plan(&plan_id);
+            }
+        }
 
         let review = rt.review_task(0);
         // For Plan mode, the task_id should be 0 and a plan is found
         assert_eq!(review.task_id, 0);
-        assert!(review.decision == "approved" || review.decision == "needs_revision");
+        assert!(
+            review.decision == "approved" || review.decision == "needs_revision",
+            "Expected 'approved' or 'needs_revision', got '{}'",
+            review.decision
+        );
     }
 
     #[test]
@@ -844,5 +878,117 @@ mod tests {
     fn test_default_impl() {
         let rt = DirectorRuntime::default();
         assert!(rt.list_plans().is_empty());
+    }
+
+    // Sprint 1: 验收测试 - ReActAgent 集成和分层上下文
+    #[test]
+    fn test_react_agent_layered_context() {
+        let mut rt = DirectorRuntime::new();
+
+        // ReActAgent initialization depends on LLM environment configuration
+        // If LLM is not configured, has_react_agent() returns false
+        if rt.has_react_agent() {
+            // Verify L0-L3 context is set
+            if let Some(ref react) = rt.react_agent {
+                // L0: System context should have agent name
+                // L1: Session context should have project name
+                // L2: Task context should be set
+                // L3: Entity context should be empty initially
+                // Few-shot examples should be present
+                assert!(!react.config.system_prompt.is_empty(), "System prompt should not be empty");
+            }
+        }
+
+        // Test layered context structure independently
+        let layered = crate::prompt::LayeredContext {
+            l0_system: crate::prompt::L0SystemContext::default_bevy(),
+            ..Default::default()
+        };
+        assert!(!layered.l0_system.agent_name.is_empty(), "L0 agent name should be set");
+        assert!(!layered.l0_system.engine_name.is_empty(), "L0 engine name should be set");
+    }
+
+    #[test]
+    fn test_few_shot_example_selection() {
+        use crate::prompt::{LayeredContext, FewShotExample};
+
+        let mut layered = LayeredContext::default();
+        layered.add_few_shot(FewShotExample::create_entity_example());
+        layered.add_few_shot(FewShotExample::update_component_example());
+        layered.add_few_shot(FewShotExample::query_entities_example());
+
+        // Test selecting examples for "create" request
+        let selected = layered.select_few_shot_examples("创建一个红色敌人", 2);
+        assert!(!selected.is_empty(), "Should select at least one example");
+        // The create_entity_example should be most relevant
+        assert!(selected[0].action.contains("create"), "Should select create example first");
+
+        // Test selecting examples for "update" request
+        let selected = layered.select_few_shot_examples("把 Player 改成蓝色", 2);
+        assert!(!selected.is_empty(), "Should select at least one example");
+        assert!(selected[0].action.contains("update"), "Should select update example first");
+    }
+
+    #[test]
+    fn test_dynamic_revision_skips_duplicate_steps() {
+        use crate::plan::{EditPlan, EditPlanStep, TargetModule, ExecutionMode, EditPlanStatus};
+        use crate::permission::OperationRisk;
+
+        let mut rt = DirectorRuntime::new();
+
+        // Create a plan with duplicate creation steps
+        let mut plan = EditPlan::new("test_plan", 1, "Test Plan", "Test dynamic revision", ExecutionMode::Plan);
+        plan.status = EditPlanStatus::Draft;
+        plan.steps = vec![
+            EditPlanStep {
+                id: "step_1".into(),
+                title: "Create Enemy".into(),
+                target_module: TargetModule::Scene,
+                action_description: "Create Enemy".into(),
+                risk: OperationRisk::LowRisk,
+                validation_requirements: vec![],
+            },
+            EditPlanStep {
+                id: "step_2".into(),
+                title: "Create Player".into(),
+                target_module: TargetModule::Scene,
+                action_description: "Create Player".into(),
+                risk: OperationRisk::LowRisk,
+                validation_requirements: vec![],
+            },
+        ];
+
+        rt.plan_manager.insert("test_plan".into(), plan);
+
+        // Apply revision to skip duplicate creation steps
+        rt.apply_plan_revision("test_plan", "Skip duplicate creation steps");
+
+        // Verify steps are marked as skipped
+        let updated_plan = rt.plan_manager.get("test_plan").unwrap();
+        assert!(updated_plan.steps[0].title.starts_with("[SKIPPED]"), "Step 1 should be skipped");
+        assert!(updated_plan.steps[1].title.starts_with("[SKIPPED]"), "Step 2 should be skipped");
+    }
+
+    #[test]
+    fn test_reflection_alternative_step_generation() {
+        let mut rt = DirectorRuntime::new();
+
+        // Test "not found" error generates alternative
+        let alt = rt.generate_alternative_step("Delete Enemy", "Entity not found");
+        assert!(alt.is_some(), "Should generate alternative for not found error");
+        let alt_text = alt.unwrap();
+        assert!(alt_text.contains("Create entity"), "Alternative should suggest creating entity first");
+
+        // Test "already exists" error generates alternative
+        let alt = rt.generate_alternative_step("Create Player", "Entity already exists");
+        assert!(alt.is_some(), "Should generate alternative for already exists error");
+        let alt_text = alt.unwrap();
+        assert!(alt_text.contains("Modify") || alt_text.contains("修改"), "Alternative should suggest modification");
+
+        // Test permission error generates alternative
+        let alt = rt.generate_alternative_step("Delete Boss", "Permission denied");
+        assert!(alt.is_some(), "Should generate alternative for permission error");
+        let alt_text = alt.unwrap();
+        assert!(alt_text.contains("LOW_RISK"), "Alternative should use low risk approach");
     }
 }

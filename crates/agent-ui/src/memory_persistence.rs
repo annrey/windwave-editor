@@ -3,7 +3,7 @@
 //! Provides auto-save/load for PersistentMemory.
 //! Note: PersistentMemory is not a Bevy Resource, so we use a wrapper approach.
 
-use agent_core::memory::PersistentMemory;
+use agent_core::memory_legacy::PersistentMemory;
 use std::path::PathBuf;
 use log::{info, warn, error};
 

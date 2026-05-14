@@ -422,4 +422,6 @@ pub struct DirectorRuntime {
     pub(crate) react_agent: Option<ReActAgent>,
     /// Memory system for four-tier memory (Working/Episodic/Semantic/Procedural).
     pub(crate) memory_system: crate::memory::MemorySystem,
+    /// Sprint 2: MemoryInjector for automatic context capture and LLM injection.
+    pub(crate) memory_injector: crate::memory_injector::MemoryInjector,
 }

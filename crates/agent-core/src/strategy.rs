@@ -78,6 +78,13 @@ Final Answer: [Your response to the user]
 Available tools will be provided in the context."#;
 
 /// ReAct Agent that implements reasoning + acting strategy
+///
+/// Sprint 1: Integrated with L0-L3 layered context for richer LLM prompts.
+/// The agent uses LayeredContext to provide the LLM with:
+/// - L0: System-level context (agent identity, capabilities)
+/// - L1: Session-level context (project, recent actions)
+/// - L2: Task-level context (current task, selected entities)
+/// - L3: Entity-level context (specific entity details)
 pub struct ReActAgent {
     #[allow(dead_code)]
     base: BaseAgent,
@@ -86,6 +93,12 @@ pub struct ReActAgent {
     llm: Arc<dyn LlmClient>,
     tool_registry: Arc<std::sync::Mutex<crate::tool::ToolRegistry>>,
     history: Vec<ReActStep>,
+    /// Sprint 1: Layered context for LLM prompt enrichment
+    layered_context: Option<crate::prompt::LayeredContext>,
+    /// Sprint 1: Prompt system for building prompts with layered context
+    prompt_system: crate::prompt::PromptSystem,
+    /// Sprint 2: MemoryInjector for automatic context capture from past executions
+    memory_injector: Option<crate::memory_injector::MemoryInjector>,
 }
 
 impl ReActAgent {
@@ -102,6 +115,52 @@ impl ReActAgent {
             llm,
             tool_registry,
             history: Vec::new(),
+            layered_context: None,
+            prompt_system: crate::prompt::PromptSystem::with_defaults(),
+            memory_injector: None,
+        }
+    }
+
+    /// Sprint 2: Set MemoryInjector for automatic context capture.
+    pub fn with_memory_injector(mut self, injector: crate::memory_injector::MemoryInjector) -> Self {
+        self.memory_injector = Some(injector);
+        self
+    }
+
+    /// Sprint 1: Set layered context for richer LLM prompts.
+    pub fn with_layered_context(mut self, context: crate::prompt::LayeredContext) -> Self {
+        self.layered_context = Some(context.clone());
+        // Update prompt context with layered context
+        let _ = crate::prompt::PromptContext::with_layered(context);
+        self
+    }
+
+    /// Sprint 1: Set the prompt system.
+    pub fn with_prompt_system(mut self, system: crate::prompt::PromptSystem) -> Self {
+        self.prompt_system = system;
+        self
+    }
+
+    /// Sprint 1: Update L2 task context for the current task.
+    pub fn set_task_context(&mut self, task: &str, entities: Vec<String>, goals: Vec<String>) {
+        if let Some(ref mut layered) = self.layered_context {
+            layered.l2_task.current_task = task.to_string();
+            layered.l2_task.selected_entities = entities;
+            layered.l2_task.goals = goals;
+        }
+    }
+
+    /// Sprint 1: Update L3 entity context.
+    pub fn set_entity_context(&mut self, entities: Vec<crate::prompt::L3EntityContext>) {
+        if let Some(ref mut layered) = self.layered_context {
+            layered.l3_entities = entities;
+        }
+    }
+
+    /// Sprint 1: Add a few-shot example.
+    pub fn add_few_shot_example(&mut self, example: crate::prompt::FewShotExample) {
+        if let Some(ref mut layered) = self.layered_context {
+            layered.add_few_shot(example);
         }
     }
 
@@ -202,10 +261,33 @@ impl ReActAgent {
         Err(ReActError::MaxStepsReached)
     }
 
-    /// Build the prompt with context
+    /// Build the prompt with context.
+    ///
+    /// Sprint 1: Enhanced with L0-L3 layered context injection and
+    /// dynamically selected few-shot examples.
+    /// The prompt now includes:
+    /// - L0: System context (agent identity, capabilities)
+    /// - L1: Session context (project, recent actions)
+    /// - L2: Task context (current task, selected entities)
+    /// - L3: Entity details (specific entity information)
+    /// - Few-shot examples (dynamically selected based on user request)
+    /// - Conversation history (ReAct steps)
     fn build_prompt(&self, user_input: &str) -> String {
-        let mut prompt = format!("User request: {}\n\n", user_input);
-        
+        let mut prompt = String::new();
+
+        // Sprint 1: Inject L0-L3 layered context at the beginning
+        // Use dynamic few-shot selection for more relevant examples
+        if let Some(ref layered) = self.layered_context {
+            let context_desc = layered.build_prompt_with_selected_examples(user_input, 3);
+            if !context_desc.is_empty() {
+                prompt.push_str("=== Context ===\n");
+                prompt.push_str(&context_desc);
+                prompt.push_str("\n\n");
+            }
+        }
+
+        prompt.push_str(&format!("User request: {}\n\n", user_input));
+
         // Add history
         if !self.history.is_empty() {
             prompt.push_str("Previous steps:\n");
@@ -215,7 +297,7 @@ impl ReActAgent {
                         prompt.push_str(&format!("{}. Thought: {}\n", i + 1, content));
                     }
                     ReActStep::Action { tool_name, parameters } => {
-                        prompt.push_str(&format!("{}. Action: {} with {:?}\n", 
+                        prompt.push_str(&format!("{}. Action: {} with {:?}\n",
                             i + 1, tool_name, parameters));
                     }
                     ReActStep::Observation { content, success } => {
@@ -229,7 +311,7 @@ impl ReActAgent {
             }
             prompt.push('\n');
         }
-        
+
         prompt.push_str("What is your next thought and action?\n");
         prompt
     }

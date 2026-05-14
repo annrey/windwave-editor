@@ -30,9 +30,13 @@ impl DirectorRuntime {
     pub fn handle_user_request(&mut self, request_text: &str) -> Vec<EditorEvent> {
         let start = std::time::Instant::now();
 
-        // ---- Record user request in memory system ----
+        // Sprint 2: Record user request in memory system and inject into LLM context
         self.memory_system.record_user_request(request_text, None);
         self.memory_system.set_intent(request_text);
+        self.memory_injector.inject(
+            &format!("user_request: {}", request_text),
+            request_text,
+        );
 
         // ---- SmartRouter decision ----
         let decision = crate::router::SmartRouter::route(request_text);
@@ -320,10 +324,150 @@ impl DirectorRuntime {
 
     /// Execute a simple request directly (no plan → permission overhead).
     ///
+    /// Sprint 1: When ReActAgent is available, uses LLM-driven think-act-observe loop
+    /// instead of keyword matching for true AI-driven execution.
+    /// Falls back to keyword matching when ReActAgent is not available.
+    ///
     /// Used when SmartRouter selects `ExecutionMode::Direct`.
-    /// Parses entity names, colors, and actions from the request text and
-    /// dispatches them to the SceneBridge for immediate execution.
     pub(crate) fn execute_direct_internal(
+        &mut self,
+        request_text: &str,
+        decision: &crate::router::RoutingDecision,
+    ) -> Vec<EditorEvent> {
+        // Sprint 1: Use ReActAgent if available for true LLM-driven execution
+        if self.has_react_agent() {
+            // Try to use async ReAct execution with a Tokio runtime
+            let rt = tokio::runtime::Handle::try_current();
+            match rt {
+                Ok(handle) => {
+                    let _request_text_owned = request_text.to_string();
+                    drop(handle);
+                    return self.execute_direct_with_react_sync(request_text, decision);
+                }
+                Err(_) => {
+                    // No Tokio runtime available, create one temporarily for sync execution
+                    return self.execute_direct_with_react_sync(request_text, decision);
+                }
+            }
+        }
+
+        // Fallback: original keyword-based execution
+        self.execute_direct_fallback(request_text, decision)
+    }
+
+    /// Sprint 1: Execute Direct mode using ReActAgent with a temporary Tokio runtime.
+    fn execute_direct_with_react_sync(
+        &mut self,
+        request_text: &str,
+        decision: &crate::router::RoutingDecision,
+    ) -> Vec<EditorEvent> {
+        let mut events = Vec::new();
+        let step_start = std::time::Instant::now();
+
+        events.push(EditorEvent::DirectExecutionStarted {
+            request: request_text.to_string(),
+            mode: "ReAct".to_string(),
+            complexity_score: decision.complexity.total_score,
+        });
+
+        self.trace_entries.push(DirectorTraceEntry {
+            timestamp_ms: now_millis(),
+            actor: "ReActAgent".into(),
+            summary: format!("Direct mode with ReAct: {}", request_text),
+        });
+
+        // Create a temporary Tokio runtime for async ReAct execution
+        let temp_rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[DirectorRuntime] Failed to create Tokio runtime: {}, falling back", e);
+                return self.execute_direct_fallback(request_text, decision);
+            }
+        };
+
+        // Take ownership of react_agent to avoid borrow issues
+        let mut react = match self.react_agent.take() {
+            Some(react) => react,
+            None => {
+                return self.execute_direct_fallback(request_text, decision);
+            }
+        };
+
+        let request_clone = request_text.to_string();
+
+        // Sprint 1: Update L2 task context before execution
+        react.set_task_context(
+            &request_clone,
+            vec![], // No specific entities selected yet
+            vec!["Complete the user request".to_string()],
+        );
+
+        // Execute ReAct loop synchronously
+        let react_result = temp_rt.block_on(async {
+            react.run(&request_clone).await
+        });
+
+        match react_result {
+            Ok(result) => {
+                events.push(EditorEvent::StepCompleted {
+                    plan_id: "direct".into(),
+                    step_id: "react_execution".into(),
+                    title: "ReAct Execution".into(),
+                    result: result.clone(),
+                });
+                self.trace_entries.push(DirectorTraceEntry {
+                    timestamp_ms: now_millis(),
+                    actor: "ReActAgent".into(),
+                    summary: format!("ReAct completed: {}", result),
+                });
+                self.metrics.record_tool_call(step_start.elapsed(), true);
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+                events.push(EditorEvent::StepFailed {
+                    plan_id: "direct".into(),
+                    step_id: "react_execution".into(),
+                    title: "ReAct Execution".into(),
+                    error: error_msg.clone(),
+                });
+                self.trace_entries.push(DirectorTraceEntry {
+                    timestamp_ms: now_millis(),
+                    actor: "ReActAgent".into(),
+                    summary: format!("ReAct failed: {}", error_msg),
+                });
+                self.metrics.record_tool_call(step_start.elapsed(), false);
+            }
+        }
+
+        // Put react_agent back
+        self.react_agent = Some(react);
+
+        events.push(EditorEvent::DirectExecutionCompleted {
+            request: request_text.to_string(),
+            success: events.iter().all(|e| !matches!(e, EditorEvent::StepFailed { .. })),
+        });
+
+        // Sprint 2: Record execution result in memory system and inject into LLM context
+        let success = events.iter().all(|e| !matches!(e, EditorEvent::StepFailed { .. }));
+        self.memory_system.record_step(
+            &format!("direct_react_execution: {}", request_text),
+            &format!("Direct mode ReAct execution completed"),
+            success,
+            step_start.elapsed().as_millis() as u64,
+        );
+
+        // Sprint 2: Inject execution result into LLM context for future requests
+        let result_text = if success { "success" } else { "failed" };
+        self.memory_injector.inject(
+            &format!("direct_execution: {}", request_text),
+            &format!("Execution {}: {}", result_text, request_text),
+        );
+
+        events
+    }
+
+    /// Original keyword-based direct execution (fallback when ReActAgent is not available).
+    fn execute_direct_fallback(
         &mut self,
         request_text: &str,
         decision: &crate::router::RoutingDecision,
@@ -344,7 +488,7 @@ impl DirectorRuntime {
             timestamp_ms: now_millis(),
             actor: "DirectExecutor".into(),
             summary: format!(
-                "Direct mode: action={}, entities={:?}, colors={:?}",
+                "Direct mode (fallback): action={}, entities={:?}, colors={:?}",
                 ctx.action, ctx.entity_names, ctx.colors,
             ),
         });
@@ -445,7 +589,7 @@ impl DirectorRuntime {
             success: events.iter().all(|e| !matches!(e, EditorEvent::StepFailed { .. })),
         });
 
-        // ---- Record execution result in memory system ----
+        // Record execution result in memory system
         let success = events.iter().all(|e| !matches!(e, EditorEvent::StepFailed { .. }));
         self.memory_system.record_step(
             &format!("direct_execution: {}", request_text),
@@ -542,7 +686,11 @@ impl DirectorRuntime {
             reason: None,
         });
 
-        let exec_events = self.execute_plan_internal(plan_id);
+        let exec_events = if self.has_react_agent() {
+            self.execute_plan_with_react_sync(plan_id)
+        } else {
+            self.execute_plan_internal(plan_id)
+        };
         self.events.extend(exec_events.clone());
 
         let total = exec_events.len() + 1;
@@ -578,6 +726,8 @@ impl DirectorRuntime {
 
     /// Execute an already-approved plan.
     ///
+    /// Sprint 1: When ReActAgent is available, uses LLM-driven execution for each step.
+    ///
     /// If the plan is not in the Approved status, returns an error event.
     ///
     /// # Arguments
@@ -586,7 +736,12 @@ impl DirectorRuntime {
     pub fn execute_plan(&mut self, plan_id: &str) -> Vec<EditorEvent> {
         match self.plan_manager.get(plan_id) {
             Some(plan) if plan.status == EditPlanStatus::Approved => {
-                let events = self.execute_plan_internal(plan_id);
+                // Sprint 1: Use ReActAgent for plan execution if available
+                let events = if self.has_react_agent() {
+                    self.execute_plan_with_react_sync(plan_id)
+                } else {
+                    self.execute_plan_internal(plan_id)
+                };
                 self.events.extend(events.clone());
                 events
             }
@@ -601,5 +756,155 @@ impl DirectorRuntime {
                 }]
             }
         }
+    }
+
+    /// Sprint 1: Execute plan using ReActAgent synchronously (with temporary Tokio runtime).
+    fn execute_plan_with_react_sync(&mut self, plan_id: &str) -> Vec<EditorEvent> {
+        let mut events = Vec::new();
+        
+        let mut plan = match self.plan_manager.get(plan_id) {
+            Some(p) => p.clone(),
+            None => {
+                events.push(EditorEvent::Error {
+                    message: format!("Plan '{}' not found for execution", plan_id),
+                });
+                return events;
+            }
+        };
+
+        self.plan_manager.set_status(plan_id, EditPlanStatus::Running);
+        
+        events.push(EditorEvent::PlanExecutionStarted {
+            plan_id: plan_id.to_string(),
+        });
+
+        // Create a temporary Tokio runtime for async ReAct execution
+        let temp_rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[DirectorRuntime] Failed to create Tokio runtime for plan execution: {}, falling back", e);
+                return self.execute_plan_internal(plan_id);
+            }
+        };
+
+        // Take ownership of react_agent to avoid borrow issues
+        let mut react = match self.react_agent.take() {
+            Some(react) => react,
+            None => {
+                return self.execute_plan_internal(plan_id);
+            }
+        };
+
+        let mut all_success = true;
+        let mut current_step_idx = 0;
+
+        // Execute steps with ReActAgent
+        while current_step_idx < plan.steps.len() {
+            let step = &plan.steps[current_step_idx];
+            
+            // Sprint 1: Skip steps marked as [SKIPPED] by dynamic revision
+            if step.title.starts_with("[SKIPPED]") {
+                events.push(EditorEvent::StepCompleted {
+                    plan_id: plan_id.to_string(),
+                    step_id: step.id.clone(),
+                    title: step.title.clone(),
+                    result: "Skipped by dynamic revision".to_string(),
+                });
+                current_step_idx += 1;
+                continue;
+            }
+            
+            events.push(EditorEvent::StepStarted {
+                plan_id: plan_id.to_string(),
+                step_id: step.id.clone(),
+                title: step.title.clone(),
+            });
+
+            let step_title = step.title.clone();
+
+            // Sprint 1: Update L2 task context for each step
+            react.set_task_context(
+                &step_title,
+                vec![], // Could extract entity names from step title
+                vec!["Execute plan step".to_string()],
+            );
+
+            let step_result = temp_rt.block_on(async {
+                react.run(&step_title).await
+            });
+            
+            match step_result {
+                Ok(result) => {
+                    let result_clone = result.clone();
+                    events.push(EditorEvent::StepCompleted {
+                        plan_id: plan_id.to_string(),
+                        step_id: step.id.clone(),
+                        title: step.title.clone(),
+                        result,
+                    });
+                    
+                    // Sprint 1: Dynamic revision - check if plan needs adjustment
+                    if let Some(revision) = self.check_plan_revision_needed(&plan, current_step_idx, &result_clone) {
+                        eprintln!("[DirectorRuntime] Dynamic revision: {}", revision);
+                        self.apply_plan_revision(plan_id, &revision);
+                        // Re-fetch plan since apply_plan_revision may have modified it
+                        if let Some(updated_plan) = self.plan_manager.get(plan_id) {
+                            plan = updated_plan.clone();
+                        }
+                    }
+                    
+                    current_step_idx += 1;
+                }
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    events.push(EditorEvent::StepFailed {
+                        plan_id: plan_id.to_string(),
+                        step_id: step.id.clone(),
+                        title: step.title.clone(),
+                        error: error_msg.clone(),
+                    });
+                    
+                    // Sprint 1: Reflection - try alternative approach
+                    if let Some(alternative) = self.generate_alternative_step(&step.title, &error_msg) {
+                        eprintln!("[DirectorRuntime] Reflection: trying alternative: {}", alternative);
+                        self.update_plan_step(plan_id, &step.id, &alternative);
+                        // Re-fetch plan since update_plan_step modified it
+                        if let Some(updated_plan) = self.plan_manager.get(plan_id) {
+                            plan = updated_plan.clone();
+                        }
+                        continue;
+                    }
+                    
+                    all_success = false;
+                    break;
+                }
+            }
+        }
+
+        // Put react_agent back
+        self.react_agent = Some(react);
+
+        self.plan_manager.set_status(
+            plan_id,
+            if all_success {
+                EditPlanStatus::Completed
+            } else {
+                EditPlanStatus::Failed
+            },
+        );
+
+        events.push(EditorEvent::ExecutionCompleted {
+            plan_id: plan_id.to_string(),
+            success: all_success,
+        });
+
+        // Sprint 2: Inject plan execution result into LLM context
+        let result_text = if all_success { "success" } else { "failed" };
+        self.memory_injector.inject(
+            &format!("plan_execution: {}", plan_id),
+            &format!("Plan '{}' execution {} with {} steps", plan_id, result_text, plan.steps.len()),
+        );
+
+        events
     }
 }

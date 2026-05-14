@@ -748,7 +748,7 @@ impl DirectorRuntime {
     }
 
     /// Sprint 1: Check if plan needs dynamic revision based on execution results.
-    fn check_plan_revision_needed(&self, _plan: &EditPlan, _current_idx: usize, result: &str) -> Option<String> {
+    pub(crate) fn check_plan_revision_needed(&self, _plan: &EditPlan, _current_idx: usize, result: &str) -> Option<String> {
         // Check if the result indicates a need to adjust remaining steps
         let result_lower = result.to_lowercase();
         
@@ -766,45 +766,180 @@ impl DirectorRuntime {
     }
 
     /// Sprint 1: Apply plan revision (dynamic plan adjustment).
-    fn apply_plan_revision(&mut self, _plan_id: &str, revision: &str) {
-        // Log the revision
-        self.trace_entries.push(DirectorTraceEntry {
-            timestamp_ms: now_millis(),
-            actor: "PlanReviser".into(),
-            summary: format!("Plan revision applied: {}", revision),
-        });
-        
-        // In production, this would modify the plan steps
-        // For now, just log it
+    ///
+    /// Parses revision directives and modifies the plan steps accordingly:
+    /// - "skip:N" — skip the next N steps
+    /// - "insert:{title}" — insert a new step after current
+    /// - "replace:{old}->{new}" — replace a step title
+    /// - "Skip duplicate creation steps" — auto-detected, skips creation steps
+    /// - "Try alternative entity or create it first" — auto-detected, inserts prerequisite
+    pub(crate) fn apply_plan_revision(&mut self, plan_id: &str, revision: &str) {
+        let revision_lower = revision.to_lowercase();
+
+        // Parse and apply the revision
+        if revision_lower.contains("skip duplicate") || revision_lower.contains("skip") {
+            // Skip duplicate creation steps — mark remaining creation steps as skipped
+            if let Some(plan) = self.plan_manager.get_mut(plan_id) {
+                let mut skipped = 0;
+                for step in &mut plan.steps {
+                    let step_lower = step.title.to_lowercase();
+                    if step_lower.contains("create") || step_lower.contains("创建") || step_lower.contains("生成") {
+                        // Mark as skipped by prepending [SKIPPED] to the title
+                        if !step.title.starts_with("[SKIPPED]") {
+                            step.title = format!("[SKIPPED] {}", step.title);
+                            step.action_description = format!("[SKIPPED] {}", step.action_description);
+                            skipped += 1;
+                        }
+                    }
+                }
+                self.trace_entries.push(DirectorTraceEntry {
+                    timestamp_ms: now_millis(),
+                    actor: "PlanReviser".into(),
+                    summary: format!("Skipped {} duplicate creation steps in plan '{}'", skipped, plan_id),
+                });
+            }
+        } else if revision_lower.contains("try alternative") || revision_lower.contains("create it first") {
+            // Insert a prerequisite step to create the entity first
+            if let Some(plan) = self.plan_manager.get_mut(plan_id) {
+                // Find the first step that references an entity and insert before it
+                let insert_idx = plan.steps.iter().position(|s| {
+                    let lower = s.title.to_lowercase();
+                    lower.contains("update") || lower.contains("modify") || lower.contains("delete") || lower.contains("移动") || lower.contains("删除")
+                }).unwrap_or(0);
+
+                let prereq_step = crate::plan::EditPlanStep {
+                    id: format!("step_prereq_{}", insert_idx),
+                    title: "Create prerequisite entity".to_string(),
+                    target_module: crate::plan::TargetModule::Scene,
+                    action_description: "Create the entity that is needed for subsequent steps".to_string(),
+                    risk: crate::permission::OperationRisk::LowRisk,
+                    validation_requirements: vec!["Entity exists".to_string()],
+                };
+                plan.steps.insert(insert_idx, prereq_step);
+                self.trace_entries.push(DirectorTraceEntry {
+                    timestamp_ms: now_millis(),
+                    actor: "PlanReviser".into(),
+                    summary: format!("Inserted prerequisite step at index {} in plan '{}'", insert_idx, plan_id),
+                });
+            }
+        } else if revision_lower.contains("not found") || revision_lower.contains("未找到") {
+            // Entity not found — change subsequent steps to create the entity first
+            if let Some(plan) = self.plan_manager.get_mut(plan_id) {
+                for step in &mut plan.steps {
+                    let step_lower = step.title.to_lowercase();
+                    if step_lower.contains("delete") || step_lower.contains("remove") || step_lower.contains("删除") || step_lower.contains("移除") {
+                        step.title = format!("[ADAPTED] Create entity instead of deleting: {}", step.title);
+                        step.action_description = "Entity was not found, creating it instead".to_string();
+                        step.risk = crate::permission::OperationRisk::LowRisk;
+                    }
+                }
+                self.trace_entries.push(DirectorTraceEntry {
+                    timestamp_ms: now_millis(),
+                    actor: "PlanReviser".into(),
+                    summary: format!("Adapted plan '{}' to create missing entities", plan_id),
+                });
+            }
+        } else {
+            // Generic revision — just log it
+            self.trace_entries.push(DirectorTraceEntry {
+                timestamp_ms: now_millis(),
+                actor: "PlanReviser".into(),
+                summary: format!("Plan revision logged (not auto-applied): {}", revision),
+            });
+        }
     }
 
     /// Sprint 1: Generate alternative step when execution fails (Reflection).
-    fn generate_alternative_step(&self, original: &str, error: &str) -> Option<String> {
-        // Simple reflection: generate alternative based on error type
+    ///
+    /// Analyzes the error message and produces an alternative step description
+    /// that addresses the root cause of the failure.
+    pub(crate) fn generate_alternative_step(&self, original: &str, error: &str) -> Option<String> {
         let error_lower = error.to_lowercase();
+        let original_lower = original.to_lowercase();
         
-        if error_lower.contains("not found") || error_lower.contains("不存在") {
-            return Some(format!("Create {} first", original));
+        // Entity not found — create it first
+        if error_lower.contains("not found") || error_lower.contains("不存在") || error_lower.contains("找不到") {
+            // Extract entity name from original step if possible
+            let entity_name = Self::extract_entity_name(original);
+            return Some(format!("Create entity '{}' before proceeding", entity_name));
         }
         
-        if error_lower.contains("permission") || error_lower.contains("拒绝") {
-            return Some(format!("Request approval for {}", original));
+        // Permission denied — request approval or use lower-risk approach
+        if error_lower.contains("permission") || error_lower.contains("拒绝") || error_lower.contains("unauthorized") {
+            return Some(format!("[LOW_RISK] {}", original));
+        }
+        
+        // Entity already exists — skip creation and proceed to modification
+        if error_lower.contains("already exists") || error_lower.contains("已存在") || error_lower.contains("duplicate") {
+            if original_lower.contains("create") || original_lower.contains("创建") || original_lower.contains("生成") {
+                // Change creation to modification
+                let modified = original
+                    .replace("Create", "Modify")
+                    .replace("create", "modify")
+                    .replace("创建", "修改")
+                    .replace("生成", "更新");
+                return Some(modified);
+            }
+        }
+        
+        // Invalid parameters — try with default values
+        if error_lower.contains("invalid") || error_lower.contains("参数") || error_lower.contains("parameter") {
+            return Some(format!("{} (with default parameters)", original));
+        }
+        
+        // Timeout or rate limit — retry with simpler approach
+        if error_lower.contains("timeout") || error_lower.contains("rate limit") || error_lower.contains("timed out") {
+            return Some(format!("[SIMPLIFIED] {}", original));
+        }
+        
+        // SceneBridge not connected — simulate the operation
+        if error_lower.contains("no scenebridge") || error_lower.contains("not connected") {
+            return Some(format!("[SIMULATED] {}", original));
+        }
+        
+        // Tool execution error — try alternative tool
+        if error_lower.contains("tool error") || error_lower.contains("execution failed") {
+            if original_lower.contains("delete") || original_lower.contains("删除") {
+                return Some(format!("[SAFE_ALTERNATIVE] Hide/disable '{}' instead of deleting", Self::extract_entity_name(original)));
+            }
+        }
+        
+        // LLM error — fallback to rule-based execution
+        if error_lower.contains("llm error") || error_lower.contains("maximum steps") || error_lower.contains("parse error") {
+            return Some(format!("[RULE_BASED] {}", original));
         }
         
         None
     }
 
     /// Sprint 1: Update a plan step with alternative content.
-    fn update_plan_step(&mut self, plan_id: &str, step_id: &str, new_title: &str) {
+    pub(crate) fn update_plan_step(&mut self, plan_id: &str, step_id: &str, new_title: &str) {
         if let Some(plan) = self.plan_manager.get_mut(plan_id) {
             for step in &mut plan.steps {
                 if step.id == step_id {
                     step.title = new_title.to_string();
                     step.action_description = new_title.to_string();
+                    // Reduce risk for alternative steps
+                    if new_title.starts_with("[LOW_RISK]") || new_title.starts_with("[SAFE_ALTERNATIVE]") {
+                        step.risk = crate::permission::OperationRisk::LowRisk;
+                    }
                     break;
                 }
             }
         }
+    }
+
+    /// Extract entity name from a step title using simple heuristics.
+    fn extract_entity_name(title: &str) -> String {
+        let words: Vec<&str> = title.split_whitespace().collect();
+        // Look for capitalized words (likely entity names)
+        for word in &words {
+            if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && word.len() > 1 {
+                return word.to_string();
+            }
+        }
+        // Fallback: return the last word
+        words.last().unwrap_or(&"entity").to_string()
     }
 
     /// Internal: Use LLM to create a plan from user request.

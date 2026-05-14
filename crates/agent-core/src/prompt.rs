@@ -316,6 +316,108 @@ impl LayeredContext {
         self.few_shot_examples.push(example);
     }
 
+    /// Sprint 1: Select few-shot examples most relevant to the user request.
+    ///
+    /// Uses simple keyword matching to score each example's relevance.
+    /// Returns the top N most relevant examples.
+    pub fn select_few_shot_examples(&self, user_request: &str, top_n: usize) -> Vec<&FewShotExample> {
+        let request_lower = user_request.to_lowercase();
+        let request_words: Vec<&str> = request_lower.split_whitespace().collect();
+
+        let mut scored: Vec<(f32, &FewShotExample)> = self.few_shot_examples.iter()
+            .map(|example| {
+                let mut score = 0.0f32;
+
+                // Score based on user_request match
+                let ex_request_lower = example.user_request.to_lowercase();
+                for word in &request_words {
+                    if ex_request_lower.contains(word) {
+                        score += 2.0;
+                    }
+                }
+
+                // Score based on action match
+                let action_lower = example.action.to_lowercase();
+                if request_lower.contains("create") || request_lower.contains("创建") || request_lower.contains("生成") {
+                    if action_lower.contains("create") { score += 3.0; }
+                }
+                if request_lower.contains("update") || request_lower.contains("修改") || request_lower.contains("改") || request_lower.contains("换") {
+                    if action_lower.contains("update") { score += 3.0; }
+                }
+                if request_lower.contains("delete") || request_lower.contains("删除") || request_lower.contains("移除") {
+                    if action_lower.contains("delete") { score += 3.0; }
+                }
+                if request_lower.contains("query") || request_lower.contains("list") || request_lower.contains("查询") || request_lower.contains("列表") {
+                    if action_lower.contains("query") { score += 3.0; }
+                }
+
+                // Score based on entity type match
+                if request_lower.contains("enemy") || request_lower.contains("敌人") {
+                    if ex_request_lower.contains("enemy") || ex_request_lower.contains("敌人") { score += 2.0; }
+                }
+                if request_lower.contains("player") || request_lower.contains("玩家") {
+                    if ex_request_lower.contains("player") || ex_request_lower.contains("玩家") { score += 2.0; }
+                }
+
+                // Score based on color match
+                if request_lower.contains("red") || request_lower.contains("红色") {
+                    if ex_request_lower.contains("red") || ex_request_lower.contains("红色") { score += 1.5; }
+                }
+                if request_lower.contains("blue") || request_lower.contains("蓝色") {
+                    if ex_request_lower.contains("blue") || ex_request_lower.contains("蓝色") { score += 1.5; }
+                }
+
+                (score, example)
+            })
+            .collect();
+
+        // Sort by score descending
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Return top N
+        scored.into_iter().take(top_n).map(|(_, ex)| ex).collect()
+    }
+
+    /// Sprint 1: Build prompt with dynamically selected few-shot examples.
+    ///
+    /// Only includes examples relevant to the current user request,
+    /// filtered by the token budget.
+    pub fn build_prompt_with_selected_examples(&self, user_request: &str, top_n: usize) -> String {
+        let mut parts = Vec::new();
+
+        parts.push(self.l0_system.describe());
+        parts.push(self.l1_session.describe());
+        parts.push(self.l2_task.describe());
+
+        if !self.l3_entities.is_empty() {
+            parts.push("## Entity Details\n".into());
+            for entity in &self.l3_entities {
+                parts.push(entity.describe());
+                parts.push("\n".into());
+            }
+        }
+
+        // Memory system context
+        if let Some(ref mem_ctx) = self.memory_context {
+            let mem_text = mem_ctx.to_prompt_section();
+            if !mem_text.is_empty() {
+                parts.push(mem_text);
+            }
+        }
+
+        // Sprint 1: Dynamically select few-shot examples
+        let selected = self.select_few_shot_examples(user_request, top_n);
+        if !selected.is_empty() {
+            parts.push("## Few-Shot Examples (Relevant to Your Request)\n".into());
+            parts.push("Here are examples similar to your request:\n".into());
+            for example in selected {
+                parts.push(example.describe());
+            }
+        }
+
+        parts.join("\n\n")
+    }
+
     /// Set memory context from MemorySystem
     pub fn with_memory(mut self, memory: crate::memory::MemoryContext) -> Self {
         self.memory_context = Some(memory);
