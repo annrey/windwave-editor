@@ -3,7 +3,6 @@
 //! 触发-条件-动作模式的规则引擎
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// 规则
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -164,6 +164,36 @@ impl ReActAgent {
         }
     }
 
+    /// Sprint 1-C1: Update layered context using LayeredContextBuilder.
+    ///
+    /// This method automatically collects L0-L3 context from runtime
+    /// subsystems (SceneBridge, event history, user request) and
+    /// updates the agent's prompt context before each execution.
+    pub fn update_layered_context(
+        &mut self,
+        scene_bridge: Option<&dyn crate::scene_bridge::SceneBridge>,
+        recent_actions: Vec<String>,
+        user_request: &str,
+        selected_entities: Vec<String>,
+    ) {
+        use crate::LayeredContextBuilder;
+
+        let builder = LayeredContextBuilder::new()
+            .with_scene_bridge_option(scene_bridge)
+            .with_recent_actions(recent_actions)
+            .with_user_request(user_request)
+            .with_selected_entities(selected_entities);
+
+        // Use existing base context for incremental update
+        let new_ctx = if let Some(ref existing) = self.layered_context {
+            builder.with_base_context(existing.clone()).build()
+        } else {
+            builder.build()
+        };
+
+        self.layered_context = Some(new_ctx);
+    }
+
     /// Execute one ReAct step
     pub async fn step(&mut self, user_input: &str) -> Result<ReActStep, ReActError> {
         // Build the prompt with history and available tools
@@ -434,18 +464,34 @@ impl ReActAgent {
 pub enum ReActError {
     #[error("LLM error: {0}")]
     LlmError(String),
-    
+
     #[error("Parse error: {0}")]
     ParseError(String),
-    
+
     #[error("Tool execution error: {0}")]
     ToolError(String),
-    
+
     #[error("Maximum steps reached without completion")]
     MaxStepsReached,
-    
+
     #[error("Invalid state: {0}")]
     InvalidState(String),
+}
+
+impl ReActError {
+    /// Check if this error is recoverable (can retry).
+    ///
+    /// Recoverable errors:
+    /// - LlmError (network timeout, rate limit)
+    /// - ToolError (temporary failure)
+    ///
+    /// Non-recoverable errors:
+    /// - MaxStepsReached (should stop)
+    /// - ParseError (malformed response, unlikely to fix on retry)
+    /// - InvalidState (programming error)
+    pub fn is_recoverable(&self) -> bool {
+        matches!(self, ReActError::LlmError(_) | ReActError::ToolError(_))
+    }
 }
 
 /// Build JSON schema for tool parameters

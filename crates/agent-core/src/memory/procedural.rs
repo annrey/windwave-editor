@@ -363,10 +363,74 @@ impl ProceduralMemory {
         self.patterns.len()
     }
 
+    /// Remove least used workflows (for cleanup)
+    pub fn remove_least_used(&mut self, count: usize) -> usize {
+        if count == 0 || self.workflows.is_empty() {
+            return 0;
+        }
+
+        // Score workflows by usage and success rate
+        let mut scored: Vec<(usize, f32)> = self.workflows.iter()
+            .enumerate()
+            .map(|(i, wf)| {
+                let usage_score = wf.use_count as f32;
+                let success_score = wf.success_rate;
+                let combined = usage_score * 0.6 + success_score * 100.0 * 0.4; // Weight usage more
+                (i, combined)
+            })
+            .collect();
+
+        // Sort by score ascending (lowest first)
+        scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Collect names of workflows to remove
+        let to_remove: std::collections::HashSet<String> = scored.into_iter()
+            .take(count)
+            .map(|(i, _)| self.workflows[i].name.clone())
+            .collect();
+
+        // Remove workflows and update indices
+        let removed_count = to_remove.len();
+        self.workflows.retain(|wf| !to_remove.contains(&wf.name));
+        self.rebuild_indices();
+
+        removed_count
+    }
+
+    /// Rebuild internal indices after bulk modifications
+    fn rebuild_indices(&mut self) {
+        self.name_index.clear();
+        self.category_index.clear();
+        for (idx, wf) in self.workflows.iter().enumerate() {
+            self.name_index.insert(wf.name.clone(), idx);
+            self.category_index.entry(wf.category.clone()).or_insert_with(Vec::new).push(idx);
+        }
+    }
+
     fn next_id(&mut self) -> MemoryEntryId {
         let id = MemoryEntryId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    // =================================================================
+    // Persistence Operations
+    // =================================================================
+
+    /// Export all workflows for serialization
+    pub fn export_workflows(&self) -> Vec<WorkflowTemplate> {
+        self.workflows.clone()
+    }
+
+    /// Import a workflow from serialized data
+    pub fn import_workflow(&mut self, workflow: WorkflowTemplate) {
+        if self.next_id <= workflow.metadata.id.0 {
+            self.next_id = workflow.metadata.id.0 + 1;
+        }
+        let idx = self.workflows.len();
+        self.name_index.insert(workflow.name.clone(), idx);
+        self.category_index.entry(workflow.category.clone()).or_default().push(idx);
+        self.workflows.push(workflow);
     }
 }
 

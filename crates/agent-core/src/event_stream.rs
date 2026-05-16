@@ -363,7 +363,7 @@ mod tests {
             AgentEvent::AssistantMessage { content, .. } => {
                 assert_eq!(content, "Hello");
             }
-            _ => panic!("Expected AssistantMessage"),
+            _ => unreachable!("Expected AssistantMessage"),
         }
     }
 

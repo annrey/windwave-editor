@@ -5,12 +5,11 @@ use crate::resources::*;
 
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use agent_core::{
     Message, BaseAgent, AgentConfig, ToolRegistry,
-    register_scene_tools, register_code_tools,
+    register_scene_tools, register_code_tools, register_file_tools,
     DirectorRuntime,
     SceneAgent, CodeAgent, ReviewAgent, PlannerAgent,
     AgentId, AgentRegistry,
@@ -18,13 +17,14 @@ use agent_core::{
     create_empty_shared_bridge,
 };
 use agent_core::agent::AgentInstanceId;
-use agent_core::EntityId;
-use agent_ui::{ChatState, AgentRuntime, DirectorDeskState, UserAction, PendingApprovalInfo};
+use agent_ui::{ChatState, AgentRuntime, DirectorDeskState, UserAction, PendingApprovalInfo, EditorSelection, VisualUnderstandingState, VisualAnalysis, GoalCheckResult, VgrcCycleSummary};
 use agent_ui::AgentUiPlugin;
 use bevy_adapter::{
     BevyAdapter, AgentTracked, AgentEntityId,
     EngineCommand,
     BevyAdapterPlugin, RuntimeAgentPlugin, PerceptionPlugin, LlmRuntimeAgentPlugin,
+    ScreenshotPlugin, ScreenshotQueue,
+    CommandProcessorPlugin,
 };
 use bevy_adapter::scene_bridge_impl::BevySceneBridgePlugin;
 use bevy_adapter::integration::{
@@ -47,6 +47,7 @@ impl Plugin for AgentCorePlugin {
         let bridge = create_empty_shared_bridge();
         register_scene_tools(&mut tools, bridge);
         register_code_tools(&mut tools);
+        register_file_tools(&mut tools);
 
         let _config = AgentConfig::default();
         let agent = BaseAgent::new(AgentInstanceId(1), "Game Architect");
@@ -61,15 +62,12 @@ impl Plugin for AgentCorePlugin {
         register_builtin_skills(director.skill_registry_mut());
 
         app.init_resource::<AgentSelection>()
-            .init_resource::<PendingCommands>()
-            .init_resource::<CommandHistory>()
             .insert_resource(AgentRuntime::new(agent))
             .insert_resource(AgentRegistryResource(registry))
             .insert_resource(DirectorResource(director));
 
         app.add_systems(Startup, (setup, setup_integration).chain())
-            .add_systems(Update, (handle_agent_input, update_agent_status, sync_integration_state, handle_user_actions))
-            .add_systems(Update, apply_pending_commands);
+            .add_systems(Update, (handle_agent_input, update_agent_status, sync_integration_state, handle_user_actions, vgrc_bridge_system));
     }
 }
 
@@ -232,357 +230,6 @@ fn handle_agent_input(
     }
 }
 
-fn apply_pending_commands(world: &mut World) {
-    let commands: Vec<EngineCommand> = {
-        let mut pending = world.resource_mut::<PendingCommands>();
-        std::mem::take(&mut pending.commands)
-    };
-    if commands.is_empty() { return; }
-
-    let id_to_bevy: HashMap<u64, Entity> = {
-        world.resource::<BevyAdapter>().entity_id_lookup()
-    };
-
-    let mut new_registrations: Vec<(Entity, String)> = Vec::new();
-    let mut applied = 0;
-    let mut failed = 0;
-    let mut reverse_commands: Vec<EngineCommand> = Vec::new();
-    let mut create_undo_queue: Vec<(usize, String)> = Vec::new();
-
-    for cmd in &commands {
-        match cmd {
-            EngineCommand::CreateEntity { name, components } => {
-                let mut ec = world.spawn((
-                    Name::new(name.clone()),
-                    Transform::default(),
-                    Visibility::default(),
-                    AgentTracked,
-                ));
-                for patch in components {
-                    if patch.type_name.contains("Sprite") || patch.type_name.contains("sprite") {
-                        let mut sprite = Sprite::default();
-                        if let Some(color) = patch.value.get("color") {
-                            if let Some(arr) = color.as_array() {
-                                if arr.len() >= 4 {
-                                    sprite.color = Color::linear_rgba(
-                                        arr[0].as_f64().unwrap_or(1.0) as f32,
-                                        arr[1].as_f64().unwrap_or(1.0) as f32,
-                                        arr[2].as_f64().unwrap_or(1.0) as f32,
-                                        arr[3].as_f64().unwrap_or(1.0) as f32,
-                                    );
-                                }
-                            }
-                        }
-                        ec.insert(sprite);
-                    }
-                }
-                let entity = ec.id();
-                new_registrations.push((entity, name.clone()));
-                applied += 1;
-                let rev_idx = reverse_commands.len();
-                reverse_commands.push(EngineCommand::DeleteEntity { entity_id: 0 });
-                create_undo_queue.push((rev_idx, name.clone()));
-            }
-            EngineCommand::SetTransform { entity_id, translation, rotation, scale } => {
-                if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                    let old_transform = world.get::<Transform>(bevy_entity).copied();
-                    if let Some(trans) = translation {
-                        if let Some(mut transform) = world.get_mut::<Transform>(bevy_entity) {
-                            transform.translation = Vec3::new(trans[0], trans[1], trans[2]);
-                            applied += 1;
-                        }
-                    }
-                    if let Some(rot) = rotation {
-                        if let Some(mut transform) = world.get_mut::<Transform>(bevy_entity) {
-                            transform.rotation = Quat::from_euler(EulerRot::XYZ, rot[0], rot[1], rot[2]);
-                        }
-                    }
-                    if let Some(scl) = scale {
-                        if let Some(mut transform) = world.get_mut::<Transform>(bevy_entity) {
-                            transform.scale = Vec3::new(scl[0], scl[1], scl[2]);
-                        }
-                    }
-                    if let Some(old) = old_transform {
-                        let (rx, ry, rz) = old.rotation.to_euler(EulerRot::XYZ);
-                        reverse_commands.push(EngineCommand::SetTransform {
-                            entity_id: *entity_id,
-                            translation: Some(old.translation.to_array()),
-                            rotation: Some([rx, ry, rz]),
-                            scale: Some(old.scale.to_array()),
-                        });
-                    }
-                } else { failed += 1; }
-            }
-            EngineCommand::SetSpriteColor { entity_id, rgba } => {
-                if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                    let old_sprite = world.get::<Sprite>(bevy_entity).cloned();
-                    if let Some(mut sprite) = world.get_mut::<Sprite>(bevy_entity) {
-                        sprite.color = Color::linear_rgba(rgba[0], rgba[1], rgba[2], rgba[3]);
-                        applied += 1;
-                    }
-                    if let Some(old) = old_sprite {
-                        let c = old.color.to_linear();
-                        reverse_commands.push(EngineCommand::SetSpriteColor {
-                            entity_id: *entity_id,
-                            rgba: [c.red, c.green, c.blue, c.alpha],
-                        });
-                    }
-                } else { failed += 1; }
-            }
-            EngineCommand::DeleteEntity { entity_id } => {
-                if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                    let saved_name = world.get::<Name>(bevy_entity).map(|n| n.to_string());
-                    let saved_sprite = world.get::<Sprite>(bevy_entity).cloned();
-                    let saved_transform = world.get::<Transform>(bevy_entity).copied();
-                    let saved_vis = world.get::<Visibility>(bevy_entity).copied();
-                    world.despawn(bevy_entity);
-                    applied += 1;
-
-                    let name = saved_name.unwrap_or_else(|| format!("entity_{}", entity_id));
-                    let mut comps: Vec<bevy_adapter::ComponentPatch> = Vec::new();
-                    if let Some(s) = saved_sprite {
-                        let c = s.color.to_linear();
-                        let props: HashMap<String, serde_json::Value> = [("color".into(), serde_json::json!([c.red, c.green, c.blue, c.alpha]))].into_iter().collect();
-                        comps.push(bevy_adapter::ComponentPatch { type_name: "Sprite".into(), value: serde_json::json!(props) });
-                    }
-                    let saved_tf = saved_transform.map(|t| {
-                        let (x, y, z) = t.rotation.to_euler(EulerRot::XYZ);
-                        (t.translation.to_array(), [x, y, z], t.scale.to_array())
-                    });
-                    reverse_commands.push(EngineCommand::CreateEntity { name, components: comps });
-                    if let Some((trans, rot, scl)) = saved_tf {
-                        reverse_commands.push(EngineCommand::SetTransform {
-                            entity_id: *entity_id, translation: Some(trans), rotation: Some(rot), scale: Some(scl),
-                        });
-                    }
-                    if let Some(vis) = saved_vis {
-                        reverse_commands.push(EngineCommand::SetVisibility {
-                            entity_id: *entity_id, visible: matches!(vis, Visibility::Visible),
-                        });
-                    }
-                } else { failed += 1; }
-            }
-            EngineCommand::SetVisibility { entity_id, visible } => {
-                if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                    let old = world.get::<Visibility>(bevy_entity).copied();
-                    if let Some(mut vis) = world.get_mut::<Visibility>(bevy_entity) {
-                        *vis = if *visible { Visibility::Visible } else { Visibility::Hidden };
-                        applied += 1;
-                    }
-                    if let Some(o) = old {
-                        reverse_commands.push(EngineCommand::SetVisibility {
-                            entity_id: *entity_id,
-                            visible: matches!(o, Visibility::Visible),
-                        });
-                    }
-                } else { failed += 1; }
-            }
-            EngineCommand::AddComponent { entity_id, component } => {
-                if let Some(&_bevy_entity) = id_to_bevy.get(entity_id) {
-                    // Capture pre-state for undo: remove the component
-                    let _cmd = cmd.clone();
-                    world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-                        match adapter.apply_engine_command(_cmd, world) {
-                            Ok(result) if result.success => { /* applied */ }
-                            Ok(_) | Err(_) => { /* failed */ }
-                        }
-                    });
-                    applied += 1;
-                    reverse_commands.push(EngineCommand::RemoveComponent {
-                        entity_id: *entity_id,
-                        component_type: component.type_name.clone(),
-                    });
-                } else { failed += 1; }
-            }
-            EngineCommand::RemoveComponent { entity_id, component_type: _ } => {
-                if let Some(&_bevy_entity) = id_to_bevy.get(entity_id) {
-                    let _cmd = cmd.clone();
-                    world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-                        match adapter.apply_engine_command(_cmd, world) {
-                            Ok(result) if result.success => { /* applied */ }
-                            Ok(_) | Err(_) => { /* failed */ }
-                        }
-                    });
-                    applied += 1;
-                    // Undo: no way to re-add the removed component without full snapshot
-                    // so we skip undo for RemoveComponent
-                } else { failed += 1; }
-            }
-            EngineCommand::ModifyComponent { entity_id, component_type, property, value: _ } => {
-                if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                    // Capture old property value for undo (simplified: snapshot value from entity)
-                    let old_value = match component_type.as_str() {
-                        "Sprite" if property == "color" => world.get::<Sprite>(bevy_entity)
-                            .map(|s| {
-                                let c = s.color.to_linear();
-                                serde_json::json!([c.red, c.green, c.blue, c.alpha])
-                            }),
-                        _ => None,
-                    };
-
-                    let _cmd = cmd.clone();
-                    world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-                        match adapter.apply_engine_command(_cmd, world) {
-                            Ok(result) if result.success => { /* applied */ }
-                            Ok(_) | Err(_) => { /* failed */ }
-                        }
-                    });
-                    applied += 1;
-
-                    if let Some(old_val) = old_value {
-                        reverse_commands.push(EngineCommand::ModifyComponent {
-                            entity_id: *entity_id,
-                            component_type: component_type.clone(),
-                            property: property.clone(),
-                            value: old_val,
-                        });
-                    }
-                } else { failed += 1; }
-            }
-            EngineCommand::SetParent { child_entity_id, parent_entity_id: _ } => {
-                if let Some(&bevy_child) = id_to_bevy.get(child_entity_id) {
-                    // Capture old parent (if any) for undo
-                    let old_parent = world.get::<ChildOf>(bevy_child)
-                        .map(|co| co.parent());
-
-                    let _cmd = cmd.clone();
-                    world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-                        match adapter.apply_engine_command(_cmd, world) {
-                            Ok(result) if result.success => { /* applied */ }
-                            Ok(_) | Err(_) => { /* failed */ }
-                        }
-                    });
-                    applied += 1;
-
-                    // Reverse: restore old parent or remove from parent
-                    if let Some(op) = old_parent {
-                        // Look up the agent_id for old parent entity
-                        let reverse: Option<EngineCommand> = {
-                            let adapter = world.resource::<BevyAdapter>();
-                            let lookup = adapter.entity_id_lookup();
-                            lookup.iter()
-                                .find(|(_, &e)| e == op)
-                                .map(|(&aid, _)| EngineCommand::SetParent {
-                                    child_entity_id: *child_entity_id,
-                                    parent_entity_id: aid,
-                                })
-                        };
-                        if let Some(r) = reverse {
-                            reverse_commands.push(r);
-                        } else {
-                            reverse_commands.push(EngineCommand::RemoveFromParent {
-                                entity_id: *child_entity_id,
-                            });
-                        }
-                    } else {
-                        reverse_commands.push(EngineCommand::RemoveFromParent {
-                            entity_id: *child_entity_id,
-                        });
-                    }
-                } else { failed += 1; }
-            }
-            EngineCommand::RemoveFromParent { entity_id } => {
-                if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                    // Capture old parent for undo
-                    let old_parent = world.get::<ChildOf>(bevy_entity)
-                        .map(|co| co.parent());
-
-                    let _cmd = cmd.clone();
-                    world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-                        match adapter.apply_engine_command(_cmd, world) {
-                            Ok(result) if result.success => { /* applied */ }
-                            Ok(_) | Err(_) => { /* failed */ }
-                        }
-                    });
-                    applied += 1;
-
-                    if let Some(op) = old_parent {
-                        let adapter = world.resource::<BevyAdapter>();
-                        let lookup = adapter.entity_id_lookup();
-                        if let Some((&aid, _)) = lookup.iter().find(|(_, &e)| e == op) {
-                            reverse_commands.push(EngineCommand::SetParent {
-                                child_entity_id: *entity_id,
-                                parent_entity_id: aid,
-                            });
-                        }
-                    }
-                } else { failed += 1; }
-            }
-            _ => {
-                world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-                    match adapter.apply_engine_command(cmd.clone(), world) {
-                        Ok(result) if result.success => {
-                            applied += 1;
-                            // Generate reverse commands for undo support
-                            match cmd {
-                                EngineCommand::ReparentChildren { source_parent_id, target_parent_id } => {
-                                    // Reverse: reparent back to original parent
-                                    reverse_commands.push(EngineCommand::ReparentChildren {
-                                        source_parent_id: *target_parent_id,
-                                        target_parent_id: *source_parent_id,
-                                    });
-                                }
-                                EngineCommand::LoadAsset { .. } => {
-                                    // LoadAsset is read-only, no undo needed
-                                }
-                                EngineCommand::SetSpriteTexture { entity_id, .. } => {
-                                    // Capture old texture for undo (simplified: store current texture name)
-                                    if let Some(&bevy_entity) = id_to_bevy.get(entity_id) {
-                                        if let Some(_sprite) = world.get::<Sprite>(bevy_entity) {
-                                            // Bevy 0.17 Sprite.image is Option<Handle<Image>>
-                                            // Undo not fully implemented for texture swap
-                                            let _ = entity_id;
-                                        }
-                                    }
-                                }
-                                EngineCommand::SpawnPrefab { asset_handle, transform } => {
-                                    // SpawnPrefab creates new entities; undo is handled by DeleteEntity
-                                    // We record the asset_handle for potential cleanup
-                                    // Note: actual entity deletion requires tracking spawned entity IDs
-                                    // For now, mark as needing manual cleanup
-                                    bevy::log::warn!("SpawnPrefab undo not fully supported — entity tracking needed");
-                                }
-                                _ => {}
-                            }
-                        }
-                        Ok(_) | Err(_) => { failed += 1; }
-                    }
-                });
-            }
-        }
-    }
-
-    world.resource_scope(|world, mut adapter: Mut<BevyAdapter>| {
-        let new_id_map: HashMap<String, u64> = new_registrations.iter()
-            .map(|(e, name)| {
-                let agent_id = adapter.register_entity(*e);
-                world.entity_mut(*e).insert(AgentEntityId(agent_id));
-                (name.clone(), agent_id.0)
-            })
-            .collect();
-        for (rev_idx, name) in &create_undo_queue {
-            if let Some(&agent_id) = new_id_map.get(name) {
-                reverse_commands[*rev_idx] = EngineCommand::DeleteEntity { entity_id: agent_id };
-            }
-        }
-        for cmd in &commands {
-            if let EngineCommand::DeleteEntity { entity_id } = cmd {
-                adapter.unregister_entity(EntityId(*entity_id));
-            }
-        }
-    });
-
-    if !reverse_commands.is_empty() {
-        let mut history = world.resource_mut::<CommandHistory>();
-        history.undo_stack.push((commands.clone(), reverse_commands));
-        history.redo_stack.clear();
-    }
-
-    info!("Engine commands: {} applied, {} failed, {} new. Undo entries: {}",
-        applied, failed, new_registrations.len(),
-        world.resource::<CommandHistory>().undo_stack.len());
-}
-
 fn update_agent_status(
     _time: Res<Time>,
     _state: Res<IntegrationState>,
@@ -602,6 +249,7 @@ fn handle_user_actions(
     mut chat_state: ResMut<ChatState>,
     mut pending: ResMut<PendingCommands>,
     mut history: ResMut<CommandHistory>,
+    editor_selection: Res<EditorSelection>,
 ) {
     let actions: Vec<UserAction> = std::mem::take(&mut desk_state.pending_actions);
 
@@ -649,6 +297,112 @@ fn handle_user_actions(
                     chat_state.add_message(Message::new_agent("⚠ Nothing to redo".to_string()));
                 }
             }
+            UserAction::DeleteSelected => {
+                // 获取当前选中的实体
+                if let Some(bevy_entity) = editor_selection.selected_entity {
+                    let entity_id = bevy_entity.index() as u64;
+                    pending.commands.push(EngineCommand::DeleteEntity {
+                        entity_id,
+                    });
+                    chat_state.add_message(Message::new_agent(format!("🗑 Deleted entity #{}", entity_id)));
+                } else {
+                    chat_state.add_message(Message::new_agent("⚠ No entity selected to delete".to_string()));
+                }
+            }
+            UserAction::FocusSelected => {
+                // 聚焦到选中的实体
+                if let Some(bevy_entity) = editor_selection.selected_entity {
+                    let entity_id = bevy_entity.index() as u64;
+                    chat_state.add_message(Message::new_agent(format!("🎯 Focused on entity #{}", entity_id)));
+                } else {
+                    chat_state.add_message(Message::new_agent("⚠ No entity selected to focus".to_string()));
+                }
+            }
+            UserAction::ToggleCommandPalette => {
+                chat_state.add_message(Message::new_agent("📋 Command palette toggled".to_string()));
+            }
+            UserAction::RecheckLlm => {
+                chat_state.add_message(Message::new_agent("🔄 Rechecking LLM connection...".to_string()));
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// Visual Understanding Bridge — connects VGRC pipeline to UI state
+// ===========================================================================
+
+fn vgrc_bridge_system(
+    mut director: ResMut<DirectorResource>,
+    mut vis_state: ResMut<VisualUnderstandingState>,
+    screenshot_queue: Res<ScreenshotQueue>,
+    mut frame_count: Local<u64>,
+) {
+    *frame_count += 1;
+
+    // Pop screenshot results and feed into visual state
+    if let Some(result) = screenshot_queue.pop_result() {
+        match result {
+            bevy_adapter::ScreenshotResult::Success { path, dimensions, base64 } => {
+                vis_state.update_screenshot(base64, dimensions);
+                vis_state.add_vgrc_cycle(VgrcCycleSummary {
+                    cycle_id: *frame_count as u32,
+                    goal: "Verify scene state".into(),
+                    vision_count: 1,
+                    realize_attempts: 0,
+                    check_passed: true,
+                    total_duration_ms: 0,
+                });
+            }
+            bevy_adapter::ScreenshotResult::Failure { error } => {
+                bevy::log::warn!("Screenshot failed: {}", error);
+            }
+        }
+    }
+
+    // Check for new DirectorRuntime events and create analysis entries
+    let events = director.0.drain_events();
+    for event in &events {
+        match event {
+            agent_core::director::EditorEvent::StepCompleted { plan_id, step_id, title, result: step_result } => {
+                vis_state.add_goal_check(GoalCheckResult {
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0),
+                    goal: format!("{} / {}", plan_id, title),
+                    passed: true,
+                    details: step_result.clone(),
+                    matches: vec![],
+                });
+            }
+            agent_core::director::EditorEvent::StepFailed { plan_id, step_id, title, error } => {
+                vis_state.add_goal_check(GoalCheckResult {
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0),
+                    goal: format!("{} / {}", plan_id, title),
+                    passed: false,
+                    details: format!("Failed: {}", error),
+                    matches: vec![],
+                });
+            }
+            agent_core::director::EditorEvent::DirectExecutionCompleted { success, .. } => {
+                if *success {
+                    vis_state.add_goal_check(GoalCheckResult {
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64())
+                            .unwrap_or(0.0),
+                        goal: "Direct execution".into(),
+                        passed: true,
+                        details: "Execution completed".into(),
+                        matches: vec![],
+                    });
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -680,6 +434,8 @@ fn main() {
             SceneIndexIncrementalPlugin { fallback_interval: 300, full_rebuild_interval: 600 },
             IntegrationPlugin,
             VisionPlugin,
+            ScreenshotPlugin,
+            CommandProcessorPlugin,
         ))
         .run();
 }

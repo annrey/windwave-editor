@@ -7,12 +7,14 @@ pub mod runtime_agent_panel;
 pub mod hierarchy_panel;
 pub mod inspector_panel;
 pub mod console_panel;
+pub mod history_panel;
 pub mod shortcuts;
 pub mod editor_selection;
 pub mod viewport_picking;
 pub mod gizmo;
 pub mod memory_persistence;
 pub mod agent_config_panel;
+pub mod permission_panel;
 pub mod diff_preview;
 pub mod prefab_browser;
 pub mod asset_browser;
@@ -22,18 +24,21 @@ pub mod transform_tools;
 pub mod play_mode;
 pub mod narrative_ui;
 pub mod layout;
+pub mod visual_understanding;
 
 pub use director_desk::{DirectorDeskState, DirectorDeskPlugin, UserAction, PendingApprovalInfo};
 pub use runtime_agent_panel::{RuntimeAgentPanelPlugin, RuntimeAgentPanelState, toggle_runtime_agent_panel};
 pub use hierarchy_panel::{HierarchyPanelPlugin, HierarchyState};
 pub use inspector_panel::{InspectorPanelPlugin, InspectorState};
 pub use console_panel::{ConsolePanelPlugin, ConsoleState, log_console, LogLevel};
+pub use history_panel::{HistoryPanelPlugin, HistoryState, HistoryTab};
 pub use shortcuts::{ShortcutsPlugin, ShortcutState};
 pub use editor_selection::{EditorSelectionPlugin, EditorSelection, SelectionContext, SelectionChangedEvent, selection_shortcuts};
 pub use viewport_picking::{ViewportPickingPlugin, PickingState, Pickable, spawn_pickable_entity};
 pub use gizmo::{GizmoPlugin, GizmoState, GizmoMode, set_gizmo_mode, get_gizmo_mode_description};
 pub use memory_persistence::{MemoryPersistenceConfig, load_persistent_memory, save_persistent_memory, default_memory_path};
 pub use agent_config_panel::{AgentConfigPanelPlugin, AgentConfigState, TokenUsageDisplay, toggle_agent_config, update_token_usage, set_llm_status};
+pub use permission_panel::{PermissionPanelPlugin, PermissionState, toggle_permission_panel};
 pub use diff_preview::{DiffPreviewPlugin, DiffPreviewState, ExpectedChange, ChangeKind, show_diff_preview, hide_diff_preview, create_change_set_from_description};
 pub use prefab_browser::{PrefabBrowserPlugin, PrefabBrowserState, PrefabEntry, PrefabRegistry, toggle_prefab_browser, create_prefab_from_entity};
 pub use asset_browser::{AssetBrowserPlugin, AssetBrowserState, AssetEntry, AssetType, toggle_asset_browser, refresh_assets};
@@ -42,6 +47,7 @@ pub use debug_panel::{DebugPanelPlugin, DebugPanelState, DebugTab, toggle_debug_
 pub use transform_tools::{TransformToolsPlugin, TransformDragState, DragAxis, SnapSettings};
 pub use play_mode::{PlayModePlugin, PlayModeState, is_play_mode};
 pub use layout::{LayoutManager, LayoutDefinition, PanelConfig, PanelPosition, LayoutCommand};
+pub use visual_understanding::{VisualUnderstandingPlugin, VisualUnderstandingState, VisualAnalysis, GoalCheckResult, VgrcCycleSummary};
 
 use agent_core::{Message, MessageType, AgentIdentity, AgentStatus, BaseAgent};
 use bevy::prelude::*;
@@ -58,11 +64,13 @@ impl Plugin for AgentUiPlugin {
             .add_plugins(HierarchyPanelPlugin)
             .add_plugins(InspectorPanelPlugin)
             .add_plugins(ConsolePanelPlugin)
+            .add_plugins(HistoryPanelPlugin)
             .add_plugins(ShortcutsPlugin)
             .add_plugins(EditorSelectionPlugin)
             .add_plugins(ViewportPickingPlugin)
             .add_plugins(GizmoPlugin)
             .add_plugins(AgentConfigPanelPlugin)
+            .add_plugins(PermissionPanelPlugin)
             .add_plugins(DiffPreviewPlugin)
             .add_plugins(PrefabBrowserPlugin)
             .add_plugins(AssetBrowserPlugin)
@@ -71,6 +79,7 @@ impl Plugin for AgentUiPlugin {
             .add_plugins(TransformToolsPlugin)
             .add_plugins(PlayModePlugin)
             .add_plugins(narrative_ui::game_mode_panel::GameModePanelPlugin)
+            .add_plugins(VisualUnderstandingPlugin)
             .init_resource::<ChatState>()
             .init_resource::<UiConfig>()
             .init_resource::<LayoutCommandQueue>()
@@ -421,7 +430,7 @@ fn render_layout_settings(
 
     // Gear icon button in top-right corner
     egui::Area::new("layout_settings_gear".into())
-        .fixed_pos(egui::pos2(ctx.screen_rect().right() - 40.0, 4.0))
+        .fixed_pos(egui::pos2(ctx.viewport_rect().right() - 40.0, 4.0))
         .show(ctx, |ui| {
             if ui
                 .add_sized([28.0, 28.0], egui::Button::new("\u{2699}"))

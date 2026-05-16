@@ -4,7 +4,7 @@
 //! state management, step execution, and error handling.
 
 use crate::types::*;
-use crate::memory_legacy::{ConversationMemory, SessionMemory};
+use crate::message_buffer::MessageBuffer;
 use std::time::Duration;
 use chrono::{DateTime, Utc};
 
@@ -13,69 +13,143 @@ use chrono::{DateTime, Utc};
 pub struct AgentInstanceId(pub u64);
 
 /// Agent state machine - tracks the current phase of operation
+///
+/// # State Groups (for future consolidation)
+///
+/// **Input Phase**: Idle → AnalyzingRequest
+/// **Planning Phase**: Planning → Thinking → SelectingTools
+/// **Execution Phase**: ExecutingTools → Observing
+/// **Output Phase**: WaitingForConfirmation → Finished / Error
+/// **Recovery Phase**: Error (recoverable) → AnalyzingRequest, Stuck → Idle
+///
+/// # State Transitions
+///
+/// ```text
+/// ┌─────────────┐     request      ┌─────────────────┐
+/// │   Idle      │ ───────────────→ │ AnalyzingRequest │
+/// └─────────────┘                  └────────┬────────┘
+///     ↑  reset                            │ plan needed
+///     │                                   ↓
+///     │                            ┌─────────────┐
+///     │                            │   Planning   │
+///     │                            └──────┬──────┘
+///     │                                   │
+///     ↓                              ┌─────────────┐
+/// ┌─────────────┐   tools selected  │   Thinking   │
+/// │    Error    │ ←─────────────────└──────┬──────┘
+/// └──────┬──────┘                           │
+///        │ recoverable                 ┌──────┴──────┐
+///        └────────────────────────→ │SelectingTools│
+///                                  └──────┬──────┘
+///                                         │ execute
+///                                  ┌──────┴──────┐
+///                                  │ExecutingTools│
+///                                  └──────┬──────┘
+///                                         │ observe
+///                                  ┌──────┴──────┐
+///                                  │  Observing   │
+///                                  └──────┬──────┘
+///                                         │ confirm?
+///                                  ┌──────┴──────────────┐
+///                          ┌──────┴──────┐        ┌─────┴──────┐
+///                          │WaitingForConf│        │  Finished  │
+///                          └──────┬──────┘        └────────────┘
+///                                 │ approved/reject
+///                                 ↓
+///                          ┌──────┴──────┐
+///                          │ExecutingTools│ (loop back)
+///                          └─────────────┘
+///
+/// # Stuck Detection
+///
+/// The agent enters `Stuck` state when:
+/// - Same thought pattern repeats > N times
+/// - Same tool called with same params > M times
+/// - No progress for > timeout duration
+/// ```
 #[derive(Debug, Clone)]
 pub enum AgentState {
+    // ══════════════════════════════════════════
+    // INPUT PHASE: Receiving and understanding requests
+    // ══════════════════════════════════════════
+
     /// Idle - waiting for input
     Idle {
         last_activity: DateTime<Utc>,
     },
-    
-    /// Analyzing the user request
+
+    /// Analyzing the user request (parsing intent, extracting entities)
     AnalyzingRequest {
         request: UserRequest,
         start_time: DateTime<Utc>,
     },
-    
-    /// Planning phase (for complex tasks)
+
+    // ══════════════════════════════════════════
+    // PLANNING PHASE: Deciding what to do
+    // ══════════════════════════════════════════
+
+    /// Planning phase (for complex multi-step tasks)
     Planning {
         plan_id: String,
         current_step: usize,
         total_steps: usize,
     },
-    
-    /// Thinking about next action
+
+    /// Thinking about next action (LLM reasoning)
     Thinking {
         context_hash: String,
         iteration: usize,
     },
-    
-    /// Selecting appropriate tools
+
+    /// Selecting appropriate tools from available set
     SelectingTools {
         available: Vec<String>,
         selected: Vec<String>,
     },
-    
+
+    // ══════════════════════════════════════════
+    // EXECUTION PHASE: Doing the work
+    // ══════════════════════════════════════════
+
     /// Executing tools/actions
     ExecutingTools {
         completed: usize,
         in_progress: usize,
         total: usize,
     },
-    
-    /// Waiting for user confirmation
+
+    /// Observing results and deciding next step
+    Observing {
+        results_summary: String,
+    },
+
+    // ══════════════════════════════════════════
+    // OUTPUT PHASE: Finalizing or waiting
+    // ══════════════════════════════════════════
+
+    /// Waiting for user confirmation before applying changes
     WaitingForConfirmation {
         pending_action: String,
         timeout: DateTime<Utc>,
     },
-    
-    /// Observing results
-    Observing {
-        results_summary: String,
-    },
-    
+
     /// Task completed successfully
     Finished {
         result: AgentResult,
         final_message: String,
     },
-    
+
+    // ══════════════════════════════════════════
+    // RECOVERY PHASE: Error handling
+    // ══════════════════════════════════════════
+
     /// Error state
     Error {
         error: String,
         recoverable: bool,
     },
-    
-    /// Stuck - detected loop or no progress
+
+    /// Stuck - detected loop or no progress (requires intervention)
     Stuck {
         reason: StuckReason,
         last_progress: DateTime<Utc>,
@@ -156,9 +230,8 @@ pub struct BaseAgent {
     pub current_step: usize,
     pub step_history: Vec<StepResult>,
     
-    /// Memory systems
-    pub conversation_memory: ConversationMemory,
-    pub session_memory: SessionMemory,
+    /// Message history buffer
+    pub conversation_memory: MessageBuffer,
     
     /// Callback hooks
     pub on_step_start: Option<Box<dyn Fn(&AgentState) + Send + Sync>>,
@@ -179,8 +252,7 @@ impl BaseAgent {
             },
             current_step: 0,
             step_history: Vec::new(),
-            conversation_memory: ConversationMemory::new(10),
-            session_memory: SessionMemory::new(),
+            conversation_memory: MessageBuffer::new(10),
             on_step_start: None,
             on_step_end: None,
             on_state_change: None,

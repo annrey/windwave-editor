@@ -616,6 +616,8 @@ pub struct VgcrController {
     pub state: VgcrState,
     pub max_attempts: usize,
     pub world_view: AgentWorldView,
+    /// Sprint 3-D2: Realize 步骤的实际执行器（由 DirectorRuntime 注入）
+    realize_executor: Option<Box<dyn RealizeExecutor>>,
 }
 
 impl VgcrController {
@@ -633,7 +635,19 @@ impl VgcrController {
             },
             max_attempts: 3,
             world_view: AgentWorldView::new(),
+            realize_executor: None,
         }
+    }
+
+    /// Sprint 3-D2: 注入 Realize 执行器
+    pub fn set_executor(&mut self, executor: Box<dyn RealizeExecutor>) {
+        self.realize_executor = Some(executor);
+    }
+
+    /// Sprint 3-D2: 设置最大重试次数
+    pub fn with_max_attempts(mut self, max: usize) -> Self {
+        self.max_attempts = max;
+        self
     }
 
     /// 第 1 步：Vision - 截图 + 分析
@@ -693,17 +707,105 @@ impl VgcrController {
         }
     }
 
-    /// 第 3 步：Realize - 执行操作
-    pub fn realize(&mut self, action: &str) {
+    /// 第 3 步：Realize - 执行操作（Sprint 3-D2: 支持实际工具执行）
+    pub fn realize(&mut self, action: &str) -> Result<String, String> {
         self.state.realize_attempts += 1;
-        // 实际实现会调用工具执行操作
-        eprintln!("[VGRC] Realize: {}", action);
+
+        if let Some(executor) = &self.realize_executor {
+            let result = executor.execute_action(action);
+            if result.is_ok() {
+                eprintln!("[VGRC] Realize #{}: {} → OK", self.state.realize_attempts, action);
+            } else {
+                eprintln!("[VGRC] Realize #{}: {} → FAIL: {}", self.state.realize_attempts, action, result.as_ref().err().unwrap());
+            }
+            result
+        } else {
+            eprintln!("[VGRC] Realize #{}: {} (no executor, dry-run)", self.state.realize_attempts, action);
+            Ok(format!("dry-run: {}", action))
+        }
+    }
+
+    /// Sprint 3-D2: 运行完整的 VGRC 闭环
+    ///
+    /// 流程: Vision(初始截图) → Goal(检查目标) → [Realize + Check]×N
+    ///
+    /// 参数:
+    /// - initial_observation: 操作前的视觉观察
+    /// - action: 要执行的操作描述
+    /// - post_observation_fn: 操作后获取新观察的回调 (因为需要重新截图)
+    ///
+    /// 返回 VgcrCycleResult 包含最终状态
+    pub fn run_full_cycle(
+        &mut self,
+        initial_observation: VisualObservation,
+        action: &str,
+        mut post_observation_fn: impl FnMut() -> VisualObservation,
+    ) -> VgcrCycleResult {
+        // Step 1: Vision — 记录初始状态
+        self.vision(initial_observation);
+
+        // Step 2: Goal — 检查初始状态是否已满足目标
+        let goal_check = self.check_goal();
+        if goal_check.passed {
+            return VgcrCycleResult {
+                success: true,
+                message: "目标在操作前已满足".into(),
+                attempts: 0,
+                final_observation: self.state.vision.clone(),
+            };
+        }
+
+        // Step 3-4: Realize + Check 循环
+        loop {
+            // Realize: 执行操作
+            let realize_result = self.realize(action);
+            match realize_result {
+                Ok(msg) => eprintln!("[VGRC] Realize OK: {}", msg),
+                Err(err) => {
+                    return VgcrCycleResult {
+                        success: false,
+                        message: format!("Realize 失败: {}", err),
+                        attempts: self.state.realize_attempts,
+                        final_observation: None,
+                    };
+                }
+            }
+
+            // Check: 截图并验证结果
+            let new_obs = post_observation_fn();
+            let check = self.check(new_obs);
+
+            if check.passed {
+                return VgcrCycleResult {
+                    success: true,
+                    message: format!("VGRC 循环成功 ({} 次)", self.state.realize_attempts),
+                    attempts: self.state.realize_attempts,
+                    final_observation: Some(check.visual_observation.unwrap()),
+                };
+            }
+
+            // 判断是否继续重试
+            if !self.needs_retry() {
+                return VgcrCycleResult {
+                    success: false,
+                    message: format!("达到最大重试次数 ({})，失败项: {}", 
+                        self.max_attempts, check.failures.join("; ")),
+                    attempts: self.state.realize_attempts,
+                    final_observation: Some(check.visual_observation.unwrap()),
+                };
+            }
+
+            eprintln!("[VGRC] 重试 #{} / {} (失败: {})", 
+                self.state.realize_attempts, self.max_attempts, 
+                check.failures.join(", "));
+        }
     }
 
     /// 第 4 步：Check - 验证结果
     pub fn check(&mut self, observation: VisualObservation) -> CheckResult {
         self.world_view.set_visual_observation(observation.clone());
-        
+        self.state.vision = Some(observation.clone());
+
         let check_result = self.check_goal();
         
         let result = CheckResult {
@@ -721,22 +823,30 @@ impl VgcrController {
         result
     }
 
-    /// 运行完整的 VGRC 循环
+    /// 运行完整的 VGRC 循环（简化版，使用已有 vision 结果）
     pub fn run_cycle(&mut self, action: &str) -> VgcrCycleResult {
         // 执行操作
-        self.realize(action);
-        
-        // 检查结果
+        if self.realize(action).is_err() {
+            return VgcrCycleResult {
+                success: false,
+                message: "Realize 执行失败".into(),
+                attempts: self.state.realize_attempts,
+                final_observation: None,
+            };
+        }
+
+        // 检查结果（使用已有的 vision）
         let Some(observation) = self.state.vision.clone() else {
             return VgcrCycleResult {
                 success: false,
-                message: "无视觉观察结果".into(),
+                message: "无视觉观察结果，请先调用 vision()".into(),
                 attempts: self.state.realize_attempts,
+                final_observation: None,
             };
         };
 
-        let check = self.check(observation);
-        
+        let check = self.check(observation.clone());
+
         VgcrCycleResult {
             success: check.passed,
             message: if check.passed {
@@ -745,6 +855,7 @@ impl VgcrController {
                 format!("VGRC 循环失败: {}", check.failures.join(", "))
             },
             attempts: self.state.realize_attempts,
+            final_observation: Some(observation),
         }
     }
 
@@ -760,12 +871,35 @@ pub struct GoalCheckResult {
     pub passed: bool,
     pub failures: Vec<String>,
 }
-
+/// VGRC 循环结果
 #[derive(Debug, Clone)]
 pub struct VgcrCycleResult {
     pub success: bool,
     pub message: String,
     pub attempts: usize,
+    pub final_observation: Option<VisualObservation>,
+}
+
+/// Realize 步骤的回调接口 — 由 DirectorRuntime 注入实际工具执行能力
+pub trait RealizeExecutor: Send + Sync {
+    fn execute_action(&self, action: &str) -> Result<String, String>;
+}
+
+/// 简单的基于闭包的 Realize 执行器（用于测试）
+pub struct ClosureRealizeExecutor<F: Fn(&str) -> Result<String, String> + Send + Sync> {
+    executor: F,
+}
+
+impl<F: Fn(&str) -> Result<String, String> + Send + Sync> ClosureRealizeExecutor<F> {
+    pub fn new(f: F) -> Self {
+        Self { executor: f }
+    }
+}
+
+impl<F: Fn(&str) -> Result<String, String> + Send + Sync> RealizeExecutor for ClosureRealizeExecutor<F> {
+    fn execute_action(&self, action: &str) -> Result<String, String> {
+        (self.executor)(action)
+    }
 }
 
 /// 颜色匹配（允许小误差）
@@ -870,5 +1004,151 @@ mod tests {
         let diff = before.diff_since(&after);
         assert_eq!(diff.entities_added.len(), 1);
         assert_eq!(diff.entities_added[0].name, "NewEntity");
+    }
+
+    // ====================================================================
+    // Sprint 3-D2: VGRC 增强功能测试
+    // ====================================================================
+
+    #[test]
+    fn test_realize_with_executor() {
+        let mut controller = VgcrController::new(
+            "test goal",
+            vec![VisualExpectation::EntityVisible("Player".into())],
+        );
+
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let cc = call_count.clone();
+        controller.set_executor(Box::new(ClosureRealizeExecutor::new(move |action| {
+            cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(format!("done: {}", action))
+        })));
+
+        let result = controller.realize("create Player");
+        assert!(result.is_ok());
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(controller.state.realize_attempts, 1);
+    }
+
+    #[test]
+    fn test_realize_without_executor_dry_run() {
+        let mut controller = VgcrController::new(
+            "test goal",
+            vec![VisualExpectation::EntityVisible("X".into())],
+        );
+
+        let result = controller.realize("do something");
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("dry-run"));
+    }
+
+    #[test]
+    fn test_realize_executor_failure() {
+        let mut controller = VgcrController::new(
+            "test",
+            vec![VisualExpectation::NoAnomalies],
+        );
+        controller.set_executor(Box::new(ClosureRealizeExecutor::new(|_| Err("tool error".into()))));
+
+        let result = controller.realize("fail action");
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap(), "tool error");
+    }
+
+    #[test]
+    fn test_run_full_cycle_success_first_try() {
+        let mut controller = VgcrController::new(
+            "创建红色玩家",
+            vec![
+                VisualExpectation::EntityVisible("Player".into()),
+                VisualExpectation::EntityColor("Player".into(), [1.0, 0.0, 0.0, 1.0]),
+            ],
+        ).with_max_attempts(3);
+
+        let initial_obs = make_test_observation("Player", [0.5, 0.5, 0.5, 1.0]);
+        
+        let mut attempt = 0;
+        let result = controller.run_full_cycle(initial_obs, "move player to red", || {
+            attempt += 1;
+            make_test_observation("Player", [1.0, 0.0, 0.0, 1.0])
+        });
+
+        assert!(result.success);
+        assert!(result.message.contains("VGRC"));
+        assert!(result.final_observation.is_some());
+        assert_eq!(result.attempts, 1);
+    }
+
+    #[test]
+    fn test_run_full_cycle_goal_already_met() {
+        let mut controller = VgcrController::new(
+            "目标已满足",
+            vec![VisualExpectation::EntityVisible("Existing".into())],
+        ).with_max_attempts(2);
+
+        let obs = make_test_observation("Existing", [1.0, 1.0, 1.0, 1.0]);
+        let result = controller.run_full_cycle(obs, "no-op", || unreachable!("should not be called"));
+
+        assert!(result.success);
+        assert_eq!(result.attempts, 0);
+        assert!(result.message.contains("操作前"));
+    }
+
+    #[test]
+    fn test_run_full_cycle_max_attempts_exceeded() {
+        let mut controller = VgcrController::new(
+            "需要重试",
+            vec![
+                VisualExpectation::EntityVisible("Target".into()),
+                VisualExpectation::EntityColor("Target".into(), [0.0, 1.0, 0.0, 1.0]),
+            ],
+        ).with_max_attempts(2);
+
+        let initial_obs = make_test_observation("Target", [1.0, 0.0, 0.0, 1.0]);
+        
+        let mut call_count = 0;
+        let result = controller.run_full_cycle(initial_obs, "change color to green", || {
+            call_count += 1;
+            make_test_observation("Target", [1.0, 0.0, 0.0, 1.0])
+        });
+
+        assert!(!result.success);
+        assert!(result.message.contains("最大重试"));
+        assert_eq!(result.attempts, 2);
+    }
+
+    #[test]
+    fn test_vgrc_with_max_attempts_builder() {
+        let controller = VgcrController::new("test", vec![])
+            .with_max_attempts(5);
+        assert_eq!(controller.max_attempts, 5);
+    }
+
+    #[test]
+    fn test_set_executor_replaces() {
+        let mut controller = VgcrController::new("test", vec![]);
+        
+        controller.set_executor(Box::new(ClosureRealizeExecutor::new(|_| Ok("first".into()))));
+        assert_eq!(controller.realize("a").unwrap(), "first");
+
+        controller.set_executor(Box::new(ClosureRealizeExecutor::new(|_| Ok("second".into()))));
+        assert_eq!(controller.realize("b").unwrap(), "second");
+    }
+}
+
+/// 测试辅助函数：创建一个包含指定实体的 VisualObservation
+fn make_test_observation(name: &str, color: [f32; 4]) -> VisualObservation {
+    VisualObservation {
+        visible_entities: vec![VisualEntity {
+            name: name.into(),
+            detected_type: "entity".into(),
+            position: Some([0.0, 0.0, 0.0]),
+            color: Some(color),
+            bounding_box: None,
+            confidence: 0.95,
+        }],
+        anomalies: Vec::new(),
+        confidence: 0.95,
+        raw_response: None,
     }
 }

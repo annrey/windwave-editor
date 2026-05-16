@@ -6,7 +6,7 @@
 //! - Computed values and intermediate results
 //! - Active tool calls and their states
 
-use crate::types::{Message, MessageType, EntityId};
+use crate::types::{Message, EntityId};
 use crate::memory::MemoryMetadata;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -389,6 +389,30 @@ impl WorkingMemory {
         self.type_index.clear();
         for (idx, entry) in self.entries.iter().enumerate() {
             self.type_index.entry(entry.entry_type.clone()).or_default().push(idx);
+        }
+    }
+
+    // =================================================================
+    // Persistence Operations
+    // =================================================================
+
+    /// Get all entries as JSON values for serialization
+    pub fn get_entries_for_persistence(&self) -> Vec<serde_json::Value> {
+        self.entries.iter()
+            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
+            .collect()
+    }
+
+    /// Restore an entry from JSON value
+    pub fn restore_entry(&mut self, entry: serde_json::Value) {
+        if let Ok(deserialized) = serde_json::from_value::<WorkingMemoryEntry>(entry) {
+            let entry_type = deserialized.entry_type.clone();
+            let idx = self.entries.len();
+            self.entries.push(deserialized);
+            self.type_index.entry(entry_type).or_default().push(idx);
+            if self.next_id <= self.entries.len() as u64 {
+                self.next_id = self.entries.len() as u64 + 1;
+            }
         }
     }
 }

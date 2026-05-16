@@ -9,6 +9,7 @@ use crate::prompt::PromptSystem;
 use crate::registry::AgentRegistry;
 use crate::scene_bridge::SceneBridge;
 use crate::strategy::ReActAgent;
+use crate::hybrid_controller::HybridEditorController;
 use super::plan_manager::PlanManager;
 
 // ---------------------------------------------------------------------------
@@ -424,4 +425,14 @@ pub struct DirectorRuntime {
     pub(crate) memory_system: crate::memory::MemorySystem,
     /// Sprint 2: MemoryInjector for automatic context capture and LLM injection.
     pub(crate) memory_injector: crate::memory_injector::MemoryInjector,
+    /// Sprint 2-B1: Event→Memory bridge for auto-capturing events into 4-layer memory.
+    pub(crate) event_bridge: crate::memory_injector::EventMemoryBridge,
+    /// Sprint 1-A2: Dynamic planner for plan-and-solve intelligent revision.
+    pub(crate) dynamic_planner: crate::dynamic_planner::DynamicPlanner,
+    /// Sprint 1-A3: Reflection engine for automatic error recovery and retry.
+    pub(crate) reflection_engine: crate::reflection_engine::ReflectionEngine,
+    /// Sprint 3-D2: VGRC (Visual Grounded Reasoning Cycle) controller for screenshot→analyze→operate→verify loop.
+    pub(crate) vgrc_controller: Option<crate::visual_system::VgcrController>,
+    /// Sprint 3-D3: HybridEditorController for LLM + Rule-based hybrid execution.
+    pub(crate) hybrid_controller: Option<HybridEditorController>,
 }

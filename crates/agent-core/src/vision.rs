@@ -143,10 +143,10 @@ pub enum VisionModel {
 impl VisionModel {
     pub fn api_name(&self) -> &'static str {
         match self {
-            VisionModel::Gpt4Vision => "gpt-4-vision-preview",
-            VisionModel::Claude3Sonnet => "claude-3-sonnet-20240229",
-            VisionModel::Claude3Opus => "claude-3-opus-20240229",
-            VisionModel::GeminiProVision => "gemini-pro-vision",
+            VisionModel::Gpt4Vision => "gpt-4o",
+            VisionModel::Claude3Sonnet => "claude-sonnet-4-20250514",
+            VisionModel::Claude3Opus => "claude-opus-4-20250514",
+            VisionModel::GeminiProVision => "gemini-2.0-flash",
         }
     }
     

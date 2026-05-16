@@ -6,10 +6,9 @@
 
 use std::collections::HashMap;
 
-use crate::plan::{EditPlan, EditPlanStep, EditPlanStatus, ExecutionMode, TargetModule};
-use crate::permission::{OperationRisk, PermissionEngine, PermissionRequirement};
+use crate::plan::{EditPlan, EditPlanStatus};
+use crate::permission::{PermissionEngine, PermissionRequirement};
 use crate::planner::{Planner, PlannerContext};
-use crate::fallback::FallbackEngine;
 
 /// Manages the lifecycle of edit plans: creation, storage, approval,
 /// rejection, permission checks, and ID assignment.
@@ -148,13 +147,14 @@ impl PlanManager {
     pub fn create_plan(
         &mut self,
         text: &str,
-        context: PlannerContext,
+        mut context: PlannerContext,
         memory_context: Option<crate::memory::MemoryContext>,
     ) -> EditPlan {
-        let task_id = self.allocate_task_id();
-        let mut context = context;
+        if context.task_id == u64::MAX {
+            context.task_id = self.allocate_task_id();
+        }
         context.memory_context = memory_context;
-        self.planner.create_plan(text, task_id, context)
+        self.planner.create_plan(text, context.task_id, context)
     }
 
     // ------------------------------------------------------------------

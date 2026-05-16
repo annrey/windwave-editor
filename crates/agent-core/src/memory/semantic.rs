@@ -166,6 +166,16 @@ impl SemanticMemory {
         self.nodes.get_mut(idx)
     }
 
+    /// Rebuild internal indices after bulk modifications
+    fn rebuild_indices(&mut self) {
+        self.name_index.clear();
+        self.id_index.clear();
+        for (idx, node) in self.nodes.iter().enumerate() {
+            self.name_index.insert(node.name.clone(), idx);
+            self.id_index.insert(node.metadata.id.0, idx);
+        }
+    }
+
     /// Search nodes by semantic similarity (TF-IDF cosine similarity)
     pub fn search(&mut self, query: &str, top_k: usize) -> Vec<(MemoryEntryId, f32)> {
         if self.nodes.is_empty() || query.trim().is_empty() {
@@ -292,6 +302,40 @@ impl SemanticMemory {
         self.relations.len()
     }
 
+    /// Prune least important nodes (for cleanup)
+    pub fn prune_least_important(&mut self, count: usize) {
+        if count == 0 || self.nodes.is_empty() {
+            return;
+        }
+
+        // Score nodes by importance and recency
+        let mut scored: Vec<(usize, f32)> = self.nodes.iter()
+            .enumerate()
+            .map(|(i, node)| {
+                let age_factor = 1.0 / (1.0 + (crate::types::current_timestamp() - node.metadata.created_at) as f32 / 86400.0); // Decay over days
+                let importance = node.metadata.importance;
+                let access_factor = 1.0 + (node.metadata.access_count as f32 * 0.05);
+                (i, age_factor * importance * access_factor)
+            })
+            .collect();
+
+        // Sort by score ascending (lowest first)
+        scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Collect IDs of nodes to remove
+        let to_remove: std::collections::HashSet<u64> = scored.into_iter()
+            .take(count)
+            .map(|(i, _)| self.nodes[i].metadata.id.0)
+            .collect();
+
+        // Remove nodes and their relations
+        self.nodes.retain(|n| !to_remove.contains(&n.metadata.id.0));
+        self.relations.retain(|r| !to_remove.contains(&r.from_id.0) && !to_remove.contains(&r.to_id.0));
+
+        // Rebuild indices
+        self.rebuild_indices();
+    }
+
     /// Seed with common Bevy/game dev knowledge
     pub fn seed_with_defaults(&mut self) {
         let entity = self.create_node("Entity", "concept", "A Bevy ECS entity - a unique ID that can have components");
@@ -390,6 +434,27 @@ impl SemanticMemory {
         let id = MemoryEntryId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    // =================================================================
+    // Persistence Operations
+    // =================================================================
+
+    /// Export all nodes for serialization (vectors are excluded by serde skip)
+    pub fn export_nodes(&self) -> Vec<SemanticNode> {
+        self.nodes.clone()
+    }
+
+    /// Import a node from serialized data
+    pub fn import_node(&mut self, node: SemanticNode) {
+        if self.next_id <= node.metadata.id.0 {
+            self.next_id = node.metadata.id.0 + 1;
+        }
+        let idx = self.nodes.len();
+        self.name_index.insert(node.name.clone(), idx);
+        self.id_index.insert(node.metadata.id.0, idx);
+        self.nodes.push(node);
+        self.cache_valid = false;
     }
 }
 

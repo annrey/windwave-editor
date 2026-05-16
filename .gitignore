@@ -15,6 +15,18 @@ Cargo.lock
 /design/
 /session-log/
 /session-logs/
+/会话log/
+
+# Documentation (ADRs, agent docs)
+/docs/
+
+# Local runtime data
+/data/
+skills-lock.json
+
+# Local issue tracking + agent config
+.agents/
+.issues/
 
 # AI assistant configs (may contain personal preferences)
 .claude/

@@ -12,6 +12,7 @@ use std::fs;
 enum FileOp { Read(PathBuf), Write(PathBuf, String), Delete(PathBuf), Cargo(Vec<String>), Git(Vec<String>) }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct FileOpResult { operation: String, success: bool, output: String, error: String }
 
 pub struct SelfModifyingCodeAgent {

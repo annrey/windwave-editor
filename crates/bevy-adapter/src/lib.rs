@@ -11,6 +11,7 @@ pub mod runtime_agent;
 pub mod scene_bridge_impl;
 pub mod scene_index;
 pub mod scene_io;
+pub mod command_processor;
 pub mod prefab_ops;
 pub mod screenshot;
 
@@ -21,6 +22,8 @@ pub use adapter::{EngineCommand, AssetType, AssetReference, ComponentPatch, Engi
 pub use adapter::{RollbackOperation, EntitySnapshot};
 pub use adapter::{AgentActionEvent, AgentTracked, AgentEntityId};
 pub use adapter::sync_entities_to_adapter;
+pub use command_processor::{CommandHistory, PendingCommands, CommandProcessorPlugin};
+pub use screenshot::{ScreenshotPlugin, ScreenshotQueue, ScreenshotArtifact, ScreenshotResult};
 pub use llm_runtime_agent::{
     LlmRuntimeAgentPlugin, LlmRuntimeResource, LlmAgentRequest, LlmAgentResponse,
     configure_llm_runtime, PendingLlmRequest,

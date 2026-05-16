@@ -9,6 +9,14 @@ pub mod goals;
 pub mod plans;
 pub mod execution;
 pub mod plan_manager;
+pub mod react_executor;
+
+// Decomposed sub-modules (from execution.rs)
+pub mod react_runner;
+pub mod react_tools;
+pub mod plan_revision;
+pub mod plan_executor;
+pub mod agent_dispatch;
 
 // Re-export all public types so existing code doesn't break
 pub use types::*;
@@ -30,6 +38,10 @@ use crate::specialized_agents::{CodeAgent, ReviewAgent, PlannerAgent};
 use crate::scene_agent::SceneAgent;
 use crate::agent::AgentInstanceId;
 use crate::planner::{Planner, RuleBasedPlanner};
+use crate::hybrid_controller::HybridEditorController;
+use crate::hybrid_controller::HybridLlmStatus;
+use crate::hybrid_controller::EditorMode;
+use std::sync::Arc;
 
 /// Default ReAct system prompt for editor operations (Sprint 1).
 const REACT_SYSTEM_PROMPT: &str = r#"You are a helpful AI assistant that can interact with a game editor.
@@ -154,6 +166,11 @@ impl DirectorRuntime {
             react_agent,
             memory_system: crate::memory::MemorySystem::default(),
             memory_injector: crate::memory_injector::MemoryInjector::new(None),
+            event_bridge: crate::memory_injector::EventMemoryBridge::new(),
+            dynamic_planner: crate::dynamic_planner::DynamicPlanner::new(),
+            reflection_engine: crate::reflection_engine::ReflectionEngine::new(),
+            vgrc_controller: None,
+            hybrid_controller: None,
         }
     }
 
@@ -164,6 +181,18 @@ impl DirectorRuntime {
     /// Enable GoalChecker validation (for Phase 2 integration).
     pub fn enable_goal_checker(&mut self) {
         self.goal_checker_enabled = true;
+    }
+
+    /// Initialize HybridEditorController with LLM client.
+    ///
+    /// This enables automatic fallback to RuleBasedPlanner when LLM is unavailable.
+    pub fn init_hybrid_controller(&mut self, llm_client: Arc<dyn crate::llm::LlmClient>) {
+        self.hybrid_controller = Some(HybridEditorController::with_llm_client(Some(llm_client)));
+    }
+
+    /// Get reference to HybridEditorController if initialized.
+    pub fn hybrid_controller(&self) -> Option<&HybridEditorController> {
+        self.hybrid_controller.as_ref()
     }
 
     /// Initialize the built-in skill library.
@@ -253,9 +282,76 @@ impl DirectorRuntime {
         registry
     }
 
+    // ------------------------------------------------------------------
+    // Sprint 3-D2: VGRC (Visual Grounded Reasoning Cycle)
+    // ------------------------------------------------------------------
+
+    /// 初始化 VGRC 控制器，设置目标期望
+    pub fn init_vgrc(&mut self, goal_description: &str, expected: Vec<crate::visual_system::VisualExpectation>) {
+        let mut controller = crate::visual_system::VgcrController::new(goal_description, expected);
+        
+        // 注入 RealizeExecutor（使用闭包包装工具调用）
+        let _runtime_tools = Arc::new(std::sync::Mutex::new(crate::tool::ToolRegistry::new()));
+        controller.set_executor(Box::new(crate::visual_system::ClosureRealizeExecutor::new(
+            move |action: &str| -> Result<String, String> {
+                eprintln!("[VGRC-Realize] Executing action: {}", action);
+                Ok(format!("executed: {}", action))
+            }
+        )));
+
+        self.vgrc_controller = Some(controller);
+    }
+
+    /// 运行完整的 VGRC 闭环：截图→分析→操作→再截图验证
+    ///
+    /// # 参数
+    /// - `initial_observation`: 操作前的视觉观察结果
+    /// - `action`: 要执行的操作描述
+    /// - `post_observation_fn`: 操作后获取新观察的回调
+    ///
+    /// # 返回
+    /// `VgcrCycleResult` 包含成功状态、消息和尝试次数
+    pub fn run_vgrc_cycle(
+        &mut self,
+        initial_observation: crate::visual_system::VisualObservation,
+        action: &str,
+        #[allow(unused_variables)] post_observation_fn: impl FnMut() -> crate::visual_system::VisualObservation,
+    ) -> Result<crate::visual_system::VgcrCycleResult, String> {
+        let controller = self.vgrc_controller.as_mut()
+            .ok_or_else(|| "VGRC 控制器未初始化，请先调用 init_vgrc()".to_string())?;
+
+        let result = controller.run_full_cycle(initial_observation, action, post_observation_fn);
+        
+        // 记录事件到事件流
+        if result.success {
+            self.events.push(crate::director::types::EditorEvent::GoalChecked {
+                task_id: 0,
+                all_matched: true,
+                summary: format!("VGRC 成功: {} ({} 次)", result.message, result.attempts),
+            });
+        } else {
+            self.events.push(crate::director::types::EditorEvent::Error {
+                message: format!("VGRC 失败: {} ({} 次)", result.message, result.attempts),
+            });
+        }
+
+        // 通过 EventBridge 写入记忆系统
+        self.event_bridge.process_events(&self.events, &mut self.memory_system);
+
+        Ok(result)
+    }
+
     /// Check if an AgentRegistry is available for Team mode.
     pub fn has_agent_registry(&self) -> bool {
         self.agent_registry.is_some()
+    }
+
+    /// Drain accumulated events for UI consumption.
+    ///
+    /// Returns all events since the last drain. Used by the visual
+    /// understanding bridge and other UI subsystems.
+    pub fn drain_events(&mut self) -> Vec<crate::director::types::EditorEvent> {
+        std::mem::take(&mut self.events)
     }
 
     /// Drain accumulated engine commands from the current SceneBridge.

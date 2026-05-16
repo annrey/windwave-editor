@@ -249,12 +249,17 @@ impl EditOp for DeleteEntityOp {
             });
         }
 
-        let _new_id = bridge
+        let new_id = bridge
             .create_entity(&snap.name, snap.position, &components)
             .map_err(|e| EditOpError::Bridge(e))?;
 
-        // TODO: after recreation, restore visibility via update_component
-        // (requires knowing the new entity_id)
+        if let Some(visible) = snap.visible {
+            let mut props = HashMap::new();
+            props.insert("visible".to_string(), serde_json::json!(visible));
+            if let Err(e) = bridge.update_component(new_id, "Visibility", props) {
+                log::warn!("Failed to restore visibility for entity {}: {:?}", new_id, e);
+            }
+        }
 
         self.snapshot = None;
         self.performed = false;

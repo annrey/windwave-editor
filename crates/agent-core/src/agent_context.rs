@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use crate::scene_bridge::EntityListItem;
-use crate::memory_legacy::WorkingMemory;
 
 // ---------------------------------------------------------------------------
 // AgentContext
@@ -96,10 +95,11 @@ impl AgentContextBuilder {
         self
     }
 
-    pub fn with_memory(mut self, memory: &WorkingMemory, limit: usize) -> Self {
-        self.ctx.recent_memory = memory.recent_results(limit)
-            .iter()
-            .map(|s| s.to_string())
+    pub fn with_memory(mut self, recent_results: &[String], limit: usize) -> Self {
+        self.ctx.recent_memory = recent_results.iter()
+            .rev()
+            .take(limit)
+            .cloned()
             .collect();
         self
     }

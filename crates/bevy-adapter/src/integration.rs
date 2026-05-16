@@ -812,6 +812,32 @@ impl SceneBridge for SceneIndexSceneBridge {
                 }
             }
         }
+        if component == "Visibility" {
+            if let Some(visible) = properties.get("visible") {
+                let is_visible = visible.as_bool().unwrap_or(true);
+                self.pending_writes.push(EngineCommand::SetVisibility {
+                    entity_id,
+                    visible: is_visible,
+                });
+            }
+        }
+        if component == "Name" {
+            if let Some(name) = properties.get("name") {
+                if let Some(new_name) = name.as_str() {
+                    if let Some(entity) = self.entity_list.iter_mut().find(|e| e.id == entity_id) {
+                        entity.name = new_name.to_string();
+                    }
+                }
+            }
+        }
+        if component == "Parent" || component == "SetParent" {
+            if let Some(parent_id) = properties.get("parent_id").and_then(|v| v.as_u64()) {
+                self.pending_writes.push(EngineCommand::SetParent {
+                    child_entity_id: entity_id,
+                    parent_entity_id: parent_id,
+                });
+            }
+        }
         Ok(())
     }
 

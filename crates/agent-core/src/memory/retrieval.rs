@@ -9,7 +9,6 @@
 //!   score = Σ 1 / (k + rank_i) for each stream i
 
 use crate::memory::{MemoryEntryId, MemoryTier};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A query for hybrid retrieval
@@ -96,7 +95,7 @@ impl RrfFusion {
             for (rank, (id, tier, content)) in list.into_iter().enumerate() {
                 let rrf_score = 1.0 / (self.k + rank as f32);
                 scores.entry(id)
-                    .and_modify(|(s, t, c)| {
+                    .and_modify(|(s, t, _c)| {
                         *s += rrf_score;
                         // Keep the tier/content from the highest-ranked list
                         if t != &tier {

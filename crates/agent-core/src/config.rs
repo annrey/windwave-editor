@@ -143,11 +143,14 @@ impl Default for LlmConfig {
             provider: "openai".to_string(),
             api_key: String::new(),
             base_url: Some("https://api.openai.com/v1".to_string()),
-            model: "gpt-4o".to_string(),
+            model: crate::llm::models::OPENAI_DEFAULT.to_string(),
             max_tokens: 4096,
             temperature: 0.7,
             timeout_seconds: 60,
-            fallback_models: vec!["gpt-4o-mini".to_string(), "claude-3-sonnet".to_string()],
+            fallback_models: vec![
+                crate::llm::models::OPENAI_FAST.to_string(),
+                crate::llm::models::CLAUDE_DEFAULT.to_string()
+            ],
         }
     }
 }

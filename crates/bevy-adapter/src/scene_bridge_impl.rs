@@ -5,9 +5,24 @@
 //! - Prefab instantiation
 //! - Scene save/load (serialization)
 //! - Component patching
+//! - **Hierarchy preservation**: Parent-child relationships are maintained during save/load
 //!
 //! Uses a command queue pattern to bridge between the SceneBridge trait (no World access)
 //! and actual Bevy ECS operations (requires World access).
+//!
+//! ## Hierarchy Implementation Details
+//!
+//! The scene serialization now supports entity hierarchy:
+//! - **Serialization**: Extracts children from Bevy's `Children` component and maps them to scene IDs
+//! - **Deserialization**: Uses two-pass approach:
+//!   1. First pass: Create all entities and register in the bridge
+//!   2. Second pass: Rebuild parent-child relationships using `set_parent()`
+//!
+//! ### Current Limitations
+//! - Only direct children are serialized (full tree structure is implicit)
+//! - Entities must be registered in the bridge before hierarchy can be resolved
+//! - Circular references are not validated (Bevy will handle them at runtime)
+//! - Transform inheritance is automatically handled by Bevy after hierarchy is established
 
 use agent_core::scene_bridge::{SceneBridge, EntityListItem, ComponentPatch};
 use agent_core::goal_checker::SceneEntityInfo;
@@ -419,14 +434,85 @@ impl BevySceneOps {
             Name::new(format!("Prefab: {}", prefab_path)),
             transform,
             Visibility::Visible,
-            // TODO: Load actual prefab data and components
         ));
+        
+        if let Err(e) = Self::load_prefab_components(commands, entity, prefab_path) {
+            log::warn!("Failed to load prefab components: {}", e);
+        }
         
         // Register
         bridge.register_entity(scene_id, entity);
         
         log::info!("Instantiated prefab '{}' -> ID {}: {:?}", prefab_path, scene_id, entity);
         Ok(scene_id)
+    }
+
+    /// Load prefab components from a file or use defaults
+    fn load_prefab_components(
+        commands: &mut Commands,
+        entity: Entity,
+        prefab_path: &str,
+    ) -> Result<(), String> {
+        let prefab_path_lower = prefab_path.to_lowercase();
+        
+        if prefab_path_lower.ends_with(".json") || prefab_path_lower.contains("prefab") {
+            if let Ok(json_content) = std::fs::read_to_string(prefab_path) {
+                if let Ok(prefab_data) = serde_json::from_str::<serde_json::Value>(&json_content) {
+                    Self::apply_prefab_data(commands, entity, prefab_data)?;
+                    log::info!("Loaded prefab components from '{}'", prefab_path);
+                    return Ok(());
+                }
+            }
+        }
+        
+        Self::apply_default_prefab_components(commands, entity, prefab_path);
+        Ok(())
+    }
+
+    fn apply_prefab_data(
+        commands: &mut Commands,
+        entity: Entity,
+        data: serde_json::Value,
+    ) -> Result<(), String> {
+        if let Some(obj) = data.as_object() {
+            for (component_type, props) in obj {
+                if let Some(props_map) = props.as_object() {
+                    Self::apply_component_from_props(commands, entity, component_type, props_map);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_component_from_props(
+        commands: &mut Commands,
+        entity: Entity,
+        component_type: &str,
+        props: &serde_json::Map<String, serde_json::Value>,
+    ) {
+        match component_type.to_lowercase().as_str() {
+            "sprite" | "spriterenderer" => {
+                if let Some(color) = props.get("color") {
+                    let rgba: [f32; 4] = parse_color_array(color);
+                    commands.entity(entity).insert(bevy::sprite::Sprite { color: Color::linear_rgba(rgba[0], rgba[1], rgba[2], rgba[3]), ..Default::default() });
+                }
+            }
+            "camera" => {
+                commands.entity(entity).insert(Camera2d);
+            }
+            _ => {
+                log::debug!("Unknown prefab component type: {}", component_type);
+            }
+        }
+    }
+
+    fn apply_default_prefab_components(
+        commands: &mut Commands,
+        entity: Entity,
+        prefab_path: &str,
+    ) {
+        commands.entity(entity).insert(Sprite::default());
+        log::debug!("Applied default components for prefab '{}'", prefab_path);
     }
 
     /// Get entity data as JSON.
@@ -499,7 +585,7 @@ impl BevySceneOps {
         let mut entities = Vec::new();
         
         for (scene_id, bevy_entity) in &bridge.entity_map {
-            if let Some(data) = Self::serialize_entity(world, *bevy_entity, *scene_id) {
+            if let Some(data) = Self::serialize_entity(world, *bevy_entity, *scene_id, bridge) {
                 entities.push(data);
             }
         }
@@ -523,14 +609,15 @@ impl BevySceneOps {
         world: &World,
         bevy_entity: Entity,
         scene_id: u64,
+        bridge: &BevySceneBridge,
     ) -> Option<SerializableEntity> {
         let name = world
             .get::<Name>(bevy_entity)
             .map(|n| n.as_str().to_string())
             .unwrap_or_else(|| format!("Entity_{}", scene_id));
-        
+
         let mut components = HashMap::new();
-        
+
         // Serialize Transform
         if let Some(transform) = world.get::<Transform>(bevy_entity) {
             components.insert("Transform".to_string(), serde_json::json!({
@@ -539,19 +626,32 @@ impl BevySceneOps {
                 "scale": [transform.scale.x, transform.scale.y, transform.scale.z],
             }));
         }
-        
+
         // Serialize Visibility
         if let Some(visibility) = world.get::<Visibility>(bevy_entity) {
             components.insert("Visibility".to_string(), serde_json::json!({
                 "visible": *visibility == Visibility::Visible,
             }));
         }
-        
+
+        // Collect child entity IDs from Bevy's Children component
+        // Note: This captures direct children only; the full hierarchy is preserved
+        // through each entity's children list in the serialized format.
+        let children = world
+            .get::<Children>(bevy_entity)
+            .map(|children_component| {
+                children_component
+                    .iter()
+                    .filter_map(|child_entity| bridge.get_scene_id(child_entity))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Some(SerializableEntity {
             id: scene_id,
             name,
             components,
-            children: Vec::new(), // TODO: Handle hierarchy
+            children,
         })
     }
 
@@ -563,18 +663,32 @@ impl BevySceneOps {
     ) -> Result<(), String> {
         let json = std::fs::read_to_string(path)
             .map_err(|e| format!("File read error: {}", e))?;
-        
+
         let scene: SerializableScene = serde_json::from_str(&json)
             .map_err(|e| format!("Deserialization error: {}", e))?;
-        
+
         // Clear existing mappings
         bridge.clear_mappings();
-        
-        // Spawn entities
-        for entity_data in scene.entities {
-            Self::deserialize_entity(commands, bridge, entity_data);
+
+        // First pass: spawn all entities and register them in the bridge
+        for entity_data in &scene.entities {
+            Self::deserialize_entity(commands, bridge, entity_data.clone());
         }
-        
+
+        // Second pass: rebuild parent-child hierarchy using Bevy's built_in system
+        // This ensures proper Transform propagation and scene graph integrity.
+        for entity_data in &scene.entities {
+            if !entity_data.children.is_empty() {
+                if let Some(parent_entity) = bridge.get_bevy_entity(entity_data.id) {
+                    for child_id in &entity_data.children {
+                        if let Some(child_entity) = bridge.get_bevy_entity(*child_id) {
+                            commands.entity(child_entity).set_parent_in_place(parent_entity);
+                        }
+                    }
+                }
+            }
+        }
+
         log::info!("Scene loaded from: {}", path);
         Ok(())
     }
@@ -724,4 +838,20 @@ pub fn request_load_scene(queue: &mut SceneCommandQueue, path: &str) -> u64 {
     queue.push(SceneCommand::LoadScene {
         path: path.to_string(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Helper Functions
+// ---------------------------------------------------------------------------
+
+fn parse_color_array(value: &serde_json::Value) -> [f32; 4] {
+    if let Some(arr) = value.as_array() {
+        let r = arr.get(0).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+        let g = arr.get(1).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+        let b = arr.get(2).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+        let a = arr.get(3).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+        [r, g, b, a]
+    } else {
+        [1.0, 1.0, 1.0, 1.0]
+    }
 }

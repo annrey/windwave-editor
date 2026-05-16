@@ -6,7 +6,6 @@
 pub mod search_engine;
 pub mod lifecycle;
 pub mod capture_pipeline;
-pub mod procedural_memory;
 pub mod agent;
 pub mod agent_platform;
 pub mod agent_pipeline;
@@ -21,13 +20,14 @@ pub mod command;
 pub mod context;
 pub mod context_collector;
 pub mod director;
+pub mod dynamic_planner;
 pub mod event;
 pub mod event_stream;
 pub mod edit_ops;
 pub mod edit_history;
-pub mod engine_adapter;
 pub mod engine_tools;
 pub mod fallback;
+pub mod file_tools;
 pub mod game_mode;
 pub mod goal;
 pub mod goal_checker;
@@ -36,10 +36,10 @@ pub mod index;
 pub mod llm;
 pub mod mcp_registry;
 pub mod memory;
-pub mod memory_legacy;
+pub mod message_buffer;
+pub mod persistent_memory;
 pub mod memory_injector;
 pub mod metrics;
-pub mod multi_engine;
 pub mod narrative;
 pub mod router;
 pub mod runtime_agent;
@@ -48,9 +48,11 @@ pub mod module;
 pub mod permission;
 pub mod plan;
 pub mod planner;
+pub mod hybrid_controller;
 pub mod project;
 pub mod project_system;
 pub mod prompt;
+pub mod reflection_engine;
 pub mod registry;
 pub mod review;
 pub mod rollback;
@@ -70,15 +72,15 @@ pub mod team_structure;
 pub mod transaction;
 pub mod tool;
 pub mod types;
-pub mod unity_adapter;
 pub mod vision;
 pub mod visual_script;
 pub mod visual_system;
-pub mod godot_adapter;
 pub mod git_tracker;
+pub mod shadow_git;
 pub mod game_skill;
 pub mod bench;
 pub mod config;
+pub mod layered_context_builder;
 
 // Modules used by re-exports (not always declared as pub mod)
 mod agent_comm;
@@ -102,9 +104,10 @@ pub use builtin_skills::{
     import_asset_skill, register_builtin_skills,
 };
 pub use code_tools::register_code_tools;
+pub use file_tools::register_file_tools;
 pub use director::{
     DirectorRuntime, EditorCommand, EditorEvent, DirectorTraceEntry,
-    DirectorExecutionResult, ExecuteContext, LlmStatus,
+    DirectorExecutionResult, ExecuteContext,
 };
 pub use engine_tools::{
     GetEngineStateTool, BuildProjectTool, PlayGameTool, ExportAssetTool,
@@ -123,11 +126,14 @@ pub use llm::{
 pub use mcp_registry::{
     McpToolRegistry, McpToolDescriptor, ModelCompatibility,
 };
-pub use memory_legacy::{ConversationMemory, SessionMemory, WorkingMemory, SelectionContext};
+pub use message_buffer::MessageBuffer;
+pub use persistent_memory::{
+    PersistentMemory, UserPreferences, ConfirmationLevel, LearnedPattern, EntityKnowledge,
+};
 pub use memory::{
     MemorySystem, MemoryConfig, MemoryQuery, MemoryContext, MemoryStats,
     MemoryTier, MemoryEntryId, MemoryMetadata,
-    WorkingMemory as NewWorkingMemory, WorkingMemoryEntry, WorkingEntryType,
+    WorkingMemory, WorkingMemoryEntry, WorkingEntryType,
     EpisodicMemory, Episode, EpisodeType, EpisodeSearchResult,
     SemanticMemory, SemanticNode, SemanticRelation, RelationType,
     ProceduralMemory, WorkflowTemplate, WorkflowStep, DecisionPattern,
@@ -138,6 +144,9 @@ pub use metrics::{AgentMetrics, PerformanceTracer};
 pub use permission::{OperationRisk, PermissionDecision, PermissionRequirement, PermissionEngine};
 pub use plan::{EditPlan, EditPlanStep, ExecutionMode, EditPlanStatus, TargetModule, ExpectedChangeSet, ChangeKind};
 pub use planner::{RuleBasedPlanner, LlmPlanner, Planner, PlannerContext, ComplexityLevel};
+pub use hybrid_controller::{
+    HybridEditorController, HybridLlmStatus, EditorMode, FallbackReason, FallbackEvent, HybridStats,
+};
 pub use prompt::{PromptSystem, PromptType, PromptTemplate, PromptContext, BASE_SYSTEM_PROMPT, BEVY_SPECIFIC_PROMPT, TokenBudget, TokenAllocation, estimate_tokens};
 pub use project::{
     ProjectManifest, ProjectManager, ProjectTemplate, ProjectError,
@@ -199,14 +208,6 @@ pub use scene_change::{
     ComponentChangeSummary, ChangeDetectionStrategy, ChangeDetectionConfig,
     SceneChangeProvider,
 };
-pub use engine_adapter::{
-    EngineAdapter, EngineAdapterFactory, EngineAdapterRegistry,
-    EngineCapability, EngineConfig, EngineEntityInfo, EngineComponentInfo,
-    EngineError, EngineId, EngineResult, EngineSceneInfo, EngineStatus, EngineType,
-    NullEngineAdapter,
-};
-pub use unity_adapter::{UnityAdapter, UnityAdapterFactory};
-pub use godot_adapter::{GodotAdapter, GodotAdapterFactory};
 pub use edit_ops::{
     EditOp, EditOpError,
     CreateEntityOp, DeleteEntityOp, EntitySnapshot,
@@ -237,3 +238,6 @@ pub use config::{
     BenchSettingsConfig, GameSkillConfig, EXAMPLE_SETTINGS,
     init_global_config, get_config, get_config_ref,
 };
+pub use layered_context_builder::LayeredContextBuilder;
+pub use dynamic_planner::DynamicPlanner;
+pub use reflection_engine::ReflectionEngine;

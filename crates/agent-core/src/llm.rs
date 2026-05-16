@@ -7,11 +7,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Supported LLM providers
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LlmProvider {
     OpenAI,
     Claude,
     // Future: Local, Ollama, etc.
+}
+
+/// Centralized model name constants (single source of truth).
+///
+/// Update these when new model versions are released.
+pub mod models {
+    /// Default OpenAI model (current as of 2026-05)
+    pub const OPENAI_DEFAULT: &str = "gpt-4o";
+    /// Lightweight OpenAI model for fast/cheap operations
+    pub const OPENAI_FAST: &str = "gpt-4o-mini";
+    /// Default Anthropic/Claude model
+    pub const CLAUDE_DEFAULT: &str = "claude-sonnet-4-20250514";
+    /// Legacy Claude model alias (for backward compat)
+    pub const CLAUDE_LEGACY: &str = "claude-3-5-sonnet-20241022";
+
+    /// Fallback chain when primary is unavailable
+    pub const FALLBACK_MODELS: &[&str] = &[
+        OPENAI_DEFAULT,
+        "gpt-4.1",
+        OPENAI_FAST,
+        CLAUDE_DEFAULT,
+        CLAUDE_LEGACY,
+    ];
 }
 
 /// LLM configuration
@@ -40,12 +63,59 @@ impl std::fmt::Debug for LlmConfig {
     }
 }
 
+impl serde::Serialize for LlmConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("LlmConfig", 7)?;
+        state.serialize_field("provider", &self.provider)?;
+        state.serialize_field("api_key", &"[REDACTED]")?;
+        state.serialize_field("model", &self.model)?;
+        state.serialize_field("base_url", &self.base_url)?;
+        state.serialize_field("max_tokens", &self.max_tokens)?;
+        state.serialize_field("temperature", &self.temperature)?;
+        state.serialize_field("timeout_secs", &self.timeout_secs)?;
+        state.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for LlmConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct LlmConfigHelper {
+            provider: LlmProvider,
+            api_key: String,
+            model: String,
+            base_url: Option<String>,
+            max_tokens: u32,
+            temperature: f32,
+            timeout_secs: u64,
+        }
+
+        let helper = LlmConfigHelper::deserialize(deserializer)?;
+        Ok(LlmConfig {
+            provider: helper.provider,
+            api_key: helper.api_key,
+            model: helper.model,
+            base_url: helper.base_url,
+            max_tokens: helper.max_tokens,
+            temperature: helper.temperature,
+            timeout_secs: helper.timeout_secs,
+        })
+    }
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
             provider: LlmProvider::OpenAI,
             api_key: String::new(),
-            model: "gpt-4o-mini".to_string(),
+            model: models::OPENAI_FAST.to_string(),
             base_url: None,
             max_tokens: 4096,
             temperature: 0.7,
@@ -531,12 +601,12 @@ pub enum LlmConfigSource {
 /// - `OPENAI_API_KEY` - OpenAI API key
 /// - `ANTHROPIC_API_KEY` - Anthropic API key
 /// - `LLM_PROVIDER` - Provider: "openai" or "claude" (default: "openai")
-/// - `LLM_MODEL` - Model name (default: "gpt-4o-mini" or "claude-3-sonnet")
+/// - `LLM_MODEL` - Model name (default: "gpt-4o-mini" or "claude-sonnet-4")
 /// - `LLM_BASE_URL` - Optional custom base URL
 pub fn config_from_env() -> Option<LlmConfig> {
     let openai_key = std::env::var("OPENAI_API_KEY").ok();
     let anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    
+
     let provider = std::env::var("LLM_PROVIDER")
         .ok()
         .and_then(|p| match p.to_lowercase().as_str() {
@@ -545,7 +615,7 @@ pub fn config_from_env() -> Option<LlmConfig> {
             _ => None,
         })
         .unwrap_or(LlmProvider::OpenAI);
-    
+
     let (api_key, provider) = match provider {
         LlmProvider::OpenAI => {
             openai_key.map(|k| (k, LlmProvider::OpenAI))
@@ -556,12 +626,12 @@ pub fn config_from_env() -> Option<LlmConfig> {
                 .or_else(|| openai_key.map(|k| (k, LlmProvider::OpenAI)))
         }
     }?;
-    
+
     let model = std::env::var("LLM_MODEL")
         .ok()
         .unwrap_or_else(|| match provider {
-            LlmProvider::OpenAI => "gpt-4o-mini".to_string(),
-            LlmProvider::Claude => "claude-3-sonnet-20240229".to_string(),
+            LlmProvider::OpenAI => models::OPENAI_FAST.to_string(),
+            LlmProvider::Claude => models::CLAUDE_DEFAULT.to_string(),
         });
     
     let base_url = std::env::var("LLM_BASE_URL").ok();
@@ -809,7 +879,7 @@ mod tests {
     fn test_llm_config_default() {
         let config = LlmConfig::default();
         assert_eq!(config.provider, LlmProvider::OpenAI);
-        assert_eq!(config.model, "gpt-4o-mini");
+        assert_eq!(config.model, models::OPENAI_FAST);
         assert!(config.api_key.is_empty());
     }
 

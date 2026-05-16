@@ -35,6 +35,7 @@ pub enum UndoAction {
 fn handle_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     mut shortcut_state: ResMut<ShortcutState>,
+    mut desk_state: ResMut<crate::director_desk::DirectorDeskState>,
 ) {
     // Check for Ctrl modifier
     let ctrl_pressed = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -43,7 +44,7 @@ fn handle_shortcuts(
     if ctrl_pressed && keys.just_pressed(KeyCode::KeyZ) && !keys.pressed(KeyCode::ShiftLeft) && !keys.pressed(KeyCode::ShiftRight) {
         shortcut_state.last_shortcut = Some("Undo".to_string());
         info!("Shortcut: Undo (Ctrl+Z)");
-        // TODO: Trigger undo action
+        desk_state.pending_actions.push(crate::director_desk::UserAction::Undo);
     }
 
     // Ctrl+Y or Ctrl+Shift+Z: Redo
@@ -52,28 +53,28 @@ fn handle_shortcuts(
     {
         shortcut_state.last_shortcut = Some("Redo".to_string());
         info!("Shortcut: Redo (Ctrl+Y)");
-        // TODO: Trigger redo action
+        desk_state.pending_actions.push(crate::director_desk::UserAction::Redo);
     }
 
     // Delete: Delete selected entity
     if keys.just_pressed(KeyCode::Delete) {
         shortcut_state.last_shortcut = Some("Delete".to_string());
         info!("Shortcut: Delete selected entity");
-        // TODO: Trigger delete action
+        desk_state.pending_actions.push(crate::director_desk::UserAction::DeleteSelected);
     }
 
     // F: Focus on selected entity
     if keys.just_pressed(KeyCode::KeyF) {
         shortcut_state.last_shortcut = Some("Focus".to_string());
         info!("Shortcut: Focus on selected entity");
-        // TODO: Trigger focus action
+        desk_state.pending_actions.push(crate::director_desk::UserAction::FocusSelected);
     }
 
     // Ctrl+P: Command Palette
     if ctrl_pressed && keys.just_pressed(KeyCode::KeyP) {
         shortcut_state.last_shortcut = Some("CommandPalette".to_string());
         info!("Shortcut: Open Command Palette");
-        // TODO: Toggle command palette visibility
+        desk_state.pending_actions.push(crate::director_desk::UserAction::ToggleCommandPalette);
     }
 
     // G/R/S: Gizmo modes (when no text input is focused)

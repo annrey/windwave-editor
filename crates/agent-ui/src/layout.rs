@@ -5,7 +5,6 @@
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ──────────────────────────────────────────────────────────
 // Position enum

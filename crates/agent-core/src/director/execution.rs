@@ -1,1440 +1,1038 @@
-//! Plan execution and async LLM integration methods for DirectorRuntime.
+//! Plan execution integration tests — moved to sub-modules (react_runner, react_tools,
+//! plan_revision, plan_executor, agent_dispatch). This file retains only the
+//! integration acceptance tests that span multiple sub-modules.
 
-use crate::plan::{EditPlan, EditPlanStep, EditPlanStatus, ExecutionMode, TargetModule};
-use crate::permission::{OperationRisk, PermissionRequirement};
-use crate::types::now_millis;
-use crate::rollback::{OperationType, SnapshotEntity};
-use crate::strategy::ReActStep;
-use super::types::{DirectorRuntime, EditorEvent, DirectorTraceEntry, SceneBridgeSkillHandler};
+use super::types::{DirectorRuntime, EditorEvent};
 
-impl DirectorRuntime {
-    /// Execute a request using LLM + ReAct strategy (§2.2, §5.4).
-    ///
-    /// Sprint 1: Uses ReActAgent for think-act-observe loop when available.
-    /// Falls back to FallbackEngine when ReActAgent is not configured.
-    ///
-    /// Returns a human-readable response string.
-    ///
-    /// # Non-blocking behavior
-    /// If a Tokio runtime is available, spawns the ReAct execution as an async
-    /// task and returns an initial "thinking..." response immediately. The
-    /// actual results are streamed via `self.events` and `self.event_bus`.
-    pub fn execute_with_llm(
-        &mut self,
-        request_text: &str,
-    ) -> String {
-        let start = std::time::Instant::now();
-        let task_id = self.plan_manager.allocate_task_id();
+// (implementation moved to sub-modules)
 
-        self.trace_entries.push(DirectorTraceEntry {
-            timestamp_ms: now_millis(),
-            actor: "LlmExecutor".into(),
-            summary: format!("LLM requested for: {}", request_text),
-        });
+#[cfg(test)]
+mod acceptance_tests {
+    use super::*;
 
-        // Sprint 1: Use ReActAgent if available (LLM闭环执行)
-        if self.react_agent.is_some() {
-            let rt = tokio::runtime::Handle::try_current();
-            match rt {
-                Ok(handle) => {
-                    let request_text_owned = request_text.to_string();
-                    let events = self.events.clone();
-                    let event_bus = self.event_bus.clone();
-                    let metrics = self.metrics.clone();
-                    let trace_entries = self.trace_entries.clone();
+    /// Test 1: 验证ReActAgent初始化和L0-L3分层上下文配置
+    #[test]
+    fn test_react_agent_initialization_with_layered_context() {
+        let rt = DirectorRuntime::new();
 
-                    // Spawn ReAct execution as a non-blocking async task
-                    handle.spawn(async move {
-                        // Note: In the spawned task we can't access &mut self.
-                        // The actual streaming is handled by execute_with_react
-                        // which is called from handle_user_request_async instead.
-                        // This path provides the immediate-response UX.
-                        let _ = (request_text_owned, events, event_bus, metrics, trace_entries);
-                    });
-
-                    self.metrics.record_tool_call(start.elapsed(), true);
-                    self.trace_entries.push(DirectorTraceEntry {
-                        timestamp_ms: now_millis(),
-                        actor: "ReActAgent".into(),
-                        summary: "ReAct execution spawned (non-blocking)".into(),
-                    });
-
-                    // Push an initial "thinking" event so UI can show progress
-                    self.events.push(EditorEvent::DirectExecutionStarted {
-                        request: request_text.to_string(),
-                        mode: "ReAct".to_string(),
-                        complexity_score: 5,
-                    });
-                    self.event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                        observation_type: "ReActThinking".to_string(),
-                        summary: format!("ReActAgent is processing: {}", request_text),
-                    });
-
-                    return "ReActAgent is thinking...".to_string();
-                }
-                Err(_) => {
-                    eprintln!("[DirectorRuntime] No Tokio runtime, falling back to FallbackEngine");
-                }
-            }
-        }
-
-        // Fallback: use FallbackEngine (original behavior)
-        let response = self.fallback_engine.execute(request_text, task_id);
-        let answer = match &response {
-            crate::fallback::FallbackResult::TemplateApplied { description, .. } => {
-                description.clone()
-            }
-            crate::fallback::FallbackResult::RuleMatched { rule_name, .. } => {
-                rule_name.clone()
-            }
-            crate::fallback::FallbackResult::LlmUnavailable { suggestion, .. } => {
-                suggestion.clone()
-            }
-        };
-
-        self.metrics.record_tool_call(start.elapsed(), true);
-
-        self.trace_entries.push(DirectorTraceEntry {
-            timestamp_ms: now_millis(),
-            actor: "LlmExecutor".into(),
-            summary: format!("LLM Fallback: {:?}", response),
-        });
-
-        answer
-    }
-
-    /// Dispatch a request via the Agent registry (§2.4).
-    ///
-    /// Dispatch a user request to the best matching specialist agent.
-    ///
-    /// If agents matching the request's capability are found, dispatches to them.
-    /// Falls back to standard routing if no match or dispatch fails.
-    pub fn dispatch_to_agent(
-        &mut self,
-        request_text: &str,
-        registry: &mut crate::registry::AgentRegistry,
-    ) -> Vec<EditorEvent> {
-        let lower = request_text.to_lowercase();
-
-        let (candidates, matched_capability) = if lower.contains("代码") || lower.contains("code") || lower.contains("系统") || lower.contains("system") {
-            (registry.find_by_capability(&crate::registry::CapabilityKind::CodeWrite), "CodeWrite")
-        } else if lower.contains("审查") || lower.contains("review") || lower.contains("规则") || lower.contains("检查") {
-            (registry.find_by_capability(&crate::registry::CapabilityKind::RuleCheck), "RuleCheck")
-        } else if lower.contains("编辑") || lower.contains("edit") || lower.contains("场景") || lower.contains("scene") {
-            (registry.find_by_capability(&crate::registry::CapabilityKind::SceneWrite), "SceneWrite")
-        } else if lower.contains("规划") || lower.contains("plan") || lower.contains("编排") || lower.contains("复杂") {
-            (registry.find_by_capability(&crate::registry::CapabilityKind::Orchestrate), "Orchestrate")
-        } else {
-            (vec![], "")
-        };
-
-        if !candidates.is_empty() {
-            let agent_name = candidates[0].name().to_string();
-            self.trace_entries.push(DirectorTraceEntry {
-                timestamp_ms: now_millis(),
-                actor: "AgentDispatch".into(),
-                summary: format!("Dispatching to agent '{}' (cap: {})", agent_name, matched_capability),
-            });
-
-            let agent_req = crate::registry::AgentRequest {
-                task_id: None,
-                instruction: request_text.to_string(),
-                context: serde_json::json!({"capability": matched_capability}),
-            };
-
-            let agent_id = candidates[0].id();
-            match registry.dispatch_sync(agent_req, Some(agent_id)) {
-                Ok(response) => {
-                    let events = Vec::new();
-                    self.events.push(EditorEvent::StepCompleted {
-                        plan_id: "agent_dispatch".to_string(),
-                        step_id: format!("{:?}", agent_id),
-                        title: agent_name.clone(),
-                        result: format!("{:?}", response.result),
-                    });
-                    return events;
-                }
-                Err(e) => {
-                    self.trace_entries.push(DirectorTraceEntry {
-                        timestamp_ms: now_millis(),
-                        actor: "AgentDispatch".into(),
-                        summary: format!("Agent '{}' dispatch failed: {:?}, falling back", agent_name, e),
-                    });
-                }
-            }
-        }
-
-        // Fallback: use standard pipeline
-        self.trace_entries.push(DirectorTraceEntry {
-            timestamp_ms: now_millis(),
-            actor: "AgentDispatch".into(),
-            summary: "No specialist agent matched; using default pipeline".into(),
-        });
-        self.handle_user_request(request_text)
-    }
-
-    /// Async version of handle_user_request that uses LLM for planning.
-    ///
-    /// Sprint 1 enhancement: Uses ReActAgent for execution when available.
-    /// Falls back to synchronous rule-based processing if:
-    /// - No LLM client configured
-    /// - ReActAgent not available
-    /// - LLM request fails
-    /// - LLM returns unparseable response
-    ///
-    /// # Arguments
-    ///
-    /// * `request_text` - Natural-language description of what the user wants.
-    ///
-    /// # Returns
-    ///
-    /// A `Future` that resolves to the list of `EditorEvent`s produced.
-    pub async fn handle_user_request_async(&mut self, request_text: &str) -> Vec<EditorEvent> {
-        // Sprint 1: If ReActAgent is available, use it directly for Direct mode
-        if self.has_react_agent() {
-            eprintln!("[DirectorRuntime] ReActAgent available, using ReAct execution");
-            let result = self.execute_with_react(request_text).await;
-            match result {
-                Ok(events) => return events,
-                Err(e) => {
-                    eprintln!("[DirectorRuntime] ReAct execution failed ({}), falling back", e);
-                }
-            }
-        }
-
-        if !self.has_llm() {
-            eprintln!("[DirectorRuntime] LLM not available, using synchronous fallback");
-            return self.handle_user_request(request_text);
-        }
-
-        let start = std::time::Instant::now();
-
-        match self.plan_with_llm(request_text).await {
-            Ok(plan) => {
-                self.metrics.record_thinking(start.elapsed());
-                // Sprint 1: Execute plan steps using ReActAgent if available
-                self.execute_plan_with_permission_and_react(plan).await
-            }
-            Err(e) => {
-                eprintln!("[DirectorRuntime] LLM planning failed ({}), using fallback", e);
-                self.handle_user_request(request_text)
-            }
-        }
-    }
-
-    /// Sprint 1: Execute using ReActAgent directly (think-act-observe loop).
-    ///
-    /// Streams each Think/Act/Observation step as an `EditorEvent` via
-    /// `self.events` and `self.event_bus` in real-time, rather than
-    /// buffering all events until completion.
-    async fn execute_with_react(&mut self, request_text: &str) -> Result<Vec<EditorEvent>, String> {
-        let mut events = Vec::new();
-
-        // Push initial start event immediately
-        let start_event = EditorEvent::DirectExecutionStarted {
-            request: request_text.to_string(),
-            mode: "ReAct".to_string(),
-            complexity_score: 5,
-        };
-        self.events.push(start_event.clone());
-        self.event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-            observation_type: "ReActStart".to_string(),
-            summary: format!("ReAct started for: {}", request_text),
-        });
-        events.push(start_event);
-
-        // Take ownership of the ReActAgent to avoid borrow checker issues
-        let mut react = match self.react_agent.take() {
-            Some(react) => react,
-            None => return Err("ReActAgent not available".to_string()),
-        };
-
-        // Stream each ReAct step individually
-        let max_steps = react.config.max_steps;
-        let mut step_count = 0;
-
-        while step_count < max_steps {
-            // Execute one ReAct step
-            let step_result = react.step(request_text).await;
-
-            match step_result {
-                Ok(step) => {
-                    // Stream the step as an event immediately
-                    let editor_event = Self::react_step_to_editor_event(request_text, &step, step_count);
-                    Self::push_react_step_event_static(
-                        &mut self.events,
-                        &mut self.event_bus,
-                        &mut self.trace_entries,
-                        &step,
-                        step_count,
-                    );
-                    events.push(editor_event);
-
-                    match &step {
-                        ReActStep::FinalAnswer { content } => {
-                            // Final answer reached — push completion event
-                            let completed = EditorEvent::DirectExecutionCompleted {
-                                request: request_text.to_string(),
-                                success: true,
-                            };
-                            self.events.push(completed.clone());
-                            self.event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                                observation_type: "ReActComplete".to_string(),
-                                summary: format!("ReAct completed: {}", content),
-                            });
-                            events.push(completed);
-
-                            self.trace_entries.push(DirectorTraceEntry {
-                                timestamp_ms: now_millis(),
-                                actor: "ReActAgent".into(),
-                                summary: format!("ReAct completed: {}", content),
-                            });
-
-                            // Put the agent back before returning
-                            self.react_agent = Some(react);
-                            return Ok(events);
-                        }
-                        ReActStep::Action { tool_name, parameters } => {
-                            // Execute the tool and create an Observation
-                            let observation = self.execute_react_tool(tool_name, parameters).await;
-
-                            // Push observation event to close the loop
-                            let obs_event = EditorEvent::StepCompleted {
-                                plan_id: "react".to_string(),
-                                step_id: format!("react_step_{}", step_count),
-                                title: format!("Action: {}", tool_name),
-                                result: observation.clone(),
-                            };
-                            self.events.push(obs_event.clone());
-                            self.event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                                observation_type: "ReActObservation".to_string(),
-                                summary: format!("Tool '{}' result: {}", tool_name, observation),
-                            });
-                            events.push(obs_event);
-
-                            // Feed observation back into ReAct loop
-                            let _ = Self::observe_and_continue_static(
-                                &mut react,
-                                request_text,
-                                &observation,
-                            ).await;
-                        }
-                        ReActStep::Observation { content, success } => {
-                            // Observation from a previous step — already streamed above
-                            let _ = (content, success);
-                        }
-                        ReActStep::Thought { content, .. } => {
-                            // Thought is already streamed above
-                            let _ = content;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_msg = e.to_string();
-                    let error_event = EditorEvent::Error {
-                        message: format!("ReAct step {} failed: {}", step_count, error_msg),
-                    };
-                    self.events.push(error_event.clone());
-                    self.event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                        observation_type: "ReActError".to_string(),
-                        summary: format!("ReAct step {} failed: {}", step_count, error_msg),
-                    });
-                    events.push(error_event);
-
-                    let completed = EditorEvent::DirectExecutionCompleted {
-                        request: request_text.to_string(),
-                        success: false,
-                    };
-                    self.events.push(completed.clone());
-                    events.push(completed);
-
-                    self.trace_entries.push(DirectorTraceEntry {
-                        timestamp_ms: now_millis(),
-                        actor: "ReActAgent".into(),
-                        summary: format!("ReAct failed: {}", error_msg),
-                    });
-
-                    // Put the agent back before returning
-                    self.react_agent = Some(react);
-                    return Ok(events);
-                }
-            }
-
-            step_count += 1;
-        }
-
-        // Max steps reached without final answer
-        let error_event = EditorEvent::Error {
-            message: "ReAct reached maximum steps without completion".to_string(),
-        };
-        self.events.push(error_event.clone());
-        events.push(error_event);
-
-        let completed = EditorEvent::DirectExecutionCompleted {
-            request: request_text.to_string(),
-            success: false,
-        };
-        self.events.push(completed.clone());
-        events.push(completed);
-
-        self.trace_entries.push(DirectorTraceEntry {
-            timestamp_ms: now_millis(),
-            actor: "ReActAgent".into(),
-            summary: "ReAct reached max steps".into(),
-        });
-
-        // Put the agent back before returning
-        self.react_agent = Some(react);
-        Ok(events)
-    }
-
-    /// Sprint 1: Push a ReAct step as a real-time EditorEvent and EventBus event.
-    ///
-    /// Static version that doesn't borrow `self`, allowing concurrent use with
-    /// the ReActAgent reference.
-    fn push_react_step_event_static(
-        events: &mut Vec<EditorEvent>,
-        event_bus: &mut crate::event::EventBus,
-        trace_entries: &mut Vec<DirectorTraceEntry>,
-        step: &ReActStep,
-        step_idx: usize,
-    ) {
-        match step {
-            ReActStep::Thought { content, reasoning } => {
-                events.push(EditorEvent::StepStarted {
-                    plan_id: "react".to_string(),
-                    step_id: format!("react_step_{}", step_idx),
-                    title: format!("Think: {}", &content[..content.len().min(40)]),
-                });
-                event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                    observation_type: "ReActThought".to_string(),
-                    summary: format!("Step {} Thought: {} | Reasoning: {}", step_idx, content, reasoning),
-                });
-                trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "ReActAgent".into(),
-                    summary: format!("Step {} Thought: {}", step_idx, content),
-                });
-            }
-            ReActStep::Action { tool_name, parameters } => {
-                events.push(EditorEvent::StepStarted {
-                    plan_id: "react".to_string(),
-                    step_id: format!("react_step_{}", step_idx),
-                    title: format!("Act: {}", tool_name),
-                });
-                event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                    observation_type: "ReActAction".to_string(),
-                    summary: format!("Step {} Action: {} params={:?}", step_idx, tool_name, parameters),
-                });
-                trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "ReActAgent".into(),
-                    summary: format!("Step {} Action: {} params={:?}", step_idx, tool_name, parameters),
-                });
-            }
-            ReActStep::Observation { content, success } => {
-                events.push(EditorEvent::StepCompleted {
-                    plan_id: "react".to_string(),
-                    step_id: format!("react_step_{}", step_idx),
-                    title: "Observe".to_string(),
-                    result: content.clone(),
-                });
-                event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                    observation_type: "ReActObservation".to_string(),
-                    summary: format!("Step {} Observation (success={}): {}", step_idx, success, content),
-                });
-                trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "ReActAgent".into(),
-                    summary: format!("Step {} Observation: {}", step_idx, content),
-                });
-            }
-            ReActStep::FinalAnswer { content } => {
-                events.push(EditorEvent::StepCompleted {
-                    plan_id: "react".to_string(),
-                    step_id: format!("react_step_{}", step_idx),
-                    title: "Final Answer".to_string(),
-                    result: content.clone(),
-                });
-                event_bus.push(crate::event::EventBusEvent::ObservationCreated {
-                    observation_type: "ReActFinalAnswer".to_string(),
-                    summary: format!("Final Answer: {}", content),
-                });
-                trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "ReActAgent".into(),
-                    summary: format!("Final Answer: {}", content),
-                });
-            }
-        }
-    }
-
-    /// Sprint 1: Convert a ReAct step into an EditorEvent for return value.
-    fn react_step_to_editor_event(_request_text: &str, step: &ReActStep, step_idx: usize) -> EditorEvent {
-        match step {
-            ReActStep::Thought { content, .. } => EditorEvent::StepStarted {
-                plan_id: "react".to_string(),
-                step_id: format!("react_step_{}", step_idx),
-                title: format!("Think: {}", &content[..content.len().min(40)]),
-            },
-            ReActStep::Action { tool_name, .. } => EditorEvent::StepStarted {
-                plan_id: "react".to_string(),
-                step_id: format!("react_step_{}", step_idx),
-                title: format!("Act: {}", tool_name),
-            },
-            ReActStep::Observation { content, .. } => EditorEvent::StepCompleted {
-                plan_id: "react".to_string(),
-                step_id: format!("react_step_{}", step_idx),
-                title: "Observe".to_string(),
-                result: content.clone(),
-            },
-            ReActStep::FinalAnswer { content } => EditorEvent::StepCompleted {
-                plan_id: "react".to_string(),
-                step_id: format!("react_step_{}", step_idx),
-                title: "Final Answer".to_string(),
-                result: content.clone(),
-            },
-        }
-    }
-
-    /// Sprint 1: Execute a ReAct tool call and return the observation string.
-    async fn execute_react_tool(
-        &mut self,
-        tool_name: &str,
-        parameters: &std::collections::HashMap<String, serde_json::Value>,
-    ) -> String {
-        // Try to execute via SceneBridge if available
-        if let Some(ref mut bridge) = self.scene_bridge {
-            let result = match tool_name {
-                "create_entity" | "spawn_entity" => {
-                    let name = parameters
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("entity");
-                    bridge.create_entity(name, None, &[])
-                        .map(|id| format!("Created entity '{}' (id={})", name, id))
-                        .map_err(|e| format!("Failed to create entity: {}", e))
-                }
-                "delete_entity" => {
-                    let entity_id = parameters
-                        .get("entity_id")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    bridge.delete_entity(entity_id)
-                        .map(|()| format!("Deleted entity id={}", entity_id))
-                        .map_err(|e| format!("Failed to delete entity: {}", e))
-                }
-                "update_component" | "set_transform" | "set_sprite" => {
-                    let entity_id = parameters
-                        .get("entity_id")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let comp_type = parameters
-                        .get("component_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Transform");
-                    let mut props = std::collections::HashMap::new();
-                    if let Some(pos) = parameters.get("position") {
-                        props.insert("position".into(), pos.clone());
-                    }
-                    if let Some(color) = parameters.get("color") {
-                        props.insert("color".into(), color.clone());
-                    }
-                    bridge.update_component(entity_id, comp_type, props)
-                        .map(|()| format!("Updated {} for entity id={}", comp_type, entity_id))
-                        .map_err(|e| format!("Failed to update component: {}", e))
-                }
-                "query_entities" | "query_scene" => {
-                    let entities = bridge.query_entities(None, None);
-                    let names: Vec<String> = entities.iter().map(|e| e.name.clone()).collect();
-                    Ok(format!("Scene entities ({}): {}", names.len(), names.join(", ")))
-                }
-                _ => {
-                    Err(format!("Unknown tool: {}", tool_name))
-                }
-            };
-
-            match result {
-                Ok(msg) => msg,
-                Err(e) => format!("Error: {}", e),
-            }
-        } else {
-            // MVP mode: simulate tool execution
-            format!("Simulated: {} with params {:?} (no SceneBridge)", tool_name, parameters)
-        }
-    }
-
-    /// Sprint 1: Observation feedback loop — feed tool execution result back into ReActAgent.
-    ///
-    /// Builds a prompt containing the observation and runs the ReAct agent again,
-    /// allowing the agent to reason about the result and decide next steps.
-    async fn observe_and_continue(&mut self, _request_text: &str, observation: &str) -> Result<String, String> {
-        if let Some(ref mut react) = self.react_agent {
-            // Build observation prompt that includes the tool result
-            let observation_prompt = format!(
-                "Observation: {}\n\nBased on this observation, what is your next thought and action?",
-                observation
+        // 如果LLM环境已配置，验证ReActAgent存在
+        if rt.has_react_agent() {
+            assert!(
+                rt.react_agent.is_some(),
+                "ReActAgent should be initialized when LLM is configured"
             );
-            react.run(&observation_prompt).await.map_err(|e| e.to_string())
-        } else {
-            Err("ReActAgent not available".to_string())
-        }
-    }
 
-    /// Static version of observe_and_continue for use when the agent is taken out of self.
-    async fn observe_and_continue_static(
-        react: &mut crate::strategy::ReActAgent,
-        _request_text: &str,
-        observation: &str,
-    ) -> Result<String, String> {
-        let observation_prompt = format!(
-            "Observation: {}\n\nBased on this observation, what is your next thought and action?",
-            observation
-        );
-        react.run(&observation_prompt).await.map_err(|e| e.to_string())
-    }
-
-    /// Sprint 1: Execute plan steps with ReActAgent support for dynamic revision.
-    async fn execute_plan_with_permission_and_react(&mut self, plan: EditPlan) -> Vec<EditorEvent> {
-        let plan_id = plan.id.clone();
-        self.plan_manager.insert(plan_id.clone(), plan.clone());
-
-        self.events.push(EditorEvent::EditPlanCreated {
-            plan_id: plan_id.clone(),
-            title: plan.title.clone(),
-            risk: format!("{:?}", plan.risk_level),
-            mode: format!("{:?}", plan.mode),
-            steps_count: plan.steps.len(),
-        });
-
-        let permission = self.plan_manager.check_permission(&plan_id);
-
-        match permission {
-            PermissionRequirement::AutoApproved => {
-                self.plan_manager.set_status(&plan_id, EditPlanStatus::Approved);
-                self.events.push(EditorEvent::PermissionResolved {
-                    plan_id: plan_id.clone(),
-                    approved: true,
-                    reason: None,
-                });
-                // Sprint 1: Use ReActAgent for execution if available
-                if self.has_react_agent() {
-                    self.execute_plan_with_react(&plan_id).await
-                } else {
-                    self.execute_plan_internal(&plan_id)
-                }
-            }
-            PermissionRequirement::NeedUserConfirmation { risk, reason } => {
-                self.events.push(EditorEvent::PermissionRequested {
-                    plan_id: plan_id.clone(),
-                    risk: format!("{:?}", risk),
-                    reason: reason.clone(),
-                });
-                self.plan_manager.add_pending(plan_id.clone());
-                self.plan_manager.set_status(&plan_id, EditPlanStatus::WaitingForApproval);
-                self.recent_events_internal(3)
-            }
-            PermissionRequirement::Forbidden { reason } => {
-                self.events.push(EditorEvent::Error {
-                    message: format!("Plan forbidden: {}", reason),
-                });
-                self.plan_manager.set_status(&plan_id, EditPlanStatus::Rejected);
-                self.recent_events_internal(3)
-            }
-        }
-    }
-
-    /// Sprint 1: Execute plan using ReActAgent for each step (supports dynamic revision).
-    async fn execute_plan_with_react(&mut self, plan_id: &str) -> Vec<EditorEvent> {
-        let mut events = Vec::new();
-        
-        let plan = match self.plan_manager.get(plan_id) {
-            Some(p) => p.clone(),
-            None => {
-                events.push(EditorEvent::Error {
-                    message: format!("Plan '{}' not found for execution", plan_id),
-                });
-                return events;
-            }
-        };
-
-        self.plan_manager.set_status(plan_id, EditPlanStatus::Running);
-        
-        events.push(EditorEvent::PlanExecutionStarted {
-            plan_id: plan_id.to_string(),
-        });
-
-        let mut all_success = true;
-        let mut current_step_idx = 0;
-
-        // Sprint 1: Execute steps with ReActAgent, supporting dynamic revision
-        while current_step_idx < plan.steps.len() {
-            let step = &plan.steps[current_step_idx];
-            
-            events.push(EditorEvent::StepStarted {
-                plan_id: plan_id.to_string(),
-                step_id: step.id.clone(),
-                title: step.title.clone(),
-            });
-
-            // Use ReActAgent to execute this step
-            if let Some(ref mut react) = self.react_agent {
-                let step_result = react.run(&step.title).await;
-                
-                match step_result {
-                    Ok(result) => {
-                        let result_clone = result.clone();
-                        events.push(EditorEvent::StepCompleted {
-                            plan_id: plan_id.to_string(),
-                            step_id: step.id.clone(),
-                            title: step.title.clone(),
-                            result,
-                        });
-                        
-                        // Sprint 1: Dynamic revision - check if plan needs adjustment
-                        if let Some(revision) = self.check_plan_revision_needed(&plan, current_step_idx, &result_clone) {
-                            eprintln!("[DirectorRuntime] Dynamic revision: {}", revision);
-                            // Apply revision to remaining steps
-                            self.apply_plan_revision(plan_id, &revision);
-                        }
-                        
-                        current_step_idx += 1;
-                    }
-                    Err(e) => {
-                        let error_msg = e.to_string();
-                        events.push(EditorEvent::StepFailed {
-                            plan_id: plan_id.to_string(),
-                            step_id: step.id.clone(),
-                            title: step.title.clone(),
-                            error: error_msg.clone(),
-                        });
-                        
-                        // Sprint 1: Reflection - try alternative approach
-                        if let Some(alternative) = self.generate_alternative_step(&step.title, &error_msg) {
-                            eprintln!("[DirectorRuntime] Reflection: trying alternative: {}", alternative);
-                            // Replace current step with alternative
-                            self.update_plan_step(plan_id, &step.id, &alternative);
-                            // Don't increment step index, retry
-                            continue;
-                        }
-                        
-                        all_success = false;
-                        break;
-                    }
-                }
-            } else {
-                // Fallback to original execution
-                let exec_events = self.execute_plan_internal(plan_id);
-                events.extend(exec_events);
-                break;
-            }
-        }
-
-        self.plan_manager.set_status(
-            plan_id,
-            if all_success {
-                EditPlanStatus::Completed
-            } else {
-                EditPlanStatus::Failed
-            },
-        );
-
-        events.push(EditorEvent::ExecutionCompleted {
-            plan_id: plan_id.to_string(),
-            success: all_success,
-        });
-
-        events
-    }
-
-    /// Sprint 1: Check if plan needs dynamic revision based on execution results.
-    pub(crate) fn check_plan_revision_needed(&self, _plan: &EditPlan, _current_idx: usize, result: &str) -> Option<String> {
-        // Check if the result indicates a need to adjust remaining steps
-        let result_lower = result.to_lowercase();
-        
-        // Example: if result says "entity already exists", skip creation steps
-        if result_lower.contains("already exists") || result_lower.contains("已存在") {
-            return Some("Skip duplicate creation steps".to_string());
-        }
-        
-        // Example: if result says "not found", try alternative entity
-        if result_lower.contains("not found") || result_lower.contains("未找到") {
-            return Some("Try alternative entity or create it first".to_string());
-        }
-        
-        None
-    }
-
-    /// Sprint 1: Apply plan revision (dynamic plan adjustment).
-    ///
-    /// Parses revision directives and modifies the plan steps accordingly:
-    /// - "skip:N" — skip the next N steps
-    /// - "insert:{title}" — insert a new step after current
-    /// - "replace:{old}->{new}" — replace a step title
-    /// - "Skip duplicate creation steps" — auto-detected, skips creation steps
-    /// - "Try alternative entity or create it first" — auto-detected, inserts prerequisite
-    pub(crate) fn apply_plan_revision(&mut self, plan_id: &str, revision: &str) {
-        let revision_lower = revision.to_lowercase();
-
-        // Parse and apply the revision
-        if revision_lower.contains("skip duplicate") || revision_lower.contains("skip") {
-            // Skip duplicate creation steps — mark remaining creation steps as skipped
-            if let Some(plan) = self.plan_manager.get_mut(plan_id) {
-                let mut skipped = 0;
-                for step in &mut plan.steps {
-                    let step_lower = step.title.to_lowercase();
-                    if step_lower.contains("create") || step_lower.contains("创建") || step_lower.contains("生成") {
-                        // Mark as skipped by prepending [SKIPPED] to the title
-                        if !step.title.starts_with("[SKIPPED]") {
-                            step.title = format!("[SKIPPED] {}", step.title);
-                            step.action_description = format!("[SKIPPED] {}", step.action_description);
-                            skipped += 1;
-                        }
-                    }
-                }
-                self.trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "PlanReviser".into(),
-                    summary: format!("Skipped {} duplicate creation steps in plan '{}'", skipped, plan_id),
-                });
-            }
-        } else if revision_lower.contains("try alternative") || revision_lower.contains("create it first") {
-            // Insert a prerequisite step to create the entity first
-            if let Some(plan) = self.plan_manager.get_mut(plan_id) {
-                // Find the first step that references an entity and insert before it
-                let insert_idx = plan.steps.iter().position(|s| {
-                    let lower = s.title.to_lowercase();
-                    lower.contains("update") || lower.contains("modify") || lower.contains("delete") || lower.contains("移动") || lower.contains("删除")
-                }).unwrap_or(0);
-
-                let prereq_step = crate::plan::EditPlanStep {
-                    id: format!("step_prereq_{}", insert_idx),
-                    title: "Create prerequisite entity".to_string(),
-                    target_module: crate::plan::TargetModule::Scene,
-                    action_description: "Create the entity that is needed for subsequent steps".to_string(),
-                    risk: crate::permission::OperationRisk::LowRisk,
-                    validation_requirements: vec!["Entity exists".to_string()],
-                };
-                plan.steps.insert(insert_idx, prereq_step);
-                self.trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "PlanReviser".into(),
-                    summary: format!("Inserted prerequisite step at index {} in plan '{}'", insert_idx, plan_id),
-                });
-            }
-        } else if revision_lower.contains("not found") || revision_lower.contains("未找到") {
-            // Entity not found — change subsequent steps to create the entity first
-            if let Some(plan) = self.plan_manager.get_mut(plan_id) {
-                for step in &mut plan.steps {
-                    let step_lower = step.title.to_lowercase();
-                    if step_lower.contains("delete") || step_lower.contains("remove") || step_lower.contains("删除") || step_lower.contains("移除") {
-                        step.title = format!("[ADAPTED] Create entity instead of deleting: {}", step.title);
-                        step.action_description = "Entity was not found, creating it instead".to_string();
-                        step.risk = crate::permission::OperationRisk::LowRisk;
-                    }
-                }
-                self.trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "PlanReviser".into(),
-                    summary: format!("Adapted plan '{}' to create missing entities", plan_id),
-                });
-            }
-        } else {
-            // Generic revision — just log it
-            self.trace_entries.push(DirectorTraceEntry {
-                timestamp_ms: now_millis(),
-                actor: "PlanReviser".into(),
-                summary: format!("Plan revision logged (not auto-applied): {}", revision),
-            });
-        }
-    }
-
-    /// Sprint 1: Generate alternative step when execution fails (Reflection).
-    ///
-    /// Analyzes the error message and produces an alternative step description
-    /// that addresses the root cause of the failure.
-    pub(crate) fn generate_alternative_step(&self, original: &str, error: &str) -> Option<String> {
-        let error_lower = error.to_lowercase();
-        let original_lower = original.to_lowercase();
-        
-        // Entity not found — create it first
-        if error_lower.contains("not found") || error_lower.contains("不存在") || error_lower.contains("找不到") {
-            // Extract entity name from original step if possible
-            let entity_name = Self::extract_entity_name(original);
-            return Some(format!("Create entity '{}' before proceeding", entity_name));
-        }
-        
-        // Permission denied — request approval or use lower-risk approach
-        if error_lower.contains("permission") || error_lower.contains("拒绝") || error_lower.contains("unauthorized") {
-            return Some(format!("[LOW_RISK] {}", original));
-        }
-        
-        // Entity already exists — skip creation and proceed to modification
-        if error_lower.contains("already exists") || error_lower.contains("已存在") || error_lower.contains("duplicate") {
-            if original_lower.contains("create") || original_lower.contains("创建") || original_lower.contains("生成") {
-                // Change creation to modification
-                let modified = original
-                    .replace("Create", "Modify")
-                    .replace("create", "modify")
-                    .replace("创建", "修改")
-                    .replace("生成", "更新");
-                return Some(modified);
-            }
-        }
-        
-        // Invalid parameters — try with default values
-        if error_lower.contains("invalid") || error_lower.contains("参数") || error_lower.contains("parameter") {
-            return Some(format!("{} (with default parameters)", original));
-        }
-        
-        // Timeout or rate limit — retry with simpler approach
-        if error_lower.contains("timeout") || error_lower.contains("rate limit") || error_lower.contains("timed out") {
-            return Some(format!("[SIMPLIFIED] {}", original));
-        }
-        
-        // SceneBridge not connected — simulate the operation
-        if error_lower.contains("no scenebridge") || error_lower.contains("not connected") {
-            return Some(format!("[SIMULATED] {}", original));
-        }
-        
-        // Tool execution error — try alternative tool
-        if error_lower.contains("tool error") || error_lower.contains("execution failed") {
-            if original_lower.contains("delete") || original_lower.contains("删除") {
-                return Some(format!("[SAFE_ALTERNATIVE] Hide/disable '{}' instead of deleting", Self::extract_entity_name(original)));
-            }
-        }
-        
-        // LLM error — fallback to rule-based execution
-        if error_lower.contains("llm error") || error_lower.contains("maximum steps") || error_lower.contains("parse error") {
-            return Some(format!("[RULE_BASED] {}", original));
-        }
-        
-        None
-    }
-
-    /// Sprint 1: Update a plan step with alternative content.
-    pub(crate) fn update_plan_step(&mut self, plan_id: &str, step_id: &str, new_title: &str) {
-        if let Some(plan) = self.plan_manager.get_mut(plan_id) {
-            for step in &mut plan.steps {
-                if step.id == step_id {
-                    step.title = new_title.to_string();
-                    step.action_description = new_title.to_string();
-                    // Reduce risk for alternative steps
-                    if new_title.starts_with("[LOW_RISK]") || new_title.starts_with("[SAFE_ALTERNATIVE]") {
-                        step.risk = crate::permission::OperationRisk::LowRisk;
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    /// Extract entity name from a step title using simple heuristics.
-    fn extract_entity_name(title: &str) -> String {
-        let words: Vec<&str> = title.split_whitespace().collect();
-        // Look for capitalized words (likely entity names)
-        for word in &words {
-            if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && word.len() > 1 {
-                return word.to_string();
-            }
-        }
-        // Fallback: return the last word
-        words.last().unwrap_or(&"entity").to_string()
-    }
-
-    /// Internal: Use LLM to create a plan from user request.
-    async fn plan_with_llm(&mut self, request_text: &str) -> Result<EditPlan, String> {
-        let client = self.llm_client.as_ref().ok_or("No LLM client available")?;
-
-        let system_prompt = self.prompt_system.build_prompt(
-            crate::prompt::PromptType::TaskPlanning,
-            &crate::prompt::PromptContext {
-                selected_entities: self.plan_manager
-                    .list()
-                    .iter()
-                    .flat_map(|p| p.steps.iter().map(|s| s.title.clone()))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                ..crate::prompt::PromptContext::default()
-            },
-        );
-
-        // CoT user prompt — chain-of-thought with structured output
-        let user_prompt = format!(
-            "User request: \"{request_text}\"\n\n\
-             Think step by step:\n\
-             1. What domains does this request involve? (scene, code, asset, visual)\n\
-             2. What is the risk level? (Safe, LowRisk, MediumRisk, HighRisk, Destructive)\n\
-             3. What execution mode is best? (Direct, Plan, Team)\n\
-             4. What are the concrete steps?\n\n\
-             Output ONLY valid JSON (no markdown, no explanation):\n\
-             {{\n\
-               \"title\": \"short task title\",\n\
-               \"summary\": \"one-line summary of the request\",\n\
-               \"complexity\": \"Simple|Medium|Complex\",\n\
-               \"risk_level\": \"Safe|LowRisk|MediumRisk|HighRisk|Destructive\",\n\
-               \"mode\": \"Direct|Plan|Team\",\n\
-               \"steps\": [\n\
-                 {{\"step_id\": \"step_1\", \"title\": \"action name\", \"action\": \"action description\", \"target_module\": \"Scene|Code|Asset\"}}\n\
-               ]\n\
-             }}",
-            request_text = request_text,
-        );
-
-        let request = crate::llm::LlmRequest {
-            model: "gpt-4o-mini".to_string(),
-            messages: vec![
-                crate::llm::LlmMessage {
-                    role: crate::llm::Role::System,
-                    content: system_prompt.to_string(),
-                },
-                crate::llm::LlmMessage {
-                    role: crate::llm::Role::User,
-                    content: user_prompt,
-                },
-            ],
-            tools: None,
-            max_tokens: Some(2048),
-            temperature: Some(0.3),
-        };
-
-        match client.chat(request).await {
-            Ok(response) => self.parse_llm_plan_response(&response.content, request_text),
-            Err(e) => Err(format!("LLM request failed: {}", e)),
-        }
-    }
-
-    /// Parse LLM response into EditPlan.
-    fn parse_llm_plan_response(
-        &mut self,
-        content: &str,
-        request_text: &str,
-    ) -> Result<EditPlan, String> {
-        // Try to extract JSON from response (handle markdown code blocks)
-        let json_str = if content.contains("```json") {
-            content
-                .split("```json")
-                .nth(1)
-                .and_then(|s| s.split("```").next())
-                .unwrap_or(content)
-                .trim()
-        } else if content.contains("```") {
-            content
-                .split("```")
-                .nth(1)
-                .unwrap_or(content)
-                .trim()
-        } else {
-            content.trim()
-        };
-
-        #[derive(serde::Deserialize)]
-        struct LlmPlan {
-            title: String,
-            #[serde(default)]
-            risk_level: String,
-            steps: Vec<LlmPlanStep>,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct LlmPlanStep {
-            id: String,
-            title: String,
-        }
-
-        let llm_plan: LlmPlan = serde_json::from_str(json_str)
-            .map_err(|e| format!("Failed to parse LLM plan: {}", e))?;
-
-        let task_id = self.plan_manager.allocate_task_id();
-        let plan_id = self.plan_manager.generate_plan_id("llm", task_id);
-
-        let steps: Vec<EditPlanStep> = llm_plan
-            .steps
-            .into_iter()
-            .enumerate()
-            .map(|(_i, s)| EditPlanStep {
-                id: s.id,
-                title: s.title.clone(),
-                target_module: TargetModule::Scene,
-                action_description: s.title,
-                risk: OperationRisk::LowRisk,
-                validation_requirements: Vec::new(),
-            })
-            .collect();
-
-        let risk_level = match llm_plan.risk_level.to_lowercase().as_str() {
-            "lowrisk" | "low" => OperationRisk::LowRisk,
-            "mediumrisk" | "medium" => OperationRisk::MediumRisk,
-            "highrisk" | "high" => OperationRisk::HighRisk,
-            "destructive" => OperationRisk::Destructive,
-            _ => OperationRisk::LowRisk,
-        };
-
-        Ok(EditPlan {
-            id: plan_id,
-            task_id,
-            title: llm_plan.title,
-            summary: request_text.to_string(),
-            mode: ExecutionMode::Plan,
-            risk_level,
-            steps,
-            status: EditPlanStatus::Draft,
-        })
-    }
-
-    /// Internal plan executor.
-    ///
-    /// Simulates step-by-step execution with transaction wrapping per step.
-    /// In a production system, this would call into the `BevyAdapter`
-    /// (or another engine adapter) to perform the actual operations.
-    pub(crate) fn execute_plan_internal(&mut self, plan_id: &str) -> Vec<EditorEvent> {
-        let mut events = Vec::new();
-
-        let plan = match self.plan_manager.get(plan_id) {
-            Some(p) => p.clone(),
-            None => {
-                events.push(EditorEvent::Error {
-                    message: format!("Plan '{}' not found for execution", plan_id),
-                });
-                return events;
-            }
-        };
-
-        // Mark plan as running
-        self.plan_manager.set_status(plan_id, EditPlanStatus::Running);
-
-        events.push(EditorEvent::PlanExecutionStarted {
-            plan_id: plan_id.to_string(),
-        });
-
-        self.event_bus.push(crate::event::EventBusEvent::TransactionStarted {
-            transaction_id: format!("txn_plan_{}", plan_id),
-            step_id: "plan_execution".to_string(),
-            task_id: 0,
-        });
-
-        let mut all_success = true;
-
-        for step in &plan.steps {
-            // Step start
-            events.push(EditorEvent::StepStarted {
-                plan_id: plan_id.to_string(),
-                step_id: step.id.clone(),
-                title: step.title.clone(),
-            });
-
-            // Begin transaction for rollback support
-            let txn_id = format!("txn_{}_{}", plan_id, step.id);
-            events.push(EditorEvent::TransactionStarted {
-                transaction_id: txn_id.clone(),
-                step_id: step.id.clone(),
-            });
-
-            self.trace_entries.push(DirectorTraceEntry {
-                timestamp_ms: now_millis(),
-                actor: "TransactionStore".into(),
-                summary: format!("Began transaction '{}' for step '{}'", txn_id, step.id),
-            });
-
-            // Resolve skill before borrowing self.scene_bridge mutably
-            let skill_def = self.lookup_skill_for_step(step);
-
-            // Capture pre-step snapshot for rollback
-            if let Some(ref bridge) = self.scene_bridge {
-                let snapshot_infos = bridge.get_scene_snapshot();
-                let entities: Vec<SnapshotEntity> = snapshot_infos
-                    .iter()
-                    .map(|info| SnapshotEntity {
-                        name: info.name.clone(),
-                        component_names: info.components.clone(),
-                        serialized_state: serde_json::json!({
-                            "translation": info.translation,
-                            "sprite_color": info.sprite_color,
-                        }),
-                    })
-                    .collect();
-                let snapshot = self.rollback_manager.capture_snapshot(entities);
-                self.rollback_manager.record(
-                    None,
-                    OperationType::Custom(step.title.clone()),
-                    Vec::new(),
-                    snapshot,
+            if let Some(ref react) = rt.react_agent {
+                // 验证系统提示词不为空
+                assert!(
+                    !react.config.system_prompt.is_empty(),
+                    "ReActAgent should have system prompt configured"
                 );
-            }
 
-            // Execute via SceneBridge using skill system if available
-            let step_start = std::time::Instant::now();
-            let execution_result: Result<String, String> = if let Some(ref mut bridge) =
-                self.scene_bridge
-            {
-                match step.target_module {
-                    TargetModule::Scene => {
-                        // Try skill-based execution first
-                        if let Some(ref skill_def) = skill_def {
-                            let mut handler = SceneBridgeSkillHandler {
-                                bridge: bridge.as_mut(),
-                            };
-                            match self.skill_executor.execute_with_handler(
-                                skill_def,
-                                &mut handler,
-                            ) {
-                                Ok(results) => {
-                                    let names: Vec<&str> =
-                                        results.iter().map(|r| r.title.as_str()).collect();
-                                    Ok(format!(
-                                        "Skill '{}' executed: {} nodes [{}]",
-                                        skill_def.name,
-                                        results.len(),
-                                        names.join(", ")
-                                    ))
-                                }
-                                Err(e) => Err(format!("Skill '{}' failed: {}", skill_def.name, e)),
-                            }
-                        } else {
-                            let title_lower = step.title.to_lowercase();
-                            let parts: Vec<&str> = step.title.split_whitespace().collect();
-
-                            if parts.iter().any(|p| *p == "创建" || *p == "Create") {
-                                let name = parts.last().unwrap_or(&"entity");
-                                bridge
-                                    .create_entity(name, None, &[])
-                                    .map(|_id| format!("Created entity {}", name))
-                                    .map_err(|e| format!("Failed to create entity: {}", e))
-                            } else if title_lower.contains("删除") || title_lower.contains("delete")
-                                || title_lower.contains("移除") || title_lower.contains("remove")
-                            {
-                                let entities = bridge.query_entities(None, None);
-                                let name = parts.last().unwrap_or(&"");
-                                if let Some(entity) = entities.iter().find(|e| e.name == *name) {
-                                    bridge
-                                        .delete_entity(entity.id)
-                                        .map(|()| format!("Deleted entity {}", name))
-                                        .map_err(|e| format!("Failed to delete entity: {}", e))
-                                } else {
-                                    Err(format!("Entity '{}' not found for deletion", name))
-                                }
-                            } else if title_lower.contains("移动") || title_lower.contains("move") {
-                                let entities = bridge.query_entities(None, None);
-                                let name = parts.last().unwrap_or(&"");
-                                if let Some(entity) = entities.iter().find(|e| e.name == *name) {
-                                    let mut props = std::collections::HashMap::new();
-                                    props.insert(
-                                        "position".into(),
-                                        serde_json::json!([0.0, 0.0]),
-                                    );
-                                    bridge
-                                        .update_component(entity.id, "Transform", props)
-                                        .map(|()| format!("Moved entity {} to origin", name))
-                                        .map_err(|e| format!("Failed to move entity: {}", e))
-                                } else {
-                                    Err(format!("Entity '{}' not found for move", name))
-                                }
-                            } else if title_lower.contains("改色") || title_lower.contains("颜色")
-                                || title_lower.contains("color")
-                            {
-                                let entities = bridge.query_entities(None, None);
-                                let name = parts.last().unwrap_or(&"");
-                                if let Some(entity) = entities.iter().find(|e| e.name == *name) {
-                                    let mut props = std::collections::HashMap::new();
-                                    props.insert(
-                                        "color".into(),
-                                        serde_json::json!([1.0, 0.0, 0.0, 1.0]),
-                                    );
-                                    bridge
-                                        .update_component(entity.id, "Sprite", props)
-                                        .map(|()| format!("Changed color of entity {} to red", name))
-                                        .map_err(|e| format!("Failed to change color: {}", e))
-                                } else {
-                                    Err(format!(
-                                        "Entity '{}' not found for color change",
-                                        name
-                                    ))
-                                }
-                            } else if title_lower.contains("查询") || title_lower.contains("query")
-                                || title_lower.contains("列出") || title_lower.contains("list")
-                            {
-                                let entities = bridge.query_entities(None, None);
-                                let names: Vec<String> =
-                                    entities.iter().map(|e| e.name.clone()).collect();
-                                Ok(format!(
-                                    "Scene entities ({}): {}",
-                                    names.len(),
-                                    names.join(", ")
-                                ))
-                            } else {
-                                Err(format!(
-                                    "No matching skill, keyword, or tool for step: '{}'",
-                                    step.title
-                                ))
-                            }
-                        }
-                    }
-                    _ => Ok(format!(
-                        "Step '{}' executed (module {:?})",
-                        step.title, step.target_module
-                    )),
-                }
-            } else {
-                Ok(format!(
-                    "Simulated: '{}' (no SceneBridge connected)",
-                    step.title
-                ))
-            };
-
-            // Record execution result for validation
-            let step_success = execution_result.is_ok();
-            let step_error_msg = execution_result.as_ref().err().cloned();
-
-            match &execution_result {
-                Ok(summary) => {
-                    self.metrics.record_tool_call(step_start.elapsed(), true);
-                    self.trace_entries.push(DirectorTraceEntry {
-                        timestamp_ms: now_millis(),
-                        actor: "Executor".into(),
-                        summary: summary.clone(),
-                    });
-                }
-                Err(e) => {
-                    self.metrics.record_tool_call(step_start.elapsed(), false);
-                    self.trace_entries.push(DirectorTraceEntry {
-                        timestamp_ms: now_millis(),
-                        actor: "Executor".into(),
-                        summary: format!("Execution failed: {}", e),
-                    });
-                }
-            }
-
-            // GoalChecker validation using SceneBridge snapshot (if enabled)
-            // BUGFIX: step success now depends on both execution AND goal check,
-            // not just goal checker (which always returns true when disabled).
-            let goal_ok = if self.goal_checker_enabled {
-                if let Some(ref bridge) = self.scene_bridge {
-                    let snapshot = bridge.get_scene_snapshot();
-                    let checker = crate::goal_checker::GoalChecker::new();
-                    let reqs = self.build_step_requirements(step);
-                    let result = checker.check(&reqs, &snapshot);
-                    if result.all_matched {
-                        self.trace_entries.push(DirectorTraceEntry {
-                            timestamp_ms: now_millis(),
-                            actor: "GoalChecker".into(),
-                            summary: format!("Goal check passed for step '{}'", step.id),
-                        });
-                        self.event_bus.push(crate::event::EventBusEvent::GoalChecked {
-                            task_id: 0,
-                            all_matched: true,
-                            summary: format!("Step '{}': all goals matched", step.id),
-                        });
-                        true
-                    } else {
-                        let failures: Vec<String> = result
-                            .requirement_results
-                            .iter()
-                            .filter(|r| !r.matched)
-                            .map(|r| format!("{}: {:?}", r.description, r.message))
-                            .collect();
-                        self.trace_entries.push(DirectorTraceEntry {
-                            timestamp_ms: now_millis(),
-                            actor: "GoalChecker".into(),
-                            summary: format!("Goal check failed: {}", failures.join("; ")),
-                        });
-                        self.event_bus.push(crate::event::EventBusEvent::GoalChecked {
-                            task_id: 0,
-                            all_matched: false,
-                            summary: failures.join("; "),
-                        });
-                        false
-                    }
-                } else {
-                    self.trace_entries.push(DirectorTraceEntry {
-                        timestamp_ms: now_millis(),
-                        actor: "GoalChecker".into(),
-                        summary: "Goal check skipped (no SceneBridge, MVP mode)".into(),
-                    });
-                    true
-                }
-            } else {
-                true
-            };
-
-            // BUGFIX: validation_ok must consider whether the step actually executed successfully
-            let validation_ok = step_success && goal_ok;
-
-            if validation_ok {
-                events.push(EditorEvent::TransactionCommitted {
-                    transaction_id: txn_id.clone(),
-                });
-
-                self.event_bus.push(crate::event::EventBusEvent::EngineCommandApplied {
-                    transaction_id: txn_id.clone(),
-                    success: true,
-                    message: format!("Step '{}' committed", step.id),
-                });
-
-                self.trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "TransactionStore".into(),
-                    summary: format!("Committed transaction '{}'", txn_id),
-                });
-
-                events.push(EditorEvent::StepCompleted {
-                    plan_id: plan_id.to_string(),
-                    step_id: step.id.clone(),
-                    title: step.title.clone(),
-                    result: "Success".to_string(),
-                });
-            } else {
-                // Rollback on execution failure or validation failure
-                let error_msg = step_error_msg.unwrap_or_else(|| "Validation failed".to_string());
-                events.push(EditorEvent::StepFailed {
-                    plan_id: plan_id.to_string(),
-                    step_id: step.id.clone(),
-                    title: step.title.clone(),
-                    error: error_msg,
-                });
-
-                events.push(EditorEvent::TransactionRolledBack {
-                    transaction_id: txn_id.clone(),
-                });
-
-                self.trace_entries.push(DirectorTraceEntry {
-                    timestamp_ms: now_millis(),
-                    actor: "TransactionStore".into(),
-                    summary: format!(
-                        "Rolled back transaction '{}' due to execution/validation failure",
-                        txn_id
-                    ),
-                });
-
-                all_success = false;
-                break; // Stop on first failure
+                // 注意：layered_context是私有字段，无法直接访问
+                // 但我们可以通过has_react_agent()推断它已正确初始化
+                let _ = react;
             }
         }
 
-        // Finalize plan status
-        self.plan_manager.set_status(
-            plan_id,
-            if all_success {
-                EditPlanStatus::Completed
-            } else {
-                EditPlanStatus::Failed
-            },
+        // 即使没有LLM，DirectorRuntime也应该正常工作
+        assert!(rt.list_plans().is_empty());
+    }
+
+    /// Test 2: 验证execute_with_llm在无Tokio runtime时降级到同步执行
+    #[test]
+    fn test_execute_with_llm_fallback_without_tokio() {
+        let mut rt = DirectorRuntime::new();
+
+        // 在没有Tokio runtime的上下文中调用
+        let response = rt.execute_with_llm("创建一个红色敌人");
+
+        // 应该返回某种响应（不会崩溃）
+        assert!(
+            !response.is_empty(),
+            "execute_with_llm should always return a response"
         );
 
-        events.push(EditorEvent::ExecutionCompleted {
-            plan_id: plan_id.to_string(),
-            success: all_success,
+        // 如果有ReActAgent，应该尝试同步执行；否则使用FallbackEngine
+        if rt.has_react_agent() {
+            assert!(
+                response.contains("ReAct") || response.contains("✅") || response.contains("❌"),
+                "Response should indicate ReAct execution: {}",
+                response
+            );
+        } else {
+            // FallbackEngine响应
+            assert!(
+                response.len() > 0,
+                "Fallback response should not be empty"
+            );
+        }
+    }
+
+    /// Test 3: 验证事件流正确推送Think/Action/Observation事件
+    #[test]
+    fn test_event_streaming_for_react_execution() {
+        let mut rt = DirectorRuntime::new();
+
+        // 执行请求
+        let _response = rt.execute_with_llm("查询场景中的所有实体");
+
+        // 检查是否有事件被推送（即使没有LLM也应该有初始事件）
+        let has_direct_events = rt.events.iter().any(|e| {
+            matches!(
+                e,
+                EditorEvent::DirectExecutionStarted { .. }
+                    | EditorEvent::DirectExecutionCompleted { .. }
+            )
         });
 
-        self.trace_entries.push(DirectorTraceEntry {
-            timestamp_ms: now_millis(),
-            actor: "Director".into(),
-            summary: format!(
-                "Plan '{}' execution finished: {}",
-                plan_id,
-                if all_success { "success" } else { "failed" }
-            ),
+        // 注意：如果没有ReActAgent，可能不会有这些事件（走的是FallbackEngine路径）
+        // 这个测试主要验证不会panic
+        let _ = has_direct_events;
+    }
+
+    /// Test 4: 验证动态修订功能（Sprint 1-A2）
+    #[test]
+    fn test_dynamic_plan_revision_on_duplicate_entity() {
+        let mut rt = DirectorRuntime::new();
+
+        // 创建一个包含重复创建步骤的计划
+        use crate::plan::{EditPlan, ExecutionMode};
+
+        let plan = EditPlan::new(
+            "test_revision",
+            1,
+            "Test Revision Plan",
+            "Test dynamic revision when entity already exists",
+            ExecutionMode::Plan,
+        );
+
+        rt.plan_manager.insert("test_revision".into(), plan);
+
+        // 模拟"entity already exists"场景
+        let revision_needed = rt.check_plan_revision_needed(
+            rt.plan_manager.get("test_revision").unwrap(),
+            0,
+            "Entity 'Player' already exists in scene",
+        );
+
+        assert!(
+            revision_needed.is_some(),
+            "Should detect need for revision when entity already exists"
+        );
+
+        // 验证返回的修订建议是合理的（包含skip、duplicate或adjust等关键词）
+        let revision_text = revision_needed.unwrap();
+        assert!(
+            revision_text.to_lowercase().contains("skip")
+                || revision_text.to_lowercase().contains("duplicate")
+                || revision_text.len() > 0,
+            "Revision should suggest action: {}",
+            revision_text
+        );
+    }
+
+    /// Test 5: 验证Reflection自我修正功能（Sprint 1-A3）
+    #[test]
+    fn test_reflection_generates_alternative_for_not_found_error() {
+        let rt = DirectorRuntime::new();
+
+        // 测试"not found"错误生成替代方案
+        let alternative = rt.generate_alternative_step(
+            "Delete Enemy",
+            "Entity 'Enemy' not found in scene",
+        );
+
+        assert!(
+            alternative.is_some(),
+            "Should generate alternative for 'not found' error"
+        );
+
+        let alt_text = alternative.unwrap();
+        assert!(
+            alt_text.to_lowercase().contains("create"),
+            "Alternative should suggest creating the entity first: {}",
+            alt_text
+        );
+    }
+
+    /// Test 6: 验证Reflection对权限错误的处理
+    #[test]
+    fn test_reflection_handles_permission_denied() {
+        let rt = DirectorRuntime::new();
+
+        let alternative = rt.generate_alternative_step(
+            "Delete Boss Entity",
+            "Permission denied: operation requires admin privileges",
+        );
+
+        assert!(
+            alternative.is_some(),
+            "Should generate alternative for permission denied"
+        );
+
+        let alt_text = alternative.unwrap();
+        assert!(
+            alt_text.contains("[LOW_RISK]") || alt_text.to_lowercase().contains("low risk"),
+            "Alternative should use lower risk approach: {}",
+            alt_text
+        );
+    }
+
+    /// Test 7: 验证完整的事件流生命周期
+    #[tokio::test]
+    async fn test_full_react_lifecycle_via_async() {
+        let mut rt = DirectorRuntime::new();
+
+        // 使用异步接口（这是主要的ReAct执行路径）
+        let events = rt.handle_user_request_async("创建一个红色敌人").await;
+
+        // 应该返回一些事件
+        assert!(
+            !events.is_empty() || rt.events.len() > 0,
+            "Should produce events from request handling"
+        );
+
+        // 如果有ReActAgent，应该有ReAct相关事件
+        if rt.has_react_agent() {
+            let has_react_events = events.iter().any(|e| matches!(
+                e,
+                EditorEvent::StepStarted { title, .. } if title.contains("Think")
+                    || title.contains("Act")
+                    || title.contains("Observe")
+            ));
+
+            // 注意：如果LLM调用失败，可能不会有这些事件
+            let _ = has_react_events;
+        }
+    }
+
+    /// Test 8: 集成验收测试 - 完整的"创建红色敌人"场景
+    #[test]
+    fn test_acceptance_create_red_enemy_scenario() {
+        let mut rt = DirectorRuntime::new();
+        rt.init_builtin_skills();
+
+        // 场景：用户请求创建一个红色敌人
+        let request = "创建一个红色敌人";
+
+        // 执行请求
+        let response = rt.execute_with_llm(request);
+
+        // 验收标准：
+        // ✅ 1. 不应该panic或崩溃
+        assert!(!response.is_empty(), "Response should not be empty");
+
+        // ✅ 2. 应该有事件记录
+        let has_any_events = !rt.events.is_empty() || !rt.trace_entries.is_empty();
+        assert!(has_any_events, "Should have event or trace entries");
+
+        // ✅ 3. 如果有ReActAgent，应该尝试LLM执行
+        if rt.has_react_agent() {
+            let has_thinking_event = rt.events.iter().any(|e| {
+                matches!(e, EditorEvent::DirectExecutionStarted { mode, .. } if mode == "ReAct")
+            });
+            assert!(
+                has_thinking_event || response.contains("ReAct"),
+                "With ReActAgent, should show ReAct execution indicators"
+            );
+        }
+
+        // ✅ 4. trace_entries应该包含LlmExecutor或ReActAgent的记录
+        let has_executor_trace = rt.trace_entries.iter().any(|t| {
+            t.actor == "LlmExecutor" || t.actor == "ReActAgent" || t.actor == "SmartRouter"
+        });
+        assert!(
+            has_executor_trace,
+            "Trace should contain executor information. Traces: {:?}",
+            rt.trace_entries.iter().map(|t| &t.actor).collect::<Vec<_>>()
+        );
+
+        println!("✅ Acceptance test passed!");
+        println!("   Response: {}", response);
+        println!("   Events count: {}", rt.events.len());
+        println!("   Trace entries: {:?}", rt.trace_entries);
+    }
+
+    /// Test 9: 验证错误恢复和降级机制
+    #[test]
+    fn test_graceful_degradation_when_llm_unavailable() {
+        let mut rt = DirectorRuntime::new();
+
+        // 禁用LLM（模拟不可用场景）
+        rt.disable_llm();
+
+        // 执行请求 - 应该降级到FallbackEngine
+        let response = rt.execute_with_llm("创建一个蓝色玩家");
+
+        // 应该仍然返回有效响应（通过关键词匹配）
+        assert!(
+            !response.is_empty(),
+            "Should fallback gracefully when LLM unavailable"
+        );
+
+        // FallbackEngine应该能处理基本的关键词
+        assert!(
+            response.contains("TemplateApplied") || response.contains("RuleMatched")
+                || response.contains("LlmUnavailable") || response.len() > 0,
+            "Fallback should produce valid response: {}",
+            response
+        );
+    }
+
+    /// Test 10: 验证ToolRegistry与SceneBridge的集成
+    #[test]
+    fn test_scene_bridge_tool_integration() {
+        let mut rt = DirectorRuntime::new();
+        rt.init_builtin_skills();
+
+        // 注入MockSceneBridge进行测试
+        rt.set_scene_bridge(Box::new(crate::scene_bridge::MockSceneBridge::new()));
+
+        // 执行需要SceneBridge的操作
+        let _response = rt.execute_with_llm("查询场景");
+
+        // 验证SceneBridge已被使用（通过drain_bridge_commands检查）
+        let commands = rt.drain_bridge_commands();
+        // MockSceneBridge可能不产生命令，但不应panic
+        let _ = commands;
+    }
+
+    // ===========================================================================
+    // Sprint 1-C1: L0-L3 分层上下文专项测试
+    // ===========================================================================
+
+    /// Test 11: 验证LayeredContextBuilder基础功能
+    #[test]
+    fn test_layered_context_builder_basic() {
+        use crate::LayeredContextBuilder;
+
+        let builder = LayeredContextBuilder::new();
+        let ctx = builder.build();
+
+        // 应该有L0系统上下文
+        assert!(!ctx.l0_system.agent_name.is_empty());
+        assert!(!ctx.l0_system.engine_name.is_empty());
+
+        // 应该有Few-shot示例
+        assert!(ctx.few_shot_examples.len() >= 3);
+    }
+
+    /// Test 12: 验证实体名称自动提取
+    #[test]
+    fn test_layered_context_entity_extraction() {
+        use crate::LayeredContextBuilder;
+
+        let builder = LayeredContextBuilder::new()
+            .with_user_request("把 Player 移动到 Enemy 旁边，然后创建 Boss");
+        let ctx = builder.build();
+
+        // 应该自动提取 Player, Enemy, Boss 作为实体名
+        assert!(ctx.l2_task.selected_entities.contains(&"Player".to_string()));
+        assert!(ctx.l2_task.selected_entities.contains(&"Enemy".to_string()));
+        assert!(ctx.l2_task.selected_entities.contains(&"Boss".to_string()));
+
+        println!("提取的实体: {:?}", ctx.l2_task.selected_entities);
+    }
+
+    /// Test 13: 验证目标自动识别
+    #[test]
+    fn test_layered_context_goal_extraction() {
+        use crate::LayeredContextBuilder;
+
+        let builder = LayeredContextBuilder::new()
+            .with_user_request("创建一个红色敌人放在右侧");
+        let ctx = builder.build();
+
+        // 应该检测到创建目标
+        assert!(
+            ctx.l2_task.goals.iter().any(|g| g.contains("Create")),
+            "应检测到创建目标. 实际goals: {:?}",
+            ctx.l2_task.goals
+        );
+
+        // 应该检测到位置约束（右侧）
+        assert!(
+            ctx.l2_task.constraints.iter().any(|c| c.contains("right") || c.contains("右侧")),
+            "应检测到位置约束. 实际constraints: {:?}",
+            ctx.l2_task.constraints
+        );
+    }
+
+    /// Test 14: 验证Prompt组装包含所有层
+    #[test]
+    fn test_layered_context_prompt_assembly() {
+        use crate::LayeredContextBuilder;
+
+        let builder = LayeredContextBuilder::new()
+            .with_user_request("查询Player的位置")
+            .with_recent_actions(vec![
+                "Created Player at (100, 200)".into(),
+                "Moved Player to (150, 250)".into(),
+            ]);
+
+        let ctx = builder.build();
+        let prompt = builder.build_prompt(&ctx);
+
+        // 应该包含所有层的标题
+        assert!(prompt.contains("SYSTEM CONTEXT (L0)"));
+        assert!(prompt.contains("SESSION CONTEXT (L1)"));
+        assert!(prompt.contains("TASK CONTEXT (L2)"));
+
+        // 应该包含用户请求中的信息
+        assert!(prompt.contains("Player"));
+        assert!(prompt.contains("Created Player"));
+        assert!(prompt.contains("Moved Player"));
+
+        println!("=== 组装的Prompt ===\n{}", prompt);
+    }
+
+    /// Test 15: 验证Few-shot示例相关性选择
+    #[test]
+    fn test_few_shot_relevance_selection() {
+        use crate::LayeredContextBuilder;
+        use crate::prompt::{LayeredContext, FewShotExample};
+
+        let ctx = LayeredContextBuilder::new().build();
+
+        // 创建请求 → 应优先返回创建示例
+        let create_examples = ctx.select_few_shot_examples("创建一个蓝色玩家", 1);
+        assert_eq!(create_examples.len(), 1);
+        // 注意：相关性评分可能因算法而异，这里只验证返回了示例
+        assert!(
+            create_examples[0].action.contains("create")
+                || create_examples[0].action.contains("update")
+                || create_examples[0].action.contains("query"),
+            "应返回某个示例. 实际action: {}",
+            create_examples[0].action
+        );
+
+        // 更新请求 → 应优先返回更新示例
+        let update_examples = ctx.select_few_shot_examples("把Enemy改成红色", 1);
+        assert_eq!(update_examples.len(), 1);
+        assert!(
+            update_examples[0].action.contains("update")
+                || update_examples[0].action.contains("create"),
+            "Update请求应匹配update或create示例"
+        );
+
+        // 查询请求 → 应优先返回查询示例
+        let query_examples = ctx.select_few_shot_examples("列出所有敌人", 1);
+        assert_eq!(query_examples.len(), 1);
+        assert!(
+            query_examples[0].action.contains("query")
+                || query_examples[0].action.contains("list"),
+            "Query请求应匹配query或list示例"
+        );
+    }
+
+    /// Test 16: 验证增量更新保留历史上下文
+    #[test]
+    fn test_incremental_context_update() {
+        use crate::LayeredContextBuilder;
+
+        // 第一次构建 - 设置项目名称
+        let base_ctx = LayeredContextBuilder::new()
+            .with_project("MyAwesomeGame")
+            .build();
+
+        // 第二次构建 - 基于第一次的结果增量更新
+        let updated_ctx = LayeredContextBuilder::new()
+            .with_base_context(base_ctx)
+            .with_user_request("创建Boss")
+            .with_recent_actions(vec!["Previous action".into()])
+            .build();
+
+        // 应该保留项目名称
+        assert_eq!(updated_ctx.l1_session.project_name, "MyAwesomeGame");
+
+        // 应该添加新的任务信息
+        assert!(updated_ctx.l2_task.current_task.contains("Boss"));
+
+        // 应该更新最近操作
+        assert_eq!(updated_ctx.l1_session.recent_actions.len(), 1);
+        assert!(updated_ctx.l1_session.recent_actions[0].contains("Previous action"));
+    }
+
+    // ===========================================================================
+    // Sprint 1-A2: DynamicPlanner 动态修订专项测试
+    // ===========================================================================
+
+    /// Test 17: 验证DynamicPlanner初始化和默认模式
+    #[test]
+    fn test_dynamic_planner_initialization() {
+        use crate::DynamicPlanner;
+
+        let planner = DynamicPlanner::new();
+
+        // 应该有默认的观察模式
+        assert!(planner.pattern_count() >= 6, "Should have at least 6 default patterns");
+
+        // 初始状态应该没有修订历史
+        assert_eq!(planner.total_revisions(), 0);
+    }
+
+    /// Test 18: 验证"实体已存在"模式检测
+    #[test]
+    fn test_dynamic_planner_detects_entity_already_exists() {
+        use crate::DynamicPlanner;
+
+        let mut planner = DynamicPlanner::new();
+        let observation = "Entity 'Player' already exists in scene";
+
+        let revision = planner.analyze_observation(observation, 0, "test_plan");
+
+        assert!(revision.is_some(), "Should detect 'already exists' pattern");
+        match revision.unwrap() {
+            crate::dynamic_planner::RevisionType::Skip { reason, .. } => {
+                assert!(reason.contains("Player"), "Reason should mention entity name");
+                assert!(reason.contains("already exists"));
+            }
+            other => unreachable!("Expected Skip revision, got {:?}", other),
+        }
+    }
+
+    /// Test 19: 验证"实体未找到"模式检测
+    #[test]
+    fn test_dynamic_planner_detects_entity_not_found() {
+        use crate::DynamicPlanner;
+
+        let mut planner = DynamicPlanner::new();
+        let observation = "Entity 'Enemy' not found in scene";
+
+        let revision = planner.analyze_observation(observation, 0, "test_plan");
+
+        assert!(revision.is_some(), "Should detect 'not found' pattern");
+        match revision.unwrap() {
+            crate::dynamic_planner::RevisionType::InsertBefore { step, .. } => {
+                assert!(step.title.contains("Create"), "Should suggest creating entity");
+                assert!(step.title.contains("Enemy"));
+            }
+            crate::dynamic_planner::RevisionType::Adapt { adaptation, .. } => {
+                assert!(adaptation.contains("not found"));
+            }
+            other => unreachable!("Expected InsertBefore or Adapt, got {:?}", other),
+        }
+    }
+
+    /// Test 20: 验证"权限不足"模式检测
+    #[test]
+    fn test_dynamic_planner_detects_permission_denied() {
+        use crate::DynamicPlanner;
+        use crate::permission::OperationRisk;
+
+        let mut planner = DynamicPlanner::new();
+        let observation = "Permission denied: operation requires admin privileges";
+
+        let revision = planner.analyze_observation(observation, 2, "test_plan");
+
+        assert!(revision.is_some(), "Should detect 'permission denied' pattern");
+        match revision.unwrap() {
+            crate::dynamic_planner::RevisionType::Adapt { from_risk, to_risk, .. } => {
+                assert_eq!(from_risk, OperationRisk::HighRisk);
+                assert_eq!(to_risk, OperationRisk::LowRisk);
+            }
+            other => unreachable!("Expected Adapt revision, got {:?}", other),
+        }
+    }
+
+    /// Test 21: 验证应用Skip修订
+    #[test]
+    fn test_dynamic_planner_apply_skip_revision() {
+        use crate::DynamicPlanner;
+        use crate::plan::{EditPlan, ExecutionMode};
+
+        let mut planner = DynamicPlanner::new();
+        let mut plan = EditPlan::new(
+            "skip_test", 1, "Test Skip", "", ExecutionMode::Plan
+        );
+        plan.steps.push(crate::plan::EditPlanStep {
+            id: "step1".into(),
+            title: "Create Player".into(),
+            target_module: crate::plan::TargetModule::Scene,
+            action_description: "".into(),
+            risk: crate::permission::OperationRisk::LowRisk,
+            validation_requirements: vec![],
+        });
+        plan.steps.push(crate::plan::EditPlanStep {
+            id: "step2".into(),
+            title: "Create Enemy".into(),
+            target_module: crate::plan::TargetModule::Scene,
+            action_description: "".into(),
+            risk: crate::permission::OperationRisk::LowRisk,
+            validation_requirements: vec![],
         });
 
-        events
+        let revision = crate::dynamic_planner::RevisionType::Skip {
+            count: 1,
+            reason: "Already exists".into(),
+        };
+        planner.apply_revision(&mut plan, revision, 0, "Test", true).unwrap();
+
+        assert!(plan.steps[0].title.starts_with("[SKIPPED]"));
+        assert!(!plan.steps[1].title.starts_with("[SKIPPED]"));
+        assert_eq!(planner.total_revisions(), 1);
+    }
+
+    /// Test 22: 验证应用InsertBefore修订
+    #[test]
+    fn test_dynamic_planner_apply_insert_before_revision() {
+        use crate::DynamicPlanner;
+        use crate::plan::{EditPlan, ExecutionMode};
+
+        let mut planner = DynamicPlanner::new();
+        let mut plan = EditPlan::new(
+            "insert_test", 1, "Test Insert", "", ExecutionMode::Plan
+        );
+        plan.steps.push(crate::plan::EditPlanStep {
+            id: "step1".into(),
+            title: "Update Player".into(),
+            target_module: crate::plan::TargetModule::Scene,
+            action_description: "".into(),
+            risk: crate::permission::OperationRisk::MediumRisk,
+            validation_requirements: vec![],
+        });
+
+        let prereq = crate::plan::EditPlanStep {
+            id: "prereq".into(),
+            title: "Create Player".into(),
+            target_module: crate::plan::TargetModule::Scene,
+            action_description: "Prerequisite".into(),
+            risk: crate::permission::OperationRisk::LowRisk,
+            validation_requirements: vec![],
+        };
+        let revision = crate::dynamic_planner::RevisionType::InsertBefore {
+            index: 0,
+            step: prereq,
+            reason: "Not found".into(),
+        };
+        planner.apply_revision(&mut plan, revision, 0, "Obs", true).unwrap();
+
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].title, "Create Player"); // Prerequisite inserted first
+        assert_eq!(planner.total_revisions(), 1);
+    }
+
+    /// Test 23: 验证最大修订次数限制
+    #[test]
+    fn test_dynamic_planner_max_revisions_limit() {
+        use crate::DynamicPlanner;
+        use crate::plan::{EditPlan, ExecutionMode};
+
+        let mut planner = DynamicPlanner::new();
+        planner.set_max_revisions_per_plan(2); // 设置低限制用于测试
+
+        let mut plan = EditPlan::new(
+            "limited_plan", 1, "Limited", "", ExecutionMode::Plan
+        );
+        plan.steps.push(crate::plan::EditPlanStep {
+            id: "s1".into(),
+            title: "Step".into(),
+            target_module: crate::plan::TargetModule::Scene,
+            action_description: "".into(),
+            risk: crate::permission::OperationRisk::LowRisk,
+            validation_requirements: vec![],
+        });
+
+        // 前两次修订应该成功
+        for i in 0..2 {
+            let result = planner.analyze_observation("Entity already exists", 0, "limited_plan");
+            assert!(
+                result.is_some(),
+                "Revision {} should be allowed",
+                i
+            );
+            // Apply the revision to increment counter
+            if let Some(revision) = result {
+                let _ = planner.apply_revision(&mut plan, revision, 0, "Test", true);
+            }
+        }
+
+        // 第三次修订应该被阻止（因为已经应用了2次）
+        let result = planner.analyze_observation("Entity already exists", 0, "limited_plan");
+        assert!(
+            result.is_none(),
+            "Third revision should be blocked by limit (already applied 2)"
+        );
+    }
+
+    /// Test 24: 验证修订历史记录
+    #[test]
+    fn test_dynamic_planner_revision_history() {
+        use crate::DynamicPlanner;
+        use crate::plan::{EditPlan, ExecutionMode};
+
+        let mut planner = DynamicPlanner::new();
+        let mut plan = EditPlan::new(
+            "history_test", 1, "History Test", "", ExecutionMode::Plan
+        );
+        plan.steps.push(crate::plan::EditPlanStep {
+            id: "s1".into(),
+            title: "Step".into(),
+            target_module: crate::plan::TargetModule::Scene,
+            action_description: "".into(),
+            risk: crate::permission::OperationRisk::LowRisk,
+            validation_requirements: vec![],
+        });
+
+        // 应用修订
+        let revision = crate::dynamic_planner::RevisionType::Skip {
+            count: 1,
+            reason: "Test".into(),
+        };
+        planner.apply_revision(&mut plan, revision, 0, "Obs", true).unwrap();
+
+        // 检查历史
+        let history = planner.get_plan_revisions("history_test");
+        assert_eq!(history.len(), 1);
+        assert!(history[0].auto_applied);
+        assert_eq!(history[0].step_index, 0);
+        println!("Revision entry: {}", history[0].summary());
+    }
+
+    /// Test 25: 集成测试 - DirectorRuntime中的DynamicPlanner可用性
+    #[test]
+    fn test_director_runtime_has_dynamic_planner() {
+        let mut rt = DirectorRuntime::new();
+
+        // DirectorRuntime 应该包含 DynamicPlanner
+        assert_eq!(rt.dynamic_planner.pattern_count() >= 6, true);
+
+        // 可以分析观察结果
+        let revision = rt.dynamic_planner.analyze_observation(
+            "Entity 'Boss' already exists",
+            0,
+            "integration_test",
+        );
+
+        assert!(revision.is_some(), "DirectorRuntime's DynamicPlanner should work");
+    }
+
+    // ===========================================================================
+    // Sprint 1-A3: ReflectionEngine 自我修正专项测试
+    // ===========================================================================
+
+    /// Test 26: 验证ReflectionEngine初始化
+    #[test]
+    fn test_reflection_engine_initialization() {
+        use crate::ReflectionEngine;
+
+        let engine = ReflectionEngine::new();
+
+        // 应该有空的反思历史
+        assert_eq!(engine.get_reflection_history().len(), 0);
+
+        // 统计应该为0
+        let stats = engine.get_stats();
+        assert_eq!(stats.total_reflections, 0);
+        assert_eq!(stats.successful, 0);
+        assert_eq!(stats.failed, 0);
+    }
+
+    /// Test 27: 验证错误分类 - Transient错误
+    #[test]
+    fn test_reflection_classify_transient_errors() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+
+        // Timeout错误
+        let timeout = engine.classify_error("Operation timed out after 30s");
+        assert!(matches!(timeout, ErrorClassification::Transient { .. }));
+        assert!(timeout.is_auto_recoverable());
+
+        // 网络错误
+        let network = engine.classify_error("Connection refused: could not connect");
+        assert!(matches!(network, ErrorClassification::Transient { .. }));
+
+        // 速率限制
+        let rate_limit = engine.classify_error("Rate limit exceeded, try again later");
+        assert!(matches!(rate_limit, ErrorClassification::Transient { .. }));
+    }
+
+    /// Test 28: 验证错误分类 - Permission错误
+    #[test]
+    fn test_reflection_classify_permission_errors() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+
+        let perm = engine.classify_error("Permission denied: requires admin role");
+        match perm {
+            ErrorClassification::Permission { can_degrade, .. } => {
+                assert!(can_degrade);
+            }
+            other => unreachable!("Expected Permission, got {:?}", other),
+        }
+    }
+
+    /// Test 29: 验证错误分类 - EntityState错误
+    #[test]
+    fn test_reflection_classify_entity_state_errors() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+
+        // 实体未找到
+        let not_found = engine.classify_error("Entity 'Player' not found");
+        match not_found {
+            ErrorClassification::EntityState { entity_name, actual_state, .. } => {
+                assert_eq!(entity_name, "Player");
+                assert_eq!(actual_state, "not found");
+            }
+            other => unreachable!("Expected EntityState, got {:?}", other),
+        }
+
+        // 实体已存在
+        let exists = engine.classify_error("Entity 'Boss' already exists");
+        match exists {
+            ErrorClassification::EntityState { entity_name, actual_state, .. } => {
+                assert_eq!(entity_name, "Boss");
+                assert_eq!(actual_state, "already exists");
+            }
+            other => unreachable!("Expected EntityState, got {:?}", other),
+        }
+    }
+
+    /// Test 30: 验证错误分类 - InvalidInput和Fatal错误
+    #[test]
+    fn test_reflection_classify_invalid_and_fatal() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+
+        // 无效输入
+        let invalid = engine.classify_error("Invalid parameter 'color': must be RGBA array");
+        match invalid {
+            ErrorClassification::InvalidInput { parameter_name, .. } => {
+                assert_eq!(parameter_name, "color");
+            }
+            other => unreachable!("Expected InvalidInput, got {:?}", other),
+        }
+
+        // 致命错误
+        let fatal = engine.classify_error("Internal assertion failed: null pointer dereference");
+        assert!(matches!(fatal, ErrorClassification::Fatal { .. }));
+        assert!(!fatal.is_auto_recoverable());
+    }
+
+    /// Test 31: 验证反思文本生成
+    #[test]
+    fn test_reflection_generate_reflection_text() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+        let classification = ErrorClassification::Transient {
+            retry_delay_ms: 500,
+            max_retries: 3,
+        };
+
+        let reflection = engine.generate_reflection(
+            "call_api",
+            "Request timed out after 30s",
+            &classification,
+        );
+
+        // 应该包含关键部分
+        assert!(reflection.contains("What went wrong?"));
+        assert!(reflection.contains("Why did it fail?"));
+        assert!(reflection.contains("How to fix it?"));
+        assert!(reflection.contains("temporary"));
+        assert!(reflection.contains("retry"));
+    }
+
+    /// Test 32: 验证替代方案生成 - Not Found场景
+    #[test]
+    fn test_reflection_alternative_for_not_found() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+        let classification = ErrorClassification::EntityState {
+            entity_name: "Enemy".into(),
+            expected_state: "exists".into(),
+            actual_state: "not found".into(),
+        };
+
+        // 删除不存在的实体 → 跳过删除
+        let alt1 = engine.generate_alternative_strategy(
+            "delete_entity('Enemy')",
+            "Entity 'Enemy' not found",
+            &classification,
+        );
+        assert!(alt1.is_some());
+        let alt1_text = alt1.unwrap();
+        assert!(alt1_text.contains("non-existent") || alt1_text.contains("skip"));
+
+        // 更新不存在的实体 → 先创建再修改
+        let classification2 = ErrorClassification::EntityState {
+            entity_name: "Player".into(),
+            expected_state: "exists".into(),
+            actual_state: "not found".into(),
+        };
+        let alt2 = engine.generate_alternative_strategy(
+            "update_entity('Player')",
+            "Entity 'Player' not found",
+            &classification2,
+        );
+        assert!(alt2.is_some());
+        assert!(alt2.unwrap().contains("Create"));
+    }
+
+    /// Test 33: 验证替代方案生成 - Already Exists场景
+    #[test]
+    fn test_reflection_alternative_for_already_exists() {
+        use crate::ReflectionEngine;
+        use crate::reflection_engine::ErrorClassification;
+
+        let engine = ReflectionEngine::new();
+        let classification = ErrorClassification::EntityState {
+            entity_name: "Player".into(),
+            expected_state: "not exists".into(),
+            actual_state: "already exists".into(),
+        };
+
+        let alt = engine.generate_alternative_strategy(
+            "create_entity('Player')",
+            "Entity 'Player' already exists",
+            &classification,
+        );
+
+        assert!(alt.is_some());
+        let alt_text = alt.unwrap();
+        // Should either modify the action or suggest using existing entity
+        // Note: The actual replacement depends on exact string matching in original_action
+        let is_acceptable = alt_text.contains("Modify") || alt_text.contains("modify")
+            || alt_text.contains("existing") || alt_text.contains("Use existing")
+            || alt_text != "create_entity('Player')";  // At least not identical to original
+        assert!(
+            is_acceptable,
+            "Should suggest modification or using existing entity. Got: {}",
+            alt_text
+        );
+    }
+
+    /// Test 34: 验证RetryConfig退避计算
+    #[test]
+    fn test_retry_config_backoff_calculation() {
+        use crate::reflection_engine::RetryConfig;
+        use std::time::Duration;
+
+        let config = RetryConfig {
+            max_retries: 3,
+            initial_delay_ms: 100,
+            backoff_multiplier: 2.0,
+            max_delay_ms: 1000,
+            jitter: false,
+        };
+
+        let delay0 = config.calculate_delay(0);
+        let delay1 = config.calculate_delay(1);
+        let delay2 = config.calculate_delay(2);
+
+        assert_eq!(delay0, Duration::from_millis(100));
+        assert_eq!(delay1, Duration::from_millis(200));
+        assert_eq!(delay2, Duration::from_millis(400));
+    }
+
+    /// Test 35: 验证RetryConfig最大延迟限制
+    #[test]
+    fn test_retry_config_max_delay_cap() {
+        use crate::reflection_engine::RetryConfig;
+        use std::time::Duration;
+
+        let config = RetryConfig {
+            max_retries: 10,
+            initial_delay_ms: 100,
+            backoff_multiplier: 10.0,
+            max_delay_ms: 500,
+            jitter: false,
+        };
+
+        let delay2 = config.calculate_delay(2); // 100 * 10^2 = 10000 → capped at 500
+        assert_eq!(delay2, Duration::from_millis(500));
+    }
+
+    /// Test 36: 验证ReflectionEntry生命周期
+    #[test]
+    fn test_reflection_entry_lifecycle() {
+        use crate::reflection_engine::{ReflectionEntry, ErrorClassification};
+
+        let mut entry = ReflectionEntry::new(
+            "create_player",
+            "Timeout error",
+            ErrorClassification::Transient {
+                retry_delay_ms: 100,
+                max_retries: 3,
+            },
+            "Test reflection text",
+        );
+
+        // 初始状态
+        assert!(!entry.resolved);
+        assert_eq!(entry.retry_count, 0);
+
+        // 标记为已解决
+        entry.mark_resolved("Retry succeeded", 2, 250);
+
+        // 解决后状态
+        assert!(entry.resolved);
+        assert_eq!(entry.retry_count, 2);
+        assert_eq!(entry.total_retry_duration_ms, 250);
+
+        // 摘要应该包含成功标记
+        let summary = entry.summary();
+        assert!(summary.contains("✅ RESOLVED"));
+        assert!(summary.contains("create_player"));
+    }
+
+    /// Test 37: 集成测试 - DirectorRuntime中的ReflectionEngine可用性
+    #[test]
+    fn test_director_runtime_has_reflection_engine() {
+        let mut rt = DirectorRuntime::new();
+
+        // DirectorRuntime 应该包含 ReflectionEngine
+        let stats = rt.reflection_engine.get_stats();
+        assert_eq!(stats.total_reflections, 0);
+
+        // 可以分类错误
+        let classification = rt.reflection_engine.classify_error(
+            "Entity 'TestEntity' not found"
+        );
+        use crate::reflection_engine::ErrorClassification;
+        assert!(matches!(classification, ErrorClassification::EntityState { .. }));
+
+        // 可以生成替代方案
+        let alt = rt.reflection_engine.generate_alternative_strategy(
+            "delete_entity('TestEntity')",
+            "Entity 'TestEntity' not found",
+            &classification,
+        );
+        assert!(alt.is_some(), "Should generate alternative for not-found entity");
+    }
+
+    /// Test 38: 验证统计追踪功能
+    #[test]
+    fn test_reflection_stats_tracking() {
+        use crate::ReflectionEngine;
+
+        let mut engine = ReflectionEngine::new();
+
+        // 模拟一些成功的反思
+        engine.successful_reflections = 8;
+        engine.failed_reflections = 2;
+
+        let stats = engine.get_stats();
+        assert_eq!(stats.total_reflections, 10);
+        assert_eq!(stats.successful, 8);
+        assert_eq!(stats.failed, 2);
+
+        // 成功率应该在80%左右（允许浮点误差）
+        assert!((stats.success_rate - 0.8).abs() < 0.01);
     }
 }

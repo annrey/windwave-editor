@@ -6,7 +6,7 @@
 //! receives a bootstrapped context from shared knowledge.
 
 use crate::agent_comm::CommunicationHub;
-use crate::memory_legacy::ConversationMemory;
+use crate::message_buffer::MessageBuffer;
 use crate::registry::AgentId;
 use serde_json::json;
 use std::collections::HashMap;
@@ -27,8 +27,8 @@ fn now_secs() -> u64 {
 /// A per-agent isolated context with access to shared team knowledge.
 #[derive(Debug)]
 pub struct TeamAgentContext {
-    /// This agent's private conversation memory.
-    pub memory: ConversationMemory,
+    /// This agent's private message buffer.
+    pub memory: MessageBuffer,
     /// Shared team knowledge (reference to CommunicationHub's SharedContext).
     /// Wrapped in AgentId for ownership tracking.
     pub agent_id: AgentId,
@@ -39,7 +39,7 @@ pub struct TeamAgentContext {
 impl TeamAgentContext {
     pub fn new(agent_id: AgentId, max_messages: usize) -> Self {
         Self {
-            memory: ConversationMemory::new(max_messages),
+            memory: MessageBuffer::new(max_messages),
             agent_id,
             initialized: false,
         }

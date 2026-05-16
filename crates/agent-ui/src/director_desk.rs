@@ -23,6 +23,59 @@ pub struct DirectorDeskState {
     pub rollback_entries: Vec<RollbackEntry>,
     /// Pending user actions (approve/reject) waiting to be processed
     pub pending_actions: Vec<UserAction>,
+
+    // --- HybridEditorController 状态显示 ---
+    /// 当前 LLM 模式状态
+    pub hybrid_mode: HybridModeDisplay,
+    /// 横幅消息（用于降级/恢复提示）
+    pub banner_message: Option<BannerMessage>,
+    /// 上次状态更新时间
+    pub last_mode_update: Option<f64>,
+}
+
+/// HybridEditorController 模式显示
+#[derive(Debug, Clone, Default)]
+pub struct HybridModeDisplay {
+    /// 当前模式（LLM / RuleBased）
+    pub mode: String,
+    /// LLM 状态（Available/Connecting/Unavailable/Disabled）
+    pub status: String,
+    /// 成功率（0-100）
+    pub success_rate: f64,
+    /// 平均响应时间（毫秒）
+    pub avg_response_ms: f64,
+    /// 连续失败次数
+    pub consecutive_failures: u32,
+    /// 降级原因（如果有）
+    pub fallback_reason: Option<String>,
+    /// 下次检测倒计时（秒）
+    pub next_check_countdown: f64,
+}
+
+/// 横幅消息类型
+#[derive(Debug, Clone)]
+pub struct BannerMessage {
+    /// 消息类型
+    pub banner_type: BannerType,
+    /// 消息内容
+    pub message: String,
+    /// 显示时间戳
+    pub timestamp: f64,
+    /// 显示持续时间（秒）
+    pub duration: f64,
+}
+
+/// 横幅类型
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BannerType {
+    /// 降级提示（红色）
+    Degraded,
+    /// 恢复提示（绿色）
+    Recovered,
+    /// 警告（黄色）
+    Warning,
+    /// 信息（蓝色）
+    Info,
 }
 
 /// Info for a pending approval entry shown in UI
@@ -35,13 +88,21 @@ pub struct PendingApprovalInfo {
     pub step_count: usize,
 }
 
-/// User action types for permission handling
+/// User action types for permission handling and editor operations
 #[derive(Debug, Clone)]
 pub enum UserAction {
     Approve { plan_id: String },
     Reject { plan_id: String, reason: Option<String> },
     Undo,
     Redo,
+    /// Delete the currently selected entity (via Ctrl+D or Delete key)
+    DeleteSelected,
+    /// Focus camera on selected entity (via F key)
+    FocusSelected,
+    /// Toggle command palette visibility (via Ctrl+P)
+    ToggleCommandPalette,
+    /// Recheck LLM connection status (manual trigger)
+    RecheckLlm,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +217,9 @@ impl DirectorDeskState {
             goals: Vec::new(),
             rollback_entries: Vec::new(),
             pending_actions: Vec::new(),
+            hybrid_mode: HybridModeDisplay::default(),
+            banner_message: None,
+            last_mode_update: None,
         }
     }
 
@@ -288,6 +352,12 @@ fn render_left_panel(
                     .size(16.0),
             );
             ui.separator();
+
+            // --- HybridController 状态栏 ---
+            render_hybrid_status_bar(ui, &mut state);
+
+            // --- 横幅消息（降级/恢复提示）---
+            render_banner_message(ui, &mut state);
 
             // --- Current Plan ---
             ui.collapsing(
@@ -596,4 +666,190 @@ fn render_bottom_panel(mut contexts: EguiContexts, state: Res<DirectorDeskState>
                     }
                 });
         });
+}
+
+// ---------------------------------------------------------------------------
+// HybridController UI 渲染函数
+// ---------------------------------------------------------------------------
+
+/// 渲染 HybridEditorController 状态栏
+fn render_hybrid_status_bar(ui: &mut egui::Ui, state: &mut DirectorDeskState) {
+    let mode = &state.hybrid_mode;
+
+    // 状态图标和颜色
+    let (icon, status_color) = match mode.status.as_str() {
+        "Available" => ("\u{1F7E2}", egui::Color32::from_rgb(16, 185, 129)),  // 🟢 绿色
+        "Connecting" => ("\u{1F7E1}", egui::Color32::from_rgb(234, 179, 8)),   // 🟡 黄色
+        "Unavailable" => ("\u{1F534}", egui::Color32::from_rgb(239, 68, 68)),    // 🔴 红色
+        "Disabled" => ("\u{26AB}", egui::Color32::from_gray(100)),               // ⚫ 黑色
+        _ => ("\u{2753}", egui::Color32::GRAY),                                  // ❓ 未知
+    };
+
+    // 模式标签
+    let mode_label = if mode.mode == "LLM" { "LLM模式" } else { "规则引擎" };
+    let mode_color = if mode.mode == "LLM" {
+        egui::Color32::from_rgb(59, 130, 246)  // 蓝色
+    } else {
+        egui::Color32::from_rgb(139, 92, 246)  // 紫色
+    };
+
+    ui.horizontal(|ui| {
+        // 状态图标
+        ui.label(
+            egui::RichText::new(icon)
+                .size(16.0)
+        );
+
+        // 模式名称
+        ui.label(
+            egui::RichText::new(mode_label)
+                .strong()
+                .color(mode_color)
+                .size(12.0)
+        );
+
+        ui.separator();
+
+        // 成功率（仅 LLM 模式显示）
+        if mode.mode == "LLM" && mode.success_rate > 0.0 {
+            ui.label(
+                egui::RichText::new(format!("{:.0}%", mode.success_rate))
+                    .size(11.0)
+                    .color(status_color)
+            );
+
+            // 平均响应时间
+            if mode.avg_response_ms > 0.0 {
+                ui.label(
+                    egui::RichText::new(format!("{:.0}ms", mode.avg_response_ms))
+                        .size(10.0)
+                        .color(egui::Color32::GRAY)
+                );
+            }
+        } else if mode.mode != "LLM" && mode.consecutive_failures > 0 {
+            // 显示降级次数
+            ui.label(
+                egui::RichText::new(format!("降级x{}", mode.consecutive_failures))
+                    .size(11.0)
+                    .color(egui::Color32::from_rgb(239, 68, 68))
+            );
+        }
+
+        // 下次检测倒计时
+        if mode.next_check_countdown > 0.0 {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{:.0}s", mode.next_check_countdown))
+                        .size(10.0)
+                        .color(egui::Color32::GRAY)
+                );
+            });
+        }
+    });
+
+    // 手动重新检测按钮
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+
+        if ui.button("\u{1F50D} 重新检测").clicked() {
+            // 发送重新检测事件（通过 pending_actions）
+            state.pending_actions.push(UserAction::RecheckLlm);
+        }
+
+        // 如果有降级原因，显示详情按钮
+        if mode.fallback_reason.is_some() {
+            if ui.button("查看原因").clicked() {
+                // 显示详细原因作为横幅
+                if let Some(reason) = &mode.fallback_reason {
+                    state.banner_message = Some(BannerMessage {
+                        banner_type: BannerType::Warning,
+                        message: format!("降级原因: {}", reason),
+                        timestamp: ui.input(|i| i.time),
+                        duration: 8.0,
+                    });
+                }
+            }
+        }
+    });
+
+    ui.add_space(4.0);
+}
+
+/// 渲染横幅消息（降级/恢复提示）
+fn render_banner_message(ui: &mut egui::Ui, state: &mut DirectorDeskState) {
+    let banner = match &state.banner_message {
+        Some(b) => b.clone(),
+        None => return,
+    };
+
+    let current_time = ui.input(|i| i.time);
+    let elapsed = current_time - banner.timestamp;
+
+    if elapsed > banner.duration {
+        state.banner_message = None;
+        return;
+    }
+
+    let (bg_color, text_color, icon) = match banner.banner_type {
+        BannerType::Degraded => (
+            egui::Color32::from_rgba_unmultiplied(127, 29, 29, 255),
+            egui::Color32::WHITE,
+            "\u{26A0}"
+        ),
+        BannerType::Recovered => (
+            egui::Color32::from_rgba_unmultiplied(22, 101, 52, 255),
+            egui::Color32::WHITE,
+            "\u{2705}"
+        ),
+        BannerType::Warning => (
+            egui::Color32::from_rgba_unmultiplied(161, 98, 7, 255),
+            egui::Color32::WHITE,
+            "\u{26A0}"
+        ),
+        BannerType::Info => (
+            egui::Color32::from_rgba_unmultiplied(30, 64, 175, 255),
+            egui::Color32::WHITE,
+            "\u{2139}"
+        ),
+    };
+
+    let alpha = if elapsed > banner.duration - 2.0 {
+        ((banner.duration - elapsed) / 2.0) as f32
+    } else {
+        1.0
+    };
+
+    let message = banner.message.clone();
+    let mut should_close = false;
+
+    let frame = egui::Frame::none()
+        .fill(bg_color.linear_multiply(alpha))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(8, 6));
+
+    frame.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(icon)
+                    .size(14.0)
+                    .color(text_color)
+            );
+            ui.label(
+                egui::RichText::new(&message)
+                    .size(11.0)
+                    .color(text_color)
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("\u{2715}").clicked() {
+                    should_close = true;
+                }
+            });
+        });
+    });
+
+    if should_close {
+        state.banner_message = None;
+    }
+
+    ui.add_space(4.0);
 }

@@ -15,6 +15,7 @@ pub mod procedural;
 pub mod retrieval;
 pub mod lifecycle;
 pub mod system;
+pub mod preferences;
 
 pub use working::{WorkingMemory, WorkingMemoryEntry, EntryType as WorkingEntryType};
 pub use episodic::{EpisodicMemory, Episode, EpisodeType, EpisodeSearchResult};
@@ -26,6 +27,7 @@ pub use retrieval::{
 };
 pub use lifecycle::{MemoryLifecycle, DecayConfig, MemoryImportance};
 pub use system::{MemorySystem, MemoryConfig, MemoryQuery, MemoryContext, MemoryStats};
+pub use preferences::{UserPreferences, UserPreference, PreferenceCategory, PreferenceInteraction, InteractionOutcome};
 
 use serde::{Deserialize, Serialize};
 

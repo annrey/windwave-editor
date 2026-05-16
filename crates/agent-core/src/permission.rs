@@ -195,6 +195,8 @@ struct JailbreakPattern {
 /// - Privilege escalation ("act as admin", "sudo mode", "god mode")
 /// - File-system access ("read /etc/passwd", "delete ~/Documents")
 /// - Code injection / command execution ("execute this code", "eval(", "exec(")
+/// - Encoding / obfuscation attempts (base64, hex, unicode normalization)
+/// - Multi-turn social engineering (gradual trust building)
 pub struct JailbreakDetector;
 
 impl JailbreakDetector {
@@ -206,7 +208,9 @@ impl JailbreakDetector {
                            "you are now dan", "dan mode", "jailbreak", "do anything now",
                            "you are a different", "pretend you are", "act as if you are",
                            "forget your training", "forget all rules", "bypass your filters",
-                           "from now on you are", "switch to developer mode"],
+                           "from now on you are", "switch to developer mode",
+                           "disregard earlier", "override instructions",
+                           "ignore prior context", "new role for you"],
                 severity: 0.4,
                 name: "role_play_induction",
             },
@@ -215,7 +219,8 @@ impl JailbreakDetector {
                 keywords: &["act as admin", "sudo mode", "god mode", "root access",
                            "administrator privileges", "elevation", "super user",
                            "run as system", "i am the developer", "bypass permissions",
-                           "override safety", "disable protections"],
+                           "override safety", "disable protections",
+                           "full access mode", "unrestricted mode"],
                 severity: 0.35,
                 name: "privilege_escalation",
             },
@@ -224,7 +229,8 @@ impl JailbreakDetector {
                 keywords: &["/etc/passwd", "/etc/shadow", "c:\\windows\\system32",
                            "read file", "delete file", "rm -rf", "del /f",
                            "download from", "exfiltrate", "~/.ssh", "%appdata%",
-                           "write to disk", "format c:", "encrypt all files"],
+                           "write to disk", "format c:", "encrypt all files",
+                           "access filesystem", "modify system files"],
                 severity: 0.5,
                 name: "file_system_access",
             },
@@ -235,44 +241,175 @@ impl JailbreakDetector {
                            "shell_exec", "start /bin/bash", "cmd.exe",
                            "powershell", "wget http", "curl http",
                            "spawn process", "__import__", "base64_decode",
-                           "compile(", "loadlib", "dllimport"],
+                           "compile(", "loadlib", "dllimport",
+                           "run script", "execute shell"],
                 severity: 0.45,
                 name: "code_execution",
+            },
+            // Encoding / obfuscation attempts
+            JailbreakPattern {
+                keywords: &["base64 encode", "base64 decode", "hex encode",
+                           "unicode escape", "url encode", "rot13",
+                           "obfuscate", "encode this", "decode this",
+                           "char code", "ascii code", "byte array",
+                           "\\u00", "\\x", "0x", "atob(", "btoa("],
+                severity: 0.55,
+                name: "encoding_obfuscation",
+            },
+            // Social engineering / multi-turn attacks
+            JailbreakPattern {
+                keywords: &["just between us", "don't tell anyone", "this is a test",
+                           "hypothetically speaking", "in a fictional scenario",
+                           "roleplay with me", "let's pretend",
+                           "imagine you had no rules", "if you were unrestricted",
+                           "for educational purposes only", "this is not real"],
+                severity: 0.3,
+                name: "social_engineering",
+            },
+            // Information extraction
+            JailbreakPattern {
+                keywords: &["reveal your prompt", "show me your instructions",
+                           "output your system prompt", "print your training data",
+                           "what are you programmed to do", "list your constraints",
+                           "tell me your secrets", "internal knowledge"],
+                severity: 0.5,
+                name: "information_extraction",
             },
         ]
     }
 
     /// Analyse a user request and return the assessed jailbreak risk.
     pub fn detect(request: &str) -> JailbreakRisk {
-        let lower = request.to_lowercase();
+        let normalized = Self::normalize_input(request);
         let patterns = Self::patterns();
 
-        let total_score: f32 = patterns.iter()
-            .map(|p| {
-                let matched = p.keywords.iter().any(|kw| lower.contains(kw));
-                if matched { p.severity } else { 0.0 }
-            })
-            .sum();
+        let mut total_score: f32 = 0.0;
+        let mut match_count = 0usize;
 
-        if total_score >= 0.5 {
+        for p in &patterns {
+            let matched = p.keywords.iter().any(|kw| normalized.contains(kw));
+            if matched {
+                total_score += p.severity;
+                match_count += 1;
+            }
+        }
+
+        // Bonus score for multiple pattern matches (indicates sophisticated attack)
+        if match_count >= 3 {
+            total_score *= 1.2;
+        } else if match_count >= 2 {
+            total_score *= 1.1;
+        }
+
+        // Check for split-command patterns (e.g., "r" + "m" + " " + "-" + "r" + "f")
+        if Self::detect_split_command(&normalized) {
+            total_score += 0.3;
+        }
+
+        // Check for excessive repetition (common in adversarial prompts)
+        if Self::detect_repetition(&normalized) {
+            total_score += 0.15;
+        }
+
+        if total_score >= 0.6 {
             JailbreakRisk::High
-        } else if total_score >= 0.25 {
+        } else if total_score >= 0.3 {
             JailbreakRisk::Medium
-        } else if total_score >= 0.05 {
+        } else if total_score >= 0.08 {
             JailbreakRisk::Low
         } else {
             JailbreakRisk::None
         }
     }
 
+    /// Normalize input for detection (handle case, whitespace, unicode variants).
+    fn normalize_input(input: &str) -> String {
+        let lower = input.to_lowercase();
+        // Collapse multiple spaces
+        lower.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Detect split-command patterns like "r m - r f" or "d e l e t e".
+    fn detect_split_command(input: &str) -> bool {
+        // Common commands that might be split
+        let dangerous_commands = ["rm-rf", "delete", "format", "drop-table", "sudo"];
+        let joined: String = input.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+
+        for cmd in dangerous_commands {
+            if joined.contains(cmd) && !input.contains(cmd) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Detect excessive repetition (common in adversarial/prompt injection attacks).
+    fn detect_repetition(input: &str) -> bool {
+        let words: Vec<&str> = input.split_whitespace().collect();
+        if words.len() < 10 { return false; }
+
+        let unique: std::collections::HashSet<&str> = words.iter().copied().collect();
+        // If less than 50% of words are unique, it's likely repetitive
+        unique.len() as f64 / (words.len() as f64) < 0.5
+    }
+
     /// Return the names of matched pattern categories for logging.
     pub fn matched_categories(request: &str) -> Vec<String> {
-        let lower = request.to_lowercase();
+        let normalized = Self::normalize_input(request);
         Self::patterns().into_iter()
-            .filter(|p| p.keywords.iter().any(|kw| lower.contains(*kw)))
+            .filter(|p| p.keywords.iter().any(|kw| normalized.contains(kw)))
             .map(|p| p.name.to_string())
             .collect()
     }
+
+    /// Return detailed detection report for analysis/logging.
+    pub fn detailed_report(request: &str) -> JailbreakReport {
+        let normalized = Self::normalize_input(request);
+        let patterns = Self::patterns();
+
+        let matches: Vec<(String, &'static str)> = patterns.iter()
+            .flat_map(|p| {
+                p.keywords.iter()
+                    .find_map(|kw| {
+                        if normalized.contains(kw) {
+                            Some((p.name.to_string(), *kw))
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect();
+
+        let risk = Self::detect(request);
+        let score: f32 = matches.iter().map(|m| {
+            patterns.iter().find(|p| p.name == m.0).map_or(0.0, |p| p.severity)
+        }).sum();
+
+        JailbreakReport {
+            risk,
+            score,
+            matched_patterns: matches.into_iter().map(|(name, kw)| MatchedPattern { category: name, keyword: kw.to_string() }).collect(),
+            has_split_command: Self::detect_split_command(&normalized),
+            has_repetition: Self::detect_repetition(&normalized),
+        }
+    }
+}
+
+/// Detailed jailbreak detection result.
+#[derive(Debug, Clone)]
+pub struct JailbreakReport {
+    pub risk: JailbreakRisk,
+    pub score: f32,
+    pub matched_patterns: Vec<MatchedPattern>,
+    pub has_split_command: bool,
+    pub has_repetition: bool,
+}
+
+/// A single matched pattern instance.
+#[derive(Debug, Clone)]
+pub struct MatchedPattern {
+    pub category: String,
+    pub keyword: String,
 }
 
 // ---------------------------------------------------------------------------

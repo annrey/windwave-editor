@@ -21,6 +21,7 @@ pub enum EpisodeType {
     StateChanged,
     Observation,
     Reflection,
+    Summary,
 }
 
 /// A single episode (event) in the agent's history
@@ -304,6 +305,50 @@ impl EpisodicMemory {
         self.cache_valid = false;
     }
 
+    /// Iterate over episodes
+    pub fn iter(&self) -> impl Iterator<Item = &Episode> {
+        self.episodes.iter()
+    }
+
+    /// Remove episodes by indices (for cleanup)
+    pub fn remove_by_indices(&mut self, indices: &[usize]) {
+        let to_remove: std::collections::HashSet<usize> = indices.iter().copied().collect();
+        let mut new_episodes = Vec::with_capacity(self.episodes.len() - to_remove.len());
+        for (i, ep) in self.episodes.drain(..).enumerate() {
+            if !to_remove.contains(&i) {
+                new_episodes.push(ep);
+            }
+        }
+        self.episodes = new_episodes;
+        self.cache_valid = false;
+    }
+
+    /// Drain old episodes (oldest first) for compression
+    pub fn drain_old_episodes(&mut self, count: usize) -> Vec<Episode> {
+        let drain_count = count.min(self.episodes.len());
+        let mut drained = Vec::with_capacity(drain_count);
+        for _ in 0..drain_count {
+            if !self.episodes.is_empty() {
+                let ep = self.episodes.remove(0);
+                drained.push(ep);
+            }
+        }
+        if !drained.is_empty() {
+            self.cache_valid = false;
+        }
+        drained
+    }
+
+    /// Record a compressed summary episode
+    pub fn record_compressed(&mut self, compressed: Episode) -> MemoryEntryId {
+        self.record(compressed)
+    }
+
+    /// Get next ID counter value (without incrementing)
+    pub fn next_id_counter(&self) -> u64 {
+        self.next_id
+    }
+
     /// Build a summary string for LLM context
     pub fn build_summary(&mut self, query: &str, max_entries: usize) -> String {
         let results = self.search(query, max_entries);
@@ -396,6 +441,24 @@ impl EpisodicMemory {
         let id = MemoryEntryId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    // =================================================================
+    // Persistence Operations
+    // =================================================================
+
+    /// Get all episodes for serialization
+    pub fn get_all_episodes(&self) -> Vec<Episode> {
+        self.episodes.clone()
+    }
+
+    /// Restore an episode from serialized data
+    pub fn restore_episode(&mut self, episode: Episode) {
+        if self.next_id <= episode.metadata.id.0 {
+            self.next_id = episode.metadata.id.0 + 1;
+        }
+        self.episodes.push(episode);
+        self.cache_valid = false;
     }
 }
 
