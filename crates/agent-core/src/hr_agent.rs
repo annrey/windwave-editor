@@ -34,8 +34,7 @@ impl Agent for HrAgent {
             let role_str = request.context.get("role").and_then(|v| v.as_str()).unwrap_or("executor");
             let name = request.context.get("name").and_then(|v| v.as_str()).unwrap_or("NewAgent");
             let role = match role_str {
-                "director" | "调度" => TeamRole::Director,
-                "planner" | "规划" => TeamRole::Planner,
+                "director" | "调度" | "planner" | "规划" => TeamRole::ProjectManager,
                 "executor" | "执行" => TeamRole::Executor,
                 "reviewer" | "审查" => TeamRole::Reviewer,
                 "hr" | "人事" => TeamRole::Hr,
@@ -68,7 +67,7 @@ mod tests {
     #[tokio::test]
     async fn test_hr_list_team() {
         let mut roster = TeamRoster::new();
-        roster.add("D", TeamRole::Director, vec![]);
+        roster.add("PM", TeamRole::ProjectManager, vec![]);
         let mut hr = HrAgent::new(AgentId(200), roster);
         let req = AgentRequest { task_id: Some("h1".into()), instruction: "list team".into(), context: json!({}) };
         let resp = hr.handle(req).await.unwrap();

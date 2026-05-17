@@ -13,6 +13,7 @@ pub mod agent_context;
 pub mod audit;
 pub mod bevy_editor_model;
 pub mod builtin_skills;
+pub mod ceo;
 pub mod cli_agent;
 pub mod code_graph;
 pub mod code_tools;
@@ -88,6 +89,11 @@ mod scene_change;
 
 // Re-export commonly used types
 pub use agent::{BaseAgent, AgentInstanceId, AgentState, AgentConfig, AgentResult, StepResult};
+pub use ceo::{
+    CeoAgent, DirectorRegistry, DirectorHandle, DirectorStatus, DirectorMetrics,
+    DirectorStatusReport, HighLevelGoal, GoalId, GoalStatus, GoalConstraints,
+    ProjectManagerId, ResourceBudget,
+};
 pub use agent_platform::{
     AgentPlatform, AgentPlatformConfig, AgentPlatformError, AgentPlatformEvent,
     AgentPlatformMessage, AgentPlatformRole, AgentPlatformRunResult, AgentPlatformStatus,

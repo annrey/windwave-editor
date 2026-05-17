@@ -1,31 +1,39 @@
 //! Agent team structure — formal role definitions for a multi-agent team.
 //!
-//! The team follows a separation-of-concerns pattern:
+//! The team follows a three-layer architecture (ADR-001):
 //!
-//! - **Director** — Schedules, prioritises, and coordinates all team activity.
-//!   The single source of truth for "what should happen next."
-//! - **Planner** — Analyses requests and creates structured execution plans.
-//!   Does NOT execute — only designs the approach.
-//! - **Executor** — Carries out individual plan steps. Multiple executors
-//!   (SceneExecutor, CodeExecutor, AssetExecutor) work in parallel.
-//! - **Reviewer** — Validates execution results against goals. Can
-//!   request plan revisions if results don't match expectations.
-//! - **HR** — Manages team membership. Adds/removes agents, onboards new
-//!   members with shared context, and handles agent lifecycle.
+//! **Layer 1 — Strategic (CEO)**
+//! - **Ceo** — Receives user requests, decomposes into high-level goals,
+//!   monitors multiple ProjectManagers, allocates resources, adjusts priorities.
+//!
+//! **Layer 2 — Orchestration (ProjectManager)**
+//! - **ProjectManager** — Merged Director + Planner responsibilities.
+//!   Receives goals from CEO, decomposes into EditPlans, schedules Agent
+//!   execution, monitors progress, handles user approvals.
+//!
+//! **Layer 3 — Execution (Agent Cluster)**
+//! - **Executor** — Carries out individual plan steps (scene/code/asset).
+//! - **Reviewer** — Validates execution results against goals.
+//! - **Hr** — Manages team membership (add/remove/onboard agents).
 //!
 //! All agents share public knowledge via `CommunicationHub::SharedContext`
-//! but maintain independent per-agent conversation memories for focus.
+//! but maintain independent per-agent four-layer memory spaces.
 
 use serde::{Deserialize, Serialize};
 
 /// Formal team role.
+///
+/// Three-layer architecture (ADR-001):
+/// - Layer 1 (Strategic): Ceo
+/// - Layer 2 (Orchestration): ProjectManager
+/// - Layer 3 (Execution): Executor, Reviewer, Hr
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TeamRole {
-    /// Orchestrates the team — scheduling, prioritisation, coordination.
-    Director,
-    /// Analyses requests and creates execution plans.
-    Planner,
-    /// Carries out individual plan steps.
+    /// Strategic layer — monitors multiple ProjectManagers, allocates resources.
+    Ceo,
+    /// Orchestration layer — merged Director + Planner responsibilities.
+    ProjectManager,
+    /// Carries out individual plan steps (scene/code/asset).
     Executor,
     /// Validates execution results against goals.
     Reviewer,
@@ -36,8 +44,8 @@ pub enum TeamRole {
 impl TeamRole {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Director => "director",
-            Self::Planner => "planner",
+            Self::Ceo => "ceo",
+            Self::ProjectManager => "project_manager",
             Self::Executor => "executor",
             Self::Reviewer => "reviewer",
             Self::Hr => "hr",
@@ -46,13 +54,30 @@ impl TeamRole {
 
     pub fn description(&self) -> &'static str {
         match self {
-            Self::Director => "Schedules, prioritises, and coordinates all team activity",
-            Self::Planner => "Analyses requests and creates structured execution plans",
+            Self::Ceo => "Strategic layer — monitors ProjectManagers, allocates resources, adjusts priorities",
+            Self::ProjectManager => "Orchestration layer — decomposes goals into plans, schedules agents, monitors progress",
             Self::Executor => "Carries out individual plan steps (scene/code/asset)",
             Self::Reviewer => "Validates execution results against goals; can request revisions",
             Self::Hr => "Manages team membership — add/remove/onboard agents",
         }
     }
+
+    /// Returns the layer this role belongs to.
+    pub fn layer(&self) -> TeamLayer {
+        match self {
+            Self::Ceo => TeamLayer::Strategic,
+            Self::ProjectManager => TeamLayer::Orchestration,
+            Self::Executor | Self::Reviewer | Self::Hr => TeamLayer::Execution,
+        }
+    }
+}
+
+/// Architectural layer for team roles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TeamLayer {
+    Strategic,
+    Orchestration,
+    Execution,
 }
 
 /// A member of the agent team.
@@ -161,13 +186,23 @@ mod tests {
     #[test]
     fn test_find_by_role() {
         let mut roster = TeamRoster::new();
-        roster.add("D", TeamRole::Director, vec![]);
-        roster.add("P1", TeamRole::Planner, vec![]);
+        roster.add("CEO", TeamRole::Ceo, vec![]);
+        roster.add("PM1", TeamRole::ProjectManager, vec![]);
         roster.add("E1", TeamRole::Executor, vec![]);
         roster.add("E2", TeamRole::Executor, vec![]);
 
-        assert_eq!(roster.find_by_role(TeamRole::Director).len(), 1);
+        assert_eq!(roster.find_by_role(TeamRole::Ceo).len(), 1);
+        assert_eq!(roster.find_by_role(TeamRole::ProjectManager).len(), 1);
         assert_eq!(roster.find_by_role(TeamRole::Executor).len(), 2);
         assert_eq!(roster.count_by_role(TeamRole::Reviewer), 0);
+    }
+
+    #[test]
+    fn test_role_layer() {
+        assert_eq!(TeamRole::Ceo.layer(), TeamLayer::Strategic);
+        assert_eq!(TeamRole::ProjectManager.layer(), TeamLayer::Orchestration);
+        assert_eq!(TeamRole::Executor.layer(), TeamLayer::Execution);
+        assert_eq!(TeamRole::Reviewer.layer(), TeamLayer::Execution);
+        assert_eq!(TeamRole::Hr.layer(), TeamLayer::Execution);
     }
 }
