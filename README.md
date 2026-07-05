@@ -1,216 +1,236 @@
-# WindWave — AI-Powered Game Editor
+# WindWave / 风浪
 
-> **Status**: Early Development (Pre-Alpha) | **Core Architecture**: Rust + Bevy ECS + LLM Agent
-> **中文** | [日本語](#日本語)
+**让 AI Agent 真正进入游戏编辑器。**
 
-WindWave is an AI Agent-driven game editor. Users interact with the Agent via natural language; the Agent understands intent, plans tasks, and executes operations to directly modify game scenes and code.
+WindWave 是一个 Rust + Bevy 驱动的 AI Agent 游戏编辑器。它的目标不是
+给编辑器加一个聊天框，而是让自然语言请求进入可规划、可执行、可观察、
+可验证、可撤销的游戏编辑闭环。
 
----
-
-## Core Features
-
-### Natural Language Driven Development
-- Describe requirements in Chinese or English; the Agent executes automatically
-- Example: *"Create a player character with WASD movement and a blue sprite"*
-
-### Four-Tier Memory System
-Inspired by [agentmemory](https://github.com/rohitg00/agentmemory):
-
-| Tier | Name | Purpose | Retrieval |
-|------|------|---------|-----------|
-| L3 | Working Memory | Short-term (dialogue, entity refs, computed values) | Type index + TTL |
-| L2 | Episodic Memory | Episodic (user requests, tool calls, execution records) | BM25 + time decay |
-| L1 | Semantic Memory | Semantic (concept graph: Entity/Component/System) | TF-IDF cosine similarity |
-| L0 | Procedural Memory | Procedural (workflow templates, decision patterns) | Keyword match + success rate |
-
-- **Three-stream hybrid retrieval**: BM25 + Vector + Recency fused via RRF
-- **Token-budget aware**: Automatic context truncation for LLM context windows
-
-### Pluggable Planner
-- **RuleBasedPlanner**: Keyword matching, zero latency, for simple tasks
-- **LlmPlanner**: LLM-driven CoT planning, for complex tasks
-- Runtime dynamic switching
-
-### Streaming ReAct Execution
-- Think → Act → Observe closed loop
-- Each step streams to EventBus in real-time; UI displays the thinking process live
-- Tool execution results feed back to LLM as Observations
-
-### Layered Context (L0~L3)
-Inspired by [UI-TARS-desktop](https://github.com/bytedance/UI-TARS-desktop):
-- **L0 System**: Global system prompts, tool definitions
-- **L1 Session**: Project context, session history
-- **L2 Task**: Current task, goals, constraints
-- **L3 Entity**: Detailed info of selected entities
-
-### Permissions & Security
-- Five-level risk assessment (Safe → Destructive)
-- High-risk operations require user confirmation
-- Audit log records all Agent actions
-
-### Multi-Engine Support (Planned)
-- **Bevy** (Implemented): Rust ECS engine
-- **Unity** (Planned): via gRPC/REST adapter
-- **Godot** (Planned): via GDExtension adapter
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Agent UI (egui)                       │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │Chat Panel│ │Director  │ │Approval  │ │Token Usage   │  │
-│  │          │ │Desk      │ │Dialog    │ │Display       │  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
-└────────────────────────┬────────────────────────────────────┘
-                         │ Agent-UI Protocol (Event Stream)
-┌────────────────────────▼────────────────────────────────────┐
-│                      Agent Core                              │
-│  ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│  │Director      │ │Planner   │ │Memory    │ │Prompt    │  │
-│  │Runtime       │ │(trait)   │ │System    │ │System    │  │
-│  └──────────────┘ └──────────┘ └──────────┘ └──────────┘  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │Skill     │ │Permission│ │Rollback  │ │EventBus    │  │
-│  │Executor  │ │Engine    │ │Manager   │ │            │  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
-└────────────────────────┬────────────────────────────────────┘
-                         │ Engine Adapter Protocol
-┌────────────────────────▼────────────────────────────────────┐
-│                    Engine Adapters                           │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐│
-│  │Bevy Adapter  │ │Unity Adapter │ │Godot Adapter         ││
-│  │(SceneBridge) │ │(gRPC/REST)   │ │(GDExtension)         ││
-│  └──────────────┘ └──────────────┘ └──────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
+```text
+说出意图 -> 生成计划 -> 修改场景 -> 观察结果 -> 修正偏差 -> 验证目标 -> 安全撤销
 ```
 
-### Crate Structure
+当前核心验收场景：
 
-| Crate | Responsibility | Status |
-|-------|---------------|--------|
-| `agent-core` | Agent orchestration, planning, memory, communication | Skeleton complete, core capabilities being filled |
-| `agent-ui` | egui/bevy_egui UI rendering | Feature-rich, needs Event Stream decoupling |
-| `bevy-adapter` | Bevy ECS bridge, SceneIndex, command execution | Basic implementation, component support needs expansion |
-
----
-
-## Quick Start
-
-### Requirements
-- Rust 1.80+
-- LLM API Key (OpenAI-compatible format)
-
-### Configure LLM
-Edit `crates/agent-core/src/llm.rs` or configure at runtime:
-```rust
-let llm = LlmClient::new()
-    .with_base_url("https://api.openai.com/v1")
-    .with_model("gpt-4o-mini")
-    .with_api_key(std::env::var("OPENAI_API_KEY").unwrap());
+```text
+创建一个红色敌人放在右边
 ```
 
-### Run
+Agent-native editing · Rust + Bevy · SceneBridge · SceneIndex · Undo/Redo ·
+Director Desk · Multica-ready
+
+## 为什么做 WindWave
+
+游戏编辑器正在从“人操作工具”走向“人指挥系统”。传统编辑器擅长精确操作，
+但复杂创作往往需要来回切换：设计意图、场景层级、资源、脚本、运行结果、
+调试信息、版本回滚。LLM 可以理解意图，却常常缺少真实编辑器里的状态、
+权限、撤销、观察和验证。
+
+WindWave 试图补上中间这一层：
+
+- **自然语言不是终点。** 用户说出的需求会被拆成结构化编辑计划和引擎命令。
+- **Agent 必须看到世界。** 场景会被序列化为 `SceneIndex`，供 Agent 查询和推理。
+- **每一步都应该可解释。** Director Desk 展示计划、事件、审批和执行状态。
+- **创作必须能试错。** 写入型 `EngineCommand` 要有明确的 undo/redo 契约。
+- **视觉结果要被验证。** 后续会用截图和 Vision feedback loop 检查真实画面。
+
+## 快速开始
+
+要求：
+
+- Rust toolchain with Cargo
+- macOS 或其他 Bevy/winit 支持的桌面环境
+- 可选：VS Code / Cursor + `rust-analyzer`
+
+运行编辑器：
+
 ```bash
-cargo run
+make run
 ```
 
----
+等价 Cargo 命令：
 
-## Development Roadmap
+```bash
+cargo run --bin agent-edit
+```
 
-### Phase 0: Baseline Verification (Completed)
-- [x] Three-layer architecture (agent-core / agent-ui / bevy-adapter)
-- [x] Basic DirectorRuntime orchestration
-- [x] Five-level permission system
-- [x] Basic Rollback/Transaction
+常用质量门禁：
 
-### Phase 1: LLM Main Pipeline (In Progress)
-- [x] Planner trait + RuleBasedPlanner/LlmPlanner
-- [x] ReAct streaming execution + Observation closed loop
-- [x] RuntimeContextCollector + TokenBudget
-- [x] MemoryContext integration into PromptSystem
-- [ ] SceneBridge empty implementation filling
-- [ ] Model name configurability
+```bash
+make check
+make test
+make clippy
+make gate
+```
 
-### Phase M: Memory System Upgrade (Partially Complete)
-- [x] Four-tier memory architecture (Working/Episodic/Semantic/Procedural)
-- [x] BM25 + TF-IDF hybrid retrieval
-- [x] RRF fusion ranking
-- [ ] Persistent storage (disk serialization)
-- [ ] Memory lifecycle management (decay/archival)
+等价 Cargo 命令：
 
-### Phase 2: Permission UI (Not Started)
-- [ ] Visual permission configuration panel
-- [ ] Audit log viewer
+```bash
+cargo check
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
+```
 
-### Phase 3: Undo/Redo (Not Started)
-- [ ] Command pattern completion
-- [ ] History visualization
+运行当前 P0/P1 聚焦回归：
 
-### Phase 4: Vision (Not Started)
-- [ ] Screenshot + VLM analysis
-- [ ] Visual feedback closed loop
+```bash
+make smoke-p0-p1
+```
 
-### Phase 5: Multi-Agent (Not Started)
-- [ ] A2A capability discovery
-- [ ] Task coordinator
+这组 smoke 覆盖红色敌人闭环、HR approval、undo 反向命令、SceneIndex 删除
+清理和失败计划修正等关键路径。
 
-### Phase 9: Multi-Engine Adapter (Not Started)
-- [ ] Unity adapter
-- [ ] Godot adapter
+## 核心体验
 
----
+### 1. 对编辑器说目标
 
-## References
+用户可以把编辑动作写成自然语言，例如：
 
-This project draws architectural inspiration from the following open-source projects:
+```text
+创建一个红色敌人放在右边
+```
 
-| Project | Inspiration |
-|---------|-------------|
-| [hello-agents](https://github.com/datawhalechina/hello-agents) | ReAct/Plan-and-Solve/Reflection paradigms |
-| [dive-into-llms](https://github.com/Lordog/dive-into-llms) | CoT reasoning enhancement, Prompt engineering |
-| [supersplat](https://github.com/playcanvas/supersplat) | EditOp command pattern, EditHistory serialization |
-| [UI-TARS-desktop](https://github.com/bytedance/UI-TARS-desktop) | Agent Event Stream, L0~L3 layered context |
-| [agentmemory](https://github.com/rohitg00/agentmemory) | Four-tier memory, three-stream hybrid retrieval |
-| [code-review-graph](https://github.com/tirth8205/code-review-graph) | Code structure graph, impact radius analysis |
+WindWave 会把请求交给 Director。Director 负责选择规则路径、LLM 路径或团队
+Agent 路径，并把任务变成可执行计划或直接的场景命令。
 
----
+### 2. 让 Agent 生成可执行编辑
+
+`agent-core` 中的 Planner、Skill、Tool、Permission、Review 和 Rollback 共同
+构成执行链。低风险操作可以直接执行，高风险操作应该进入审批。
+
+### 3. 通过 SceneBridge 修改真实场景
+
+Agent 不直接操作 Bevy World。它通过 `SceneBridge` 发送引擎无关的场景操作，
+再由 `bevy-adapter` 转换为 `EngineCommand` 并应用到 Bevy ECS。
+
+### 4. 用 SceneIndex 观察结果
+
+Bevy World 会被同步为 `SceneIndex`。Agent、UI 和测试都可以基于这个结构化
+场景快照判断实体是否存在、位置是否正确、组件是否符合预期。
+
+### 5. 在 Director Desk 里追踪和撤销
+
+`agent-ui` 基于 egui / bevy_egui 构建，提供聊天、Director Desk、审批面板、
+运行时 Agent 状态、Visual Understanding 状态和调试面板。用户应该能看到
+Agent 做了什么，并在需要时撤销。
+
+## 架构模型
+
+```text
+agent-ui
+  Chat / Director Desk / Approval / Visual Understanding
+        |
+        v
+agent-core
+  Director -> Planner -> Permission -> Skill/Tool -> Review -> Rollback
+        |
+        v
+SceneBridge
+  引擎无关的场景操作契约
+        |
+        v
+bevy-adapter
+  EngineCommand -> Bevy ECS -> SceneIndex -> Screenshot / Perception
+```
+
+## Workspace 地图
+
+| 路径 | 作用 |
+| --- | --- |
+| `Cargo.toml` | Rust workspace 与 `agent-edit` 二进制入口 |
+| `src/main.rs` | Bevy App 入口，注册 Agent、UI、SceneIndex、Vision、CommandProcessor 等插件 |
+| `crates/agent-core` | Director、Planner、Memory、Skill、Tool、Permission、Review、Rollback、Runtime Agent |
+| `crates/bevy-adapter` | Bevy ECS 适配、`SceneBridge` 实现、`EngineCommand`、`SceneIndex`、截图、perception、undo/redo |
+| `crates/agent-ui` | egui UI、Director Desk、chat、runtime panel、visual understanding state |
+| `crates/multica-bridge` | Multica 任务同步、WebSocket、Agent proxy、skill adapter、scene context、本地 test server |
+| `crates/ai-frameworks` | LangChain、LlamaIndex、DSPy 风格工作流的统一接口实验 |
+| `crates/game-simulator` | 不启动完整引擎的 headless 游戏逻辑仿真 |
+| `Makefile` | 本地运行、检查、测试和 smoke suite 的统一入口 |
+
+## 能构建什么
+
+WindWave 当前适合探索这些方向：
+
+- **自然语言场景编辑**：把“创建 / 移动 / 改颜色 / 删除”等请求变成可撤销场景操作。
+- **Agent 可观察编辑器**：把 Agent 计划、行动、审批和失败原因展示在 Director Desk。
+- **AI 辅助关卡原型**：通过规则、LLM 和 SceneIndex 快速迭代小型玩法场景。
+- **多 Agent 编辑团队**：让 Scene Agent、Code Agent、Review Agent、Planner Agent 分工协作。
+- **外部任务平台桥接**：通过 Multica bridge 同步任务、技能、场景上下文和执行状态。
+- **未来多引擎适配**：以 SceneBridge 为边界，把 Bevy 作为第一个引擎实现。
+
+## 发展路线
+
+### v0.2 - 闭环执行
+
+目标：把“会规划”推进到“能稳定改场景并可回滚”。
+
+- 自然语言请求生成计划或规则执行路径
+- `EngineCommand` 修改 Bevy World
+- `SceneIndex` 观察到真实变化
+- Review / GoalChecker 给出成功或修正路径
+- Undo 能逆转写入操作
+- UI、Director events、SceneIndex 对同一次操作描述一致
+
+### v0.3 - 记忆与上下文
+
+目标：让 Agent 带着项目上下文工作，而不是每次从零开始。
+
+- Working / Episodic / Semantic / Procedural 四层记忆有明确注入策略
+- 失败案例能影响后续相似请求
+- prompt 注入受预算控制
+- 关键任务有可复现回归测试
+
+### v0.4 - 视觉反馈与混合编辑
+
+目标：不只相信命令返回，还要看画面是否符合目标。
+
+- operation -> screenshot -> vision verify -> revise
+- Vision 失败能触发修正或清晰失败报告
+- 规则、LLM、人工确认和视觉验证进入统一 hybrid policy
+- Runtime Agent、Task Panel、Director events 状态同步
+
+### v0.5 - 平台化与生态集成
+
+目标：让 WindWave 从本地原型走向可扩展编辑平台。
+
+- 真实 Multica server smoke test
+- 多 Agent 团队流进入真实 DirectorRuntime
+- CodeGraph / ImpactAnalyzer / CodeContextGenerator
+- Prefab、asset、hierarchy、多选、Transform Palette 深化
+- Godot / Unreal adapter 最小链路验证
+
+## 当前状态
+
+WindWave 处在早期但主体骨架已经成型的阶段。已有模块包括 Director、Planner、
+SceneBridge、SceneIndex、Memory、EventStream、权限、回滚、审计、agent-ui、
+bevy-adapter、multica-bridge、headless simulator 等。
+
+当前最重要的工程目标仍是 v0.2 闭环执行。新功能如果不能帮助
+`plan -> act -> observe -> verify -> undo`，优先级应低于闭环稳定性。
+
+## 仓库边界
+
+这个 checkout 中仍混有历史或并置的 Understand Anything / Node workspace 内容，
+例如 `package.json`、`pnpm-*`、`understand-anything-plugin/`、`READMEs/`、
+`homepage/` 等。
+
+WindWave 的真实运行入口是 Rust workspace：
+
+```text
+Cargo.toml
+src/
+crates/
+```
+
+请使用 Cargo / Makefile 判断 WindWave 的构建与测试健康状态。`pnpm build`、
+`pnpm test` 等命令属于并置的 Node workspace，不代表 WindWave 编辑器状态。
+
+## 文档与发布原则
+
+开发、设计、规划等文档在稳定前应保留在本地项目文档中，不默认推送到 GitHub。
+公开 README 应保持外宣和上手导向：说明愿景、能力、使用方式、当前边界和路线图，
+避免把未完成的内部计划包装成已经交付的功能。
 
 ## License
 
-MIT License
-
----
-
-> **Note**: This project is in early development; APIs may change frequently. Issues and PRs welcome!
-
----
-
-## 中文
-
-### 风浪 — AI 驱动的游戏编辑器
-
-> **当前状态**: 早期开发阶段 (Pre-Alpha) | **核心架构**: Rust + Bevy ECS + LLM Agent
-
-风浪是一个由 AI Agent 驱动的游戏编辑器。用户通过自然语言与 Agent 交互，Agent 理解意图、规划任务、执行操作，直接修改游戏场景和代码。
-
-**核心特性**: 自然语言驱动开发、四层记忆系统、可插拔规划器、流式 ReAct 执行、分层上下文 (L0~L3)、权限与安全、多引擎支持 (规划中)。
-
-详见上方英文文档获取完整信息。
-
----
-
-## 日本語
-
-### WindWave — AI 駆動型ゲームエディタ
-
-> **現在の状態**: 早期開発段階 (Pre-Alpha) | **コアアーキテクチャ**: Rust + Bevy ECS + LLM Agent
-
-WindWaveは、AI Agentによって駆動されるゲームエディタです。ユーザーは自然言語でAgentと対話し、Agentは意図を理解し、タスクを計画し、操作を実行して、ゲームシーンとコードを直接変更します。
-
-**コア機能**: 自然言語駆動開発、4層メモリシステム、プラガブルプランナー、ストリーミングReAct実行、レイヤードコンテキスト (L0~L3)、権限とセキュリティ、マルチエンジン対応 (計画中)。
-
-詳細は上記の英語ドキュメントをご参照ください。
+See `LICENSE`.
