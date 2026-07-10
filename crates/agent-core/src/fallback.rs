@@ -30,7 +30,10 @@ pub enum FallbackResult {
 
 impl FallbackResult {
     pub fn is_ok(&self) -> bool {
-        matches!(self, FallbackResult::TemplateApplied { .. } | FallbackResult::RuleMatched { .. })
+        matches!(
+            self,
+            FallbackResult::TemplateApplied { .. } | FallbackResult::RuleMatched { .. }
+        )
     }
 
     pub fn command(&self) -> Option<&EditorCommand> {
@@ -93,7 +96,12 @@ impl TemplateLibrary {
 
         lib.add(CodeTemplate {
             name: "create_enemy".into(),
-            trigger_keywords: vec!["创建敌人".into(), "create enemy".into(), "生成敌人".into(), "添加敌人".into()],
+            trigger_keywords: vec![
+                "创建敌人".into(),
+                "create enemy".into(),
+                "生成敌人".into(),
+                "添加敌人".into(),
+            ],
             description: "Creates an Enemy entity".into(),
             build_command: |req, tid| {
                 let color = if req.contains("红") || req.contains("red") {
@@ -112,7 +120,13 @@ impl TemplateLibrary {
 
         lib.add(CodeTemplate {
             name: "query_scene".into(),
-            trigger_keywords: vec!["查询".into(), "query".into(), "列出".into(), "list".into(), "场景中有哪些".into()],
+            trigger_keywords: vec![
+                "查询".into(),
+                "query".into(),
+                "列出".into(),
+                "list".into(),
+                "场景中有哪些".into(),
+            ],
             description: "Queries entities in the scene".into(),
             build_command: |_req, tid| EditorCommand::CheckGoal { task_id: tid },
         });
@@ -180,9 +194,9 @@ impl RuleEngine {
 
     pub fn evaluate(&self, context: &HashMap<String, String>) -> Option<&Rule> {
         self.rules.iter().find(|rule| {
-            rule.conditions.iter().all(|(k, v)| {
-                context.get(k).map(|cv| cv == v).unwrap_or(false)
-            })
+            rule.conditions
+                .iter()
+                .all(|(k, v)| context.get(k).map(|cv| cv == v).unwrap_or(false))
         })
     }
 
@@ -190,10 +204,12 @@ impl RuleEngine {
         let lower = request.to_lowercase();
         let mut ctx = HashMap::new();
 
-        if lower.contains("删除") || lower.contains("delete") {
+        use crate::keyword_matcher::KeywordMatcher;
+
+        if KeywordMatcher::is_delete_operation(request) {
             ctx.insert("action".into(), "delete".into());
         }
-        if lower.contains("创建") || lower.contains("create") || lower.contains("添加") || lower.contains("add") {
+        if KeywordMatcher::is_create_operation(request) {
             ctx.insert("action".into(), "create".into());
         }
         if lower.contains("玩家") || lower.contains("player") {

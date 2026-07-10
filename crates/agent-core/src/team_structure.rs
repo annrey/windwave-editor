@@ -115,7 +115,12 @@ impl TeamRoster {
     }
 
     /// Add a new member to the team.
-    pub fn add(&mut self, name: impl Into<String>, role: TeamRole, capabilities: Vec<String>) -> u64 {
+    pub fn add(
+        &mut self,
+        name: impl Into<String>,
+        role: TeamRole,
+        capabilities: Vec<String>,
+    ) -> u64 {
         let agent_id = self.next_agent_id;
         self.next_agent_id += 1;
 
@@ -175,7 +180,11 @@ mod tests {
     #[test]
     fn test_roster_add_remove() {
         let mut roster = TeamRoster::new();
-        let id = roster.add("SceneBot", TeamRole::Executor, vec!["scene_read".into(), "scene_write".into()]);
+        let id = roster.add(
+            "SceneBot",
+            TeamRole::Executor,
+            vec!["scene_read".into(), "scene_write".into()],
+        );
         assert_eq!(roster.members.len(), 1);
         assert_eq!(roster.find(id).unwrap().name, "SceneBot");
 

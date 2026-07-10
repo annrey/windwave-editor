@@ -7,6 +7,7 @@ use agent_core::runtime_agent::{
     RuntimeAgentComponent, RuntimeBehaviorSpec, RuntimeAgentAction, RuntimeAgentStatus
 };
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Component for tracking utility AI evaluation state
@@ -208,5 +209,3 @@ pub struct UtilityActionDef {
     pub actions: Vec<RuntimeAgentAction>,
     pub cooldown: f32,
 }
-
-use serde::{Deserialize, Serialize};

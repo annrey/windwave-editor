@@ -1,0 +1,41 @@
+[package]
+name = "multica-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Bridge between WindWave and Multica agent platform"
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "complete_task_flow"
+path = "examples/complete_task_flow.rs"
+
+[[example]]
+name = "connect_to_multica"
+path = "examples/connect_to_multica.rs"
+
+[[example]]
+name = "full_integration_test"
+path = "examples/full_integration_test.rs"
+
+[[example]]
+name = "test_server"
+path = "examples/test_server.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+tokio-tungstenite = "0.23"
+futures-util = { version = "0.3", features = ["sink", "std"] }
+url = "2.5"
+thiserror = "1.0"
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+env_logger = "0.11"

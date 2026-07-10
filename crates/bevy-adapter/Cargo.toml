@@ -5,7 +5,7 @@ edition.workspace = true
 description = "Bevy engine adapter for AgentEdit"
 
 [dependencies]
-agent-core = { path = "../agent-core" }
+agent-core = { path = "../agent-core", default-features = false }
 bevy = { workspace = true, features = ["bevy_sprite", "bevy_render", "bevy_winit"] }
 async-trait = "0.1"
 log = "0.4"

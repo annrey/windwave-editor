@@ -6,7 +6,7 @@
 //! - Configuration files
 //! - Scene definition code
 
-use crate::tool::{Tool, ToolCategory, ToolParameter, ToolResult, ToolError, ParameterType};
+use crate::tool::{ParameterType, Tool, ToolCategory, ToolError, ToolParameter, ToolResult};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -56,31 +56,43 @@ impl Tool for GenerateComponentTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("name".to_string()))?;
 
-        let derives = params.get("derives")
+        let derives = params
+            .get("derives")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_else(|| vec!["Component".to_string(), "Debug".to_string()]);
 
-        let properties = params.get("properties")
+        let properties = params
+            .get("properties")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|v| v.as_object().map(|o| {
-                    let name = o.get("name").and_then(|v| v.as_str()).unwrap_or("field");
-                    let typ = o.get("type").and_then(|v| v.as_str()).unwrap_or("f32");
-                    let default = o.get("default").map(|v| format!(" = {}", v)).unwrap_or_default();
-                    format!("    pub {}: {}{},", name, typ, default)
-                }))
-                .collect::<Vec<_>>())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| {
+                        v.as_object().map(|o| {
+                            let name = o.get("name").and_then(|v| v.as_str()).unwrap_or("field");
+                            let typ = o.get("type").and_then(|v| v.as_str()).unwrap_or("f32");
+                            let default = o
+                                .get("default")
+                                .map(|v| format!(" = {}", v))
+                                .unwrap_or_default();
+                            format!("    pub {}: {}{},", name, typ, default)
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
 
         let derive_str = derives.join(", ");
-        
+
         let code = if properties.is_empty() {
             format!(
                 r#"#[derive({})]
@@ -107,7 +119,10 @@ impl Default for {} {{
         }}
     }}
 }}"#,
-                derive_str, name, properties.join("\n"), name
+                derive_str,
+                name,
+                properties.join("\n"),
+                name
             )
         };
 
@@ -153,7 +168,9 @@ impl Tool for GenerateSystemTool {
                 description: "System logic description".to_string(),
                 param_type: ParameterType::String,
                 required: false,
-                default: Some(Value::String("// Iterate over matching entities and apply game logic".to_string())),
+                default: Some(Value::String(
+                    "// Iterate over matching entities and apply game logic".to_string(),
+                )),
             },
         ]
     }
@@ -163,18 +180,19 @@ impl Tool for GenerateSystemTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("name".to_string()))?;
 
-        let query = params.get("query")
+        let query = params
+            .get("query")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
             .unwrap_or_default();
 
-        let logic = params.get("logic")
+        let logic = params
+            .get("logic")
             .and_then(|v| v.as_str())
             .unwrap_or("// Apply game logic to each entity in the query");
 
@@ -192,8 +210,13 @@ impl Tool for GenerateSystemTool {
         {}
     }}
 }}"#,
-            name, query_str, 
-            if query.len() == 1 { "item" } else { "(transform, other)" },
+            name,
+            query_str,
+            if query.len() == 1 {
+                "item"
+            } else {
+                "(transform, other)"
+            },
             logic
         );
 
@@ -242,7 +265,8 @@ impl Tool for GenerateResourceTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("name".to_string()))?;
 
@@ -305,7 +329,8 @@ impl Tool for GenerateEventTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("name".to_string()))?;
 
@@ -345,15 +370,13 @@ impl Tool for FormatCodeTool {
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "code".to_string(),
-                description: "Code to format".to_string(),
-                param_type: ParameterType::String,
-                required: true,
-                default: None,
-            },
-        ]
+        vec![ToolParameter {
+            name: "code".to_string(),
+            description: "Code to format".to_string(),
+            param_type: ParameterType::String,
+            required: true,
+            default: None,
+        }]
     }
 
     fn category(&self) -> ToolCategory {
@@ -361,7 +384,8 @@ impl Tool for FormatCodeTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let code = params.get("code")
+        let code = params
+            .get("code")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("code".to_string()))?;
 
@@ -396,15 +420,13 @@ impl Tool for AnalyzeCodeTool {
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "code".to_string(),
-                description: "Rust code to analyze".to_string(),
-                param_type: ParameterType::String,
-                required: true,
-                default: None,
-            },
-        ]
+        vec![ToolParameter {
+            name: "code".to_string(),
+            description: "Rust code to analyze".to_string(),
+            param_type: ParameterType::String,
+            required: true,
+            default: None,
+        }]
     }
 
     fn category(&self) -> ToolCategory {
@@ -412,24 +434,29 @@ impl Tool for AnalyzeCodeTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let code = params.get("code")
+        let code = params
+            .get("code")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("code".to_string()))?;
 
         // Simple regex-based analysis
-        let component_regex = regex::Regex::new(r"struct\s+(\w+)\s*.*#\[derive.*Component").unwrap();
+        let component_regex =
+            regex::Regex::new(r"struct\s+(\w+)\s*.*#\[derive.*Component").unwrap();
         let system_regex = regex::Regex::new(r"fn\s+(\w+)\s*\([^)]*Query").unwrap();
         let resource_regex = regex::Regex::new(r"struct\s+(\w+)\s*.*#\[derive.*Resource").unwrap();
 
-        let components: Vec<String> = component_regex.captures_iter(code)
+        let components: Vec<String> = component_regex
+            .captures_iter(code)
             .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
             .collect();
 
-        let systems: Vec<String> = system_regex.captures_iter(code)
+        let systems: Vec<String> = system_regex
+            .captures_iter(code)
             .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
             .collect();
 
-        let resources: Vec<String> = resource_regex.captures_iter(code)
+        let resources: Vec<String> = resource_regex
+            .captures_iter(code)
             .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
             .collect();
 
@@ -470,11 +497,20 @@ mod tests {
     fn test_generate_component() {
         let tool = GenerateComponentTool;
         let mut params = HashMap::new();
-        params.insert("name".to_string(), Value::String("PlayerController".to_string()));
-        
+        params.insert(
+            "name".to_string(),
+            Value::String("PlayerController".to_string()),
+        );
+
         let result = tool.execute(params).unwrap();
         assert!(result.success);
-        assert!(result.data.as_ref().unwrap().as_str().unwrap().contains("PlayerController"));
+        assert!(result
+            .data
+            .as_ref()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("PlayerController"));
     }
 
     #[test]
@@ -489,10 +525,10 @@ mod tests {
             
             fn move_player(query: Query<&Transform>) {}
         "#;
-        
+
         let mut params = HashMap::new();
         params.insert("code".to_string(), Value::String(code.to_string()));
-        
+
         let result = tool.execute(params).unwrap();
         assert!(result.success);
     }

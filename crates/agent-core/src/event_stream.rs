@@ -95,10 +95,7 @@ pub enum AgentEvent {
     },
 
     /// A goal was achieved.
-    GoalAchieved {
-        goal: String,
-        timestamp: u64,
-    },
+    GoalAchieved { goal: String, timestamp: u64 },
 
     /// Permission was requested from the user.
     PermissionRequested {
@@ -129,10 +126,7 @@ pub enum AgentEvent {
     },
 
     /// Generic error event.
-    Error {
-        message: String,
-        timestamp: u64,
-    },
+    Error { message: String, timestamp: u64 },
 }
 
 impl AgentEvent {
@@ -175,8 +169,6 @@ fn now_ms() -> u64 {
 /// for replay and auditing.
 pub struct EventStreamBroker {
     tx: broadcast::Sender<AgentEvent>,
-    /// Maximum number of in-memory events retained for late subscribers.
-    capacity: usize,
     sequence: u64,
     /// Optional directory for JSONL persistence.
     persistence_dir: Option<std::path::PathBuf>,
@@ -188,7 +180,6 @@ impl EventStreamBroker {
         let (tx, _) = broadcast::channel(capacity);
         Self {
             tx,
-            capacity,
             sequence: 0,
             persistence_dir: None,
         }
@@ -319,6 +310,7 @@ impl EventReplay {
     }
 
     /// Get the next event in replay order.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<&AgentEvent> {
         if self.cursor < self.events.len() {
             let event = &self.events[self.cursor];
@@ -352,11 +344,13 @@ mod tests {
         let mut broker = EventStreamBroker::new(64);
         let mut rx = broker.subscribe();
 
-        broker.publish(AgentEvent::AssistantMessage {
-            message_id: "msg_1".into(),
-            content: "Hello".into(),
-            timestamp: 0,
-        }).unwrap();
+        broker
+            .publish(AgentEvent::AssistantMessage {
+                message_id: "msg_1".into(),
+                content: "Hello".into(),
+                timestamp: 0,
+            })
+            .unwrap();
 
         let event = rx.try_recv().unwrap();
         match event {
@@ -388,19 +382,23 @@ mod tests {
         let mut broker = EventStreamBroker::new(64);
         let mut rx = broker.subscribe(); // Subscribe BEFORE publishing
 
-        broker.publish(AgentEvent::PlanUpdated {
-            plan_id: "p1".into(),
-            title: "Test".into(),
-            step_count: 3,
-            current_step: 0,
-            timestamp: 0,
-        }).unwrap();
-        broker.publish(AgentEvent::StepCompleted {
-            plan_id: "p1".into(),
-            step_id: "s1".into(),
-            result: "ok".into(),
-            timestamp: 0,
-        }).unwrap();
+        broker
+            .publish(AgentEvent::PlanUpdated {
+                plan_id: "p1".into(),
+                title: "Test".into(),
+                step_count: 3,
+                current_step: 0,
+                timestamp: 0,
+            })
+            .unwrap();
+        broker
+            .publish(AgentEvent::StepCompleted {
+                plan_id: "p1".into(),
+                step_id: "s1".into(),
+                result: "ok".into(),
+                timestamp: 0,
+            })
+            .unwrap();
 
         let e1 = rx.try_recv().unwrap();
         let e2 = rx.try_recv().unwrap();

@@ -6,7 +6,6 @@
 //! 3. Observes the results
 //! 4. Repeats until task completion
 
-use crate::agent::BaseAgent;
 use crate::llm::{LlmClient, LlmMessage, LlmRequest, Role, ToolDefinition};
 use crate::tool::ToolCall;
 use serde::{Deserialize, Serialize};
@@ -17,24 +16,16 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ReActStep {
     /// Agent is thinking about what to do
-    Thought {
-        content: String,
-        reasoning: String,
-    },
+    Thought { content: String, reasoning: String },
     /// Agent decides to take an action
     Action {
         tool_name: String,
         parameters: HashMap<String, serde_json::Value>,
     },
     /// Observation from the environment/tool
-    Observation {
-        content: String,
-        success: bool,
-    },
+    Observation { content: String, success: bool },
     /// Final answer to the user
-    FinalAnswer {
-        content: String,
-    },
+    FinalAnswer { content: String },
 }
 
 /// ReAct strategy configuration
@@ -86,11 +77,9 @@ Available tools will be provided in the context."#;
 /// - L2: Task-level context (current task, selected entities)
 /// - L3: Entity-level context (specific entity details)
 pub struct ReActAgent {
-    #[allow(dead_code)]
-    base: BaseAgent,
     /// ReAct strategy configuration (public for DirectorRuntime access).
     pub config: ReActConfig,
-    llm: Arc<dyn LlmClient>,
+    pub(crate) llm: Arc<dyn LlmClient>,
     tool_registry: Arc<std::sync::Mutex<crate::tool::ToolRegistry>>,
     history: Vec<ReActStep>,
     /// Sprint 1: Layered context for LLM prompt enrichment
@@ -104,13 +93,11 @@ pub struct ReActAgent {
 impl ReActAgent {
     /// Create a new ReAct agent
     pub fn new(
-        base: BaseAgent,
         config: ReActConfig,
         llm: Arc<dyn LlmClient>,
         tool_registry: Arc<std::sync::Mutex<crate::tool::ToolRegistry>>,
     ) -> Self {
         Self {
-            base,
             config,
             llm,
             tool_registry,
@@ -122,7 +109,10 @@ impl ReActAgent {
     }
 
     /// Sprint 2: Set MemoryInjector for automatic context capture.
-    pub fn with_memory_injector(mut self, injector: crate::memory_injector::MemoryInjector) -> Self {
+    pub fn with_memory_injector(
+        mut self,
+        injector: crate::memory_injector::MemoryInjector,
+    ) -> Self {
         self.memory_injector = Some(injector);
         self
     }
@@ -198,7 +188,7 @@ impl ReActAgent {
     pub async fn step(&mut self, user_input: &str) -> Result<ReActStep, ReActError> {
         // Build the prompt with history and available tools
         let prompt = self.build_prompt(user_input);
-        
+
         // Get LLM response
         let messages = vec![
             LlmMessage {
@@ -210,32 +200,42 @@ impl ReActAgent {
                 content: prompt,
             },
         ];
-        
+
         let request = LlmRequest {
-            model: "gpt-4o-mini".to_string(),
+            model: crate::planner::get_default_model(),
             messages,
             tools: Some(self.build_tool_definitions()),
             max_tokens: Some(2048),
             temperature: Some(self.config.temperature),
         };
-        
-        let response = self.llm.chat(request).await
+
+        let response = self
+            .llm
+            .chat(request)
+            .await
             .map_err(|e| ReActError::LlmError(e.to_string()))?;
-        
+
         // Parse the response to extract thought and action/final answer
         let parsed = self.parse_response(&response.content)?;
-        
+
         // If it's an action, execute the tool
-        if let ReActStep::Action { tool_name, parameters } = &parsed {
+        if let ReActStep::Action {
+            tool_name,
+            parameters,
+        } = &parsed
+        {
             let tool_call = ToolCall {
                 tool_name: tool_name.clone(),
                 parameters: parameters.clone(),
                 call_id: format!("call_{}", tool_name),
             };
 
-            let registry = self.tool_registry.lock()
+            let registry = self
+                .tool_registry
+                .lock()
                 .map_err(|e| ReActError::ToolError(e.to_string()))?;
-            let result = registry.execute(&tool_call)
+            let result = registry
+                .execute(&tool_call)
                 .map_err(|e| ReActError::ToolError(e.to_string()))?;
             drop(registry);
 
@@ -266,12 +266,15 @@ impl ReActAgent {
     pub async fn run(&mut self, user_input: &str) -> Result<String, ReActError> {
         for step_count in 0..self.config.max_steps {
             let step = self.step(user_input).await?;
-            
+
             match &step {
                 ReActStep::FinalAnswer { content } => {
                     return Ok(content.clone());
                 }
-                ReActStep::Action { tool_name, parameters } => {
+                ReActStep::Action {
+                    tool_name,
+                    parameters,
+                } => {
                     // Execute tool and add observation
                     let observation = self.execute_tool(tool_name, parameters).await?;
                     self.history.push(ReActStep::Observation {
@@ -281,13 +284,13 @@ impl ReActAgent {
                 }
                 _ => {}
             }
-            
+
             // Check if we should stop
             if step_count >= self.config.max_steps - 1 {
                 return Err(ReActError::MaxStepsReached);
             }
         }
-        
+
         Err(ReActError::MaxStepsReached)
     }
 
@@ -326,13 +329,24 @@ impl ReActAgent {
                     ReActStep::Thought { content, .. } => {
                         prompt.push_str(&format!("{}. Thought: {}\n", i + 1, content));
                     }
-                    ReActStep::Action { tool_name, parameters } => {
-                        prompt.push_str(&format!("{}. Action: {} with {:?}\n",
-                            i + 1, tool_name, parameters));
+                    ReActStep::Action {
+                        tool_name,
+                        parameters,
+                    } => {
+                        prompt.push_str(&format!(
+                            "{}. Action: {} with {:?}\n",
+                            i + 1,
+                            tool_name,
+                            parameters
+                        ));
                     }
                     ReActStep::Observation { content, success } => {
-                        prompt.push_str(&format!("{}. Observation (success={}): {}\n",
-                            i + 1, success, content));
+                        prompt.push_str(&format!(
+                            "{}. Observation (success={}): {}\n",
+                            i + 1,
+                            success,
+                            content
+                        ));
                     }
                     ReActStep::FinalAnswer { content } => {
                         prompt.push_str(&format!("{}. Final Answer: {}\n", i + 1, content));
@@ -352,14 +366,18 @@ impl ReActAgent {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };
-        registry.list_tools().iter().filter_map(|name| {
-            let tool = registry.get(name)?;
-            Some(ToolDefinition {
-                name: tool.name().to_string(),
-                description: tool.description().to_string(),
-                parameters: build_parameters_schema(&tool.parameters()),
+        registry
+            .list_tools()
+            .iter()
+            .filter_map(|name| {
+                let tool = registry.get(name)?;
+                Some(ToolDefinition {
+                    name: tool.name().to_string(),
+                    description: tool.description().to_string(),
+                    parameters: build_parameters_schema(&tool.parameters()),
+                })
             })
-        }).collect()
+            .collect()
     }
 
     /// Parse LLM response into ReActStep
@@ -367,18 +385,19 @@ impl ReActAgent {
         // Look for Thought: and Action: or Final Answer:
         let thought_regex = regex::Regex::new(r"Thought:\s*(.+?)(?:\nAction:|\nFinal Answer:|$)")
             .map_err(|_| ReActError::ParseError("Invalid regex".to_string()))?;
-        
+
         let action_regex = regex::Regex::new(r"Action:\s*(.+)$")
             .map_err(|_| ReActError::ParseError("Invalid regex".to_string()))?;
-        
+
         let final_regex = regex::Regex::new(r"Final Answer:\s*(.+)$")
             .map_err(|_| ReActError::ParseError("Invalid regex".to_string()))?;
-        
-        let thought = thought_regex.captures(content)
+
+        let thought = thought_regex
+            .captures(content)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().trim())
             .unwrap_or("No thought provided");
-        
+
         // Check for Final Answer first
         if let Some(final_cap) = final_regex.captures(content) {
             if let Some(answer) = final_cap.get(1) {
@@ -387,35 +406,35 @@ impl ReActAgent {
                 });
             }
         }
-        
+
         // Otherwise look for Action
         if let Some(action_cap) = action_regex.captures(content) {
             if let Some(action_str) = action_cap.get(1) {
                 // Try to parse as JSON
                 let action_text = action_str.as_str().trim();
-                
+
                 // Simple parsing - in production, use proper JSON parsing
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(action_text) {
                     if let Some(obj) = json.as_object() {
-                        let tool_name = obj.get("tool")
+                        let tool_name = obj
+                            .get("tool")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown")
                             .to_string();
-                        
-                        let parameters = obj.get("parameters")
+
+                        let parameters = obj
+                            .get("parameters")
                             .and_then(|v| v.as_object())
-                            .map(|o| o.iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect())
+                            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                             .unwrap_or_default();
-                        
+
                         return Ok(ReActStep::Action {
                             tool_name,
                             parameters,
                         });
                     }
                 }
-                
+
                 // Fallback: treat entire action as tool name
                 return Ok(ReActStep::Action {
                     tool_name: action_text.to_string(),
@@ -423,7 +442,7 @@ impl ReActAgent {
                 });
             }
         }
-        
+
         // If no action or final answer, return as thought only
         Ok(ReActStep::Thought {
             content: thought.to_string(),
@@ -432,15 +451,23 @@ impl ReActAgent {
     }
 
     /// Execute a tool and return observation
-    async fn execute_tool(&self, tool_name: &str, parameters: &HashMap<String, serde_json::Value>) 
-        -> Result<String, ReActError> {
-        let registry = self.tool_registry.lock().map_err(|e| ReActError::ToolError(e.to_string()))?;
+    async fn execute_tool(
+        &self,
+        tool_name: &str,
+        parameters: &HashMap<String, serde_json::Value>,
+    ) -> Result<String, ReActError> {
+        let registry = self
+            .tool_registry
+            .lock()
+            .map_err(|e| ReActError::ToolError(e.to_string()))?;
         let call = ToolCall {
             tool_name: tool_name.to_string(),
             parameters: parameters.clone(),
             call_id: format!("call_{}", tool_name),
         };
-        let result = registry.execute(&call).map_err(|e| ReActError::ToolError(e.to_string()))?;
+        let result = registry
+            .execute(&call)
+            .map_err(|e| ReActError::ToolError(e.to_string()))?;
         if result.success {
             Ok(result.message)
         } else {
@@ -495,9 +522,9 @@ impl ReActError {
 }
 
 /// Build JSON schema for tool parameters
-#[allow(dead_code)]
 fn build_parameters_schema(params: &[crate::tool::ToolParameter]) -> serde_json::Value {
-    let properties: HashMap<String, serde_json::Value> = params.iter()
+    let properties: HashMap<String, serde_json::Value> = params
+        .iter()
         .map(|p| {
             let schema = serde_json::json!({
                 "type": match p.param_type {
@@ -518,12 +545,13 @@ fn build_parameters_schema(params: &[crate::tool::ToolParameter]) -> serde_json:
             (p.name.clone(), schema)
         })
         .collect();
-    
-    let required: Vec<String> = params.iter()
+
+    let required: Vec<String> = params
+        .iter()
         .filter(|p| p.required)
         .map(|p| p.name.clone())
         .collect();
-    
+
     serde_json::json!({
         "type": "object",
         "properties": properties,
@@ -533,11 +561,10 @@ fn build_parameters_schema(params: &[crate::tool::ToolParameter]) -> serde_json:
 
 /// Helper to create a simple ReAct agent
 pub fn create_react_agent(
-    base: BaseAgent,
     llm: Arc<dyn LlmClient>,
     tool_registry: Arc<std::sync::Mutex<crate::tool::ToolRegistry>>,
 ) -> ReActAgent {
-    ReActAgent::new(base, ReActConfig::default(), llm, tool_registry)
+    ReActAgent::new(ReActConfig::default(), llm, tool_registry)
 }
 
 #[cfg(test)]
@@ -569,7 +596,8 @@ mod tests {
         let content = "Thought: I need to query the entities in the scene.";
 
         let thought_regex = regex::Regex::new(r"Thought:\s*(.+?)(\n|$)").unwrap();
-        let thought = thought_regex.captures(content)
+        let thought = thought_regex
+            .captures(content)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().trim())
             .unwrap_or("No thought");
@@ -637,12 +665,18 @@ mod tests {
     fn test_build_prompt() {
         let _config = ReActConfig::default();
         let history: Vec<ReActStep> = vec![
-            ReActStep::Thought { content: "query scene".into(), reasoning: String::new() },
+            ReActStep::Thought {
+                content: "query scene".into(),
+                reasoning: String::new(),
+            },
             ReActStep::Action {
                 tool_name: "query_entities".into(),
                 parameters: std::collections::HashMap::new(),
             },
-            ReActStep::Observation { content: "3 entities found".into(), success: true },
+            ReActStep::Observation {
+                content: "3 entities found".into(),
+                success: true,
+            },
         ];
 
         let mut prompt = "User request: create enemy\n\nPrevious steps:\n".to_string();
@@ -651,11 +685,24 @@ mod tests {
                 ReActStep::Thought { content, .. } => {
                     prompt.push_str(&format!("{}. Thought: {}\n", i + 1, content));
                 }
-                ReActStep::Action { tool_name, parameters } => {
-                    prompt.push_str(&format!("{}. Action: {} with {:?}\n", i + 1, tool_name, parameters));
+                ReActStep::Action {
+                    tool_name,
+                    parameters,
+                } => {
+                    prompt.push_str(&format!(
+                        "{}. Action: {} with {:?}\n",
+                        i + 1,
+                        tool_name,
+                        parameters
+                    ));
                 }
                 ReActStep::Observation { content, success } => {
-                    prompt.push_str(&format!("{}. Observation (success={}): {}\n", i + 1, success, content));
+                    prompt.push_str(&format!(
+                        "{}. Observation (success={}): {}\n",
+                        i + 1,
+                        success,
+                        content
+                    ));
                 }
                 _ => {}
             }
@@ -667,15 +714,13 @@ mod tests {
 
     #[test]
     fn test_build_parameters_schema() {
-        let schema = build_parameters_schema(&[
-            crate::tool::ToolParameter {
-                name: "entity_name".into(),
-                description: "Name of entity".into(),
-                param_type: crate::tool::ParameterType::String,
-                required: true,
-                default: None,
-            },
-        ]);
+        let schema = build_parameters_schema(&[crate::tool::ToolParameter {
+            name: "entity_name".into(),
+            description: "Name of entity".into(),
+            param_type: crate::tool::ParameterType::String,
+            required: true,
+            default: None,
+        }]);
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["entity_name"]["type"] == "string");
         assert_eq!(schema["required"][0], "entity_name");

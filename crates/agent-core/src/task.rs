@@ -104,9 +104,6 @@ impl Task {
 
     /// Returns `true` when the task is actively being worked on.
     pub fn is_active(&self) -> bool {
-        matches!(
-            self.status,
-            TaskStatus::Planning | TaskStatus::Running
-        )
+        matches!(self.status, TaskStatus::Planning | TaskStatus::Running)
     }
 }

@@ -21,10 +21,11 @@
 //! └─────────────────────────────────────────────────────────┘
 //! ```
 
-use crate::registry::{Agent, AgentId, AgentRequest, AgentResponse, AgentResultKind, CapabilityKind, AgentError};
-use crate::team_structure::TeamRole;
+use crate::registry::{
+    Agent, AgentError, AgentId, AgentRequest, AgentResponse, AgentResultKind, CapabilityKind,
+};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 // ---------------------------------------------------------------------------
 // ID Types
@@ -51,7 +52,7 @@ pub struct GoalId(pub u64);
 pub struct HighLevelGoal {
     pub id: GoalId,
     pub description: String,
-    pub priority: u8,           // 0-255, higher = more important
+    pub priority: u8, // 0-255, higher = more important
     pub assigned_pm: Option<ProjectManagerId>,
     pub status: GoalStatus,
     pub constraints: GoalConstraints,
@@ -228,14 +229,17 @@ impl DirectorRegistry {
         let id = ProjectManagerId(self.next_director_id);
         self.next_director_id += 1;
 
-        self.directors.insert(id, DirectorHandle {
+        self.directors.insert(
             id,
-            name: name.to_string(),
-            status: DirectorStatus::Idle,
-            current_goal: None,
-            metrics: DirectorMetrics::default(),
-            budget: ResourceBudget::default(),
-        });
+            DirectorHandle {
+                id,
+                name: name.to_string(),
+                status: DirectorStatus::Idle,
+                current_goal: None,
+                metrics: DirectorMetrics::default(),
+                budget: ResourceBudget::default(),
+            },
+        );
 
         id
     }
@@ -281,7 +285,6 @@ pub struct CeoAgent {
     name: String,
     director_registry: DirectorRegistry,
     goal_queue: Vec<HighLevelGoal>,
-    resource_budget: ResourceBudget,
 }
 
 impl CeoAgent {
@@ -291,7 +294,6 @@ impl CeoAgent {
             name: "CEO".into(),
             director_registry: DirectorRegistry::new(),
             goal_queue: Vec::new(),
-            resource_budget: ResourceBudget::default(),
         }
     }
 
@@ -453,10 +455,7 @@ impl Agent for CeoAgent {
                 .get("pm_id")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            let token_budget = request
-                .context
-                .get("tokens")
-                .and_then(|v| v.as_u64());
+            let token_budget = request.context.get("tokens").and_then(|v| v.as_u64());
             let new_budget = ResourceBudget {
                 token_budget: token_budget.unwrap_or(100_000),
                 time_budget_seconds: 300,
@@ -543,7 +542,7 @@ mod tests {
     #[test]
     fn test_ceo_spawn_and_monitor() {
         let mut ceo = CeoAgent::new(AgentId(1));
-        let pm_id = ceo.spawn_director("PM1");
+        let _pm_id = ceo.spawn_director("PM1");
         assert_eq!(ceo.director_registry.count(), 1);
 
         let reports = ceo.monitor();
@@ -591,7 +590,8 @@ mod tests {
 
         // Complete one goal to free a PM
         let pm_ids = ceo.director_registry.list_ids();
-        ceo.director_registry.mark_goal_completed(pm_ids[0], GoalId(0));
+        ceo.director_registry
+            .mark_goal_completed(pm_ids[0], GoalId(0));
 
         // Process queue — should assign goal3 to the freed PM
         let assigned = ceo.process_goal_queue();

@@ -6,10 +6,10 @@
 //! - Event perception: receive game events
 //! - Memory: store and recall past observations
 
-use agent_core::runtime_agent::{RuntimeObservation, RuntimeAgentEvent};
+use crate::runtime_agent::RuntimeAgentComponent;
+use agent_core::runtime_agent::{RuntimeAgentEvent, RuntimeObservation};
 use agent_core::types::EntityId;
 use bevy::prelude::*;
-use crate::runtime_agent::RuntimeAgentComponent;
 use std::collections::HashMap;
 
 /// Component for entities that can be perceived by agents
@@ -88,7 +88,7 @@ impl Default for PerceptionConfig {
         Self {
             max_perceived_entities: 20,
             perception_tick_rate: 0.1, // 10Hz
-            use_line_of_sight: false, // simplified for now
+            use_line_of_sight: false,  // simplified for now
             show_debug_gizmos: false,
         }
     }
@@ -105,10 +105,7 @@ impl Plugin for PerceptionPlugin {
 }
 
 /// Condition to run perception system based on tick rate
-fn should_update_perception(
-    config: Res<PerceptionConfig>,
-    time: Res<Time>,
-) -> bool {
+fn should_update_perception(config: Res<PerceptionConfig>, time: Res<Time>) -> bool {
     // Simple throttling - in production, use a timer resource
     time.elapsed_secs() % config.perception_tick_rate < time.delta_secs()
 }
@@ -116,8 +113,19 @@ fn should_update_perception(
 /// Main perception system
 fn perception_system(
     config: Res<PerceptionConfig>,
-    mut agent_query: Query<(Entity, &Transform, &PerceptionCapability, &mut RuntimeAgentComponent), With<RuntimeAgentComponent>>,
-    perceivable_query: Query<(Entity, &Transform, &Perceivable, Option<&Name>), Without<RuntimeAgentComponent>>,
+    mut agent_query: Query<
+        (
+            Entity,
+            &Transform,
+            &PerceptionCapability,
+            &mut RuntimeAgentComponent,
+        ),
+        With<RuntimeAgentComponent>,
+    >,
+    perceivable_query: Query<
+        (Entity, &Transform, &Perceivable, Option<&Name>),
+        Without<RuntimeAgentComponent>,
+    >,
 ) {
     // Collect all perceivable entities first (to avoid nested queries)
     let all_perceivables: Vec<(Entity, Vec3, &Perceivable, Option<&Name>)> = perceivable_query
@@ -167,7 +175,9 @@ fn perception_system(
             perceived_entities.push(entity_id);
 
             // Generate perception event
-            let entity_name = name.map(|n| n.to_string()).unwrap_or_else(|| format!("Entity_{:?}", target_entity));
+            let entity_name = name
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("Entity_{:?}", target_entity));
             events.push(RuntimeAgentEvent {
                 event_type: "entity_detected".to_string(),
                 source_entity: Some(entity_id),
@@ -190,15 +200,13 @@ fn perception_system(
         let visible_count = perceived_entities.len();
         if let Some(nearest) = perceived_entities.first() {
             let nearest_id = nearest.0;
-            agent_component.blackboard.set(
-                "nearest_entity",
-                serde_json::json!(nearest_id),
-            );
+            agent_component
+                .blackboard
+                .set("nearest_entity", serde_json::json!(nearest_id));
         }
-        agent_component.blackboard.set(
-            "visible_entity_count",
-            serde_json::json!(visible_count),
-        );
+        agent_component
+            .blackboard
+            .set("visible_entity_count", serde_json::json!(visible_count));
 
         // Update agent's observation
         let observation = RuntimeObservation {
@@ -215,17 +223,15 @@ fn perception_system(
 
 /// Helper to get perceived entity information
 /// Note: This requires a valid Entity reference. In practice, use the entity from your query.
-pub fn get_perceived_entity_info(
-    world: &World,
-    entity: Entity,
-) -> Option<PerceivedEntityInfo> {
+pub fn get_perceived_entity_info(world: &World, entity: Entity) -> Option<PerceivedEntityInfo> {
     if let Some(transform) = world.get::<Transform>(entity) {
-        let name = world.get::<Name>(entity)
+        let name = world
+            .get::<Name>(entity)
             .map(|n| n.to_string())
             .unwrap_or_default();
-        
+
         let perceivable = world.get::<Perceivable>(entity);
-        
+
         Some(PerceivedEntityInfo {
             entity_id: EntityId(entity.index() as u64),
             name,
@@ -274,21 +280,21 @@ pub fn spawn_perceivable_entity(
     position: Vec3,
     perceivable: Perceivable,
 ) -> Entity {
-    commands.spawn((
-        Name::new(name.to_string()),
-        Transform::from_translation(position),
-        GlobalTransform::default(),
-        Visibility::default(),
-        Sprite::default(),
-        perceivable,
-    )).id()
+    commands
+        .spawn((
+            Name::new(name.to_string()),
+            Transform::from_translation(position),
+            GlobalTransform::default(),
+            Visibility::default(),
+            Sprite::default(),
+            perceivable,
+        ))
+        .id()
 }
 
 /// Query what an agent can currently perceive
-pub fn query_agent_perception(
-    world: &World,
-    agent_entity: Entity,
-) -> Option<RuntimeObservation> {
-    world.get::<RuntimeAgentComponent>(agent_entity)
+pub fn query_agent_perception(world: &World, agent_entity: Entity) -> Option<RuntimeObservation> {
+    world
+        .get::<RuntimeAgentComponent>(agent_entity)
         .and_then(|agent| agent.last_observation.clone())
 }

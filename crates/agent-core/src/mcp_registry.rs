@@ -57,7 +57,10 @@ impl McpToolRegistry {
 
     /// List tool descriptions filtered by model compatibility.
     pub fn list_for_model(&self, model: ModelCompatibility) -> Vec<&McpToolDescriptor> {
-        self.tools.values().filter(|d| d.is_compatible_with(model)).collect()
+        self.tools
+            .values()
+            .filter(|d| d.is_compatible_with(model))
+            .collect()
     }
 
     /// Get a single tool by name.
@@ -72,42 +75,56 @@ impl McpToolRegistry {
     }
 
     /// Total token budget available.
-    pub fn budget(&self) -> usize { self.max_total_output_tokens }
+    pub fn budget(&self) -> usize {
+        self.max_total_output_tokens
+    }
 
     /// Current token usage across all registered tools.
     pub fn current_usage(&self) -> usize {
         self.tools.values().map(|d| d.max_result_tokens).sum()
     }
 
-    pub fn tool_count(&self) -> usize { self.tools.len() }
+    pub fn tool_count(&self) -> usize {
+        self.tools.len()
+    }
 
     /// Generate an MCP-formatted tool list for LLM consumption.
     pub fn to_mcp_list(&self) -> serde_json::Value {
-        let tools: Vec<serde_json::Value> = self.tools.values().map(|d| {
-            serde_json::json!({
-                "name": d.name,
-                "description": d.description,
-                "inputSchema": d.input_schema,
+        let tools: Vec<serde_json::Value> = self
+            .tools
+            .values()
+            .map(|d| {
+                serde_json::json!({
+                    "name": d.name,
+                    "description": d.description,
+                    "inputSchema": d.input_schema,
+                })
             })
-        }).collect();
+            .collect();
         serde_json::json!(tools)
     }
 
     /// Generate MCP list filtered by model compatibility.
     pub fn to_mcp_list_for_model(&self, model: ModelCompatibility) -> serde_json::Value {
-        let tools: Vec<serde_json::Value> = self.list_for_model(model).iter().map(|d| {
-            serde_json::json!({
-                "name": d.name,
-                "description": d.description,
-                "inputSchema": d.input_schema,
+        let tools: Vec<serde_json::Value> = self
+            .list_for_model(model)
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "name": d.name,
+                    "description": d.description,
+                    "inputSchema": d.input_schema,
+                })
             })
-        }).collect();
+            .collect();
         serde_json::json!(tools)
     }
 }
 
 impl Default for McpToolRegistry {
-    fn default() -> Self { Self::new(8192) }
+    fn default() -> Self {
+        Self::new(8192)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +167,8 @@ mod tests {
     fn test_budget_exceeded() {
         let mut reg = McpToolRegistry::new(500);
         reg.register(McpToolDescriptor {
-            name: "a".into(), description: "".into(),
+            name: "a".into(),
+            description: "".into(),
             input_schema: serde_json::json!({}),
             max_result_tokens: 300,
             model_compatibility: vec![ModelCompatibility::All],

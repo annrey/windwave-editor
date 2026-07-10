@@ -6,12 +6,14 @@
 //! - Shortcut handlers for entity operations
 
 use bevy::prelude::*;
+use log::info;
 
 pub struct EditorSelectionPlugin;
 
 impl Plugin for EditorSelectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EditorSelection>()
+            .add_message::<SelectionChangedEvent>()
             .add_systems(Update, sync_selection_from_panels)
             .add_systems(Update, broadcast_selection_change);
     }
@@ -129,10 +131,7 @@ fn broadcast_selection_change(
 
         info!(
             "Selection changed: {:?} -> {:?} (name: {:?}, components: {:?})",
-            editor_selection.previous_selection,
-            entity,
-            old_context.entity_name,
-            component_types
+            editor_selection.previous_selection, entity, old_context.entity_name, component_types
         );
     }
 }
@@ -199,10 +198,8 @@ pub fn selection_shortcuts(
     mut editor_selection: ResMut<EditorSelection>,
 ) {
     // Escape to clear selection
-    if keys.just_pressed(KeyCode::Escape) {
-        if editor_selection.selected_entity.is_some() {
-            info!("Clearing selection (Escape pressed)");
-            editor_selection.clear();
-        }
+    if keys.just_pressed(KeyCode::Escape) && editor_selection.selected_entity.is_some() {
+        info!("Clearing selection (Escape pressed)");
+        editor_selection.clear();
     }
 }

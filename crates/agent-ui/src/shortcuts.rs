@@ -9,6 +9,7 @@
 //! - Ctrl+P: Open Command Palette
 
 use bevy::prelude::*;
+use log::info;
 
 pub struct ShortcutsPlugin;
 
@@ -27,9 +28,18 @@ pub struct ShortcutState {
 }
 
 pub enum UndoAction {
-    DeleteEntity { entity: Entity, name: String },
-    SetTransform { entity: Entity, old_transform: Transform },
-    SetVisibility { entity: Entity, old_visible: bool },
+    DeleteEntity {
+        entity: Entity,
+        name: String,
+    },
+    SetTransform {
+        entity: Entity,
+        old_transform: Transform,
+    },
+    SetVisibility {
+        entity: Entity,
+        old_visible: bool,
+    },
 }
 
 fn handle_shortcuts(
@@ -41,40 +51,56 @@ fn handle_shortcuts(
     let ctrl_pressed = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
 
     // Ctrl+Z: Undo
-    if ctrl_pressed && keys.just_pressed(KeyCode::KeyZ) && !keys.pressed(KeyCode::ShiftLeft) && !keys.pressed(KeyCode::ShiftRight) {
+    if ctrl_pressed
+        && keys.just_pressed(KeyCode::KeyZ)
+        && !keys.pressed(KeyCode::ShiftLeft)
+        && !keys.pressed(KeyCode::ShiftRight)
+    {
         shortcut_state.last_shortcut = Some("Undo".to_string());
         info!("Shortcut: Undo (Ctrl+Z)");
-        desk_state.pending_actions.push(crate::director_desk::UserAction::Undo);
+        desk_state
+            .pending_actions
+            .push(crate::director_desk::UserAction::Undo);
     }
 
     // Ctrl+Y or Ctrl+Shift+Z: Redo
     if (ctrl_pressed && keys.just_pressed(KeyCode::KeyY))
-        || (ctrl_pressed && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)) && keys.just_pressed(KeyCode::KeyZ))
+        || (ctrl_pressed
+            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
+            && keys.just_pressed(KeyCode::KeyZ))
     {
         shortcut_state.last_shortcut = Some("Redo".to_string());
         info!("Shortcut: Redo (Ctrl+Y)");
-        desk_state.pending_actions.push(crate::director_desk::UserAction::Redo);
+        desk_state
+            .pending_actions
+            .push(crate::director_desk::UserAction::Redo);
     }
 
     // Delete: Delete selected entity
     if keys.just_pressed(KeyCode::Delete) {
         shortcut_state.last_shortcut = Some("Delete".to_string());
         info!("Shortcut: Delete selected entity");
-        desk_state.pending_actions.push(crate::director_desk::UserAction::DeleteSelected);
+        desk_state
+            .pending_actions
+            .push(crate::director_desk::UserAction::DeleteSelected);
     }
 
     // F: Focus on selected entity
     if keys.just_pressed(KeyCode::KeyF) {
         shortcut_state.last_shortcut = Some("Focus".to_string());
         info!("Shortcut: Focus on selected entity");
-        desk_state.pending_actions.push(crate::director_desk::UserAction::FocusSelected);
+        desk_state
+            .pending_actions
+            .push(crate::director_desk::UserAction::FocusSelected);
     }
 
     // Ctrl+P: Command Palette
     if ctrl_pressed && keys.just_pressed(KeyCode::KeyP) {
         shortcut_state.last_shortcut = Some("CommandPalette".to_string());
         info!("Shortcut: Open Command Palette");
-        desk_state.pending_actions.push(crate::director_desk::UserAction::ToggleCommandPalette);
+        desk_state
+            .pending_actions
+            .push(crate::director_desk::UserAction::ToggleCommandPalette);
     }
 
     // G/R/S: Gizmo modes (when no text input is focused)
@@ -96,24 +122,17 @@ fn handle_shortcuts(
 }
 
 /// System to handle undo action
-pub fn trigger_undo(
-    shortcut_state: &mut ResMut<ShortcutState>,
-) -> Option<UndoAction> {
+pub fn trigger_undo(shortcut_state: &mut ResMut<ShortcutState>) -> Option<UndoAction> {
     shortcut_state.undo_stack.pop()
 }
 
 /// System to handle redo action
-pub fn trigger_redo(
-    shortcut_state: &mut ResMut<ShortcutState>,
-) -> Option<UndoAction> {
+pub fn trigger_redo(shortcut_state: &mut ResMut<ShortcutState>) -> Option<UndoAction> {
     shortcut_state.redo_stack.pop()
 }
 
 /// Push an action to the undo stack
-pub fn push_undo_action(
-    shortcut_state: &mut ResMut<ShortcutState>,
-    action: UndoAction,
-) {
+pub fn push_undo_action(shortcut_state: &mut ResMut<ShortcutState>, action: UndoAction) {
     shortcut_state.undo_stack.push(action);
     // Clear redo stack when new action is performed
     shortcut_state.redo_stack.clear();

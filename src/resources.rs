@@ -1,9 +1,9 @@
 //! Resources for the AgentEdit editor.
 
-use bevy::prelude::*;
-use agent_core::EntityId;
-use agent_core::DirectorRuntime;
 use agent_core::AgentRegistry;
+use agent_core::DirectorRuntime;
+use agent_core::EntityId;
+use bevy::prelude::*;
 
 pub use bevy_adapter::{CommandHistory, PendingCommands};
 

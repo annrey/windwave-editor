@@ -9,9 +9,10 @@
 
 use bevy::prelude::*;
 use bevy::sprite::Sprite;
+use log::info;
 
 use crate::editor_selection::EditorSelection;
-use crate::gizmo::{GizmoState, GizmoMode};
+use crate::gizmo::{GizmoMode, GizmoState};
 
 pub struct TransformToolsPlugin;
 
@@ -27,13 +28,17 @@ impl Plugin for TransformToolsPlugin {
 #[derive(Resource)]
 pub struct SnapSettings {
     pub grid_size: f32,
-    pub angle_snap: f32,  // degrees
+    pub angle_snap: f32, // degrees
     pub snap_enabled: bool,
 }
 
 impl Default for SnapSettings {
     fn default() -> Self {
-        Self { grid_size: 16.0, angle_snap: 15.0, snap_enabled: false }
+        Self {
+            grid_size: 16.0,
+            angle_snap: 15.0,
+            snap_enabled: false,
+        }
     }
 }
 
@@ -86,7 +91,9 @@ fn handle_transform_drag(
         Some(w) => w,
         None => return,
     };
-    let Some(cursor) = window.cursor_position() else { return };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
 
     let (camera, camera_transform) = match camera_query.iter().next() {
         Some(c) => c,
@@ -121,9 +128,15 @@ fn handle_transform_drag(
         return;
     }
 
-    let Some(start_world) = drag_state.drag_start_world else { return };
-    let Some(start_transform) = drag_state.drag_start_transform else { return };
-    let Ok(mut transform) = transform_query.get_mut(target_entity) else { return };
+    let Some(start_world) = drag_state.drag_start_world else {
+        return;
+    };
+    let Some(start_transform) = drag_state.drag_start_transform else {
+        return;
+    };
+    let Ok(mut transform) = transform_query.get_mut(target_entity) else {
+        return;
+    };
 
     let delta = cursor_world - start_world;
 

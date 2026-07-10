@@ -3,8 +3,8 @@
 //! Gathers: editor selection, scene state, memory, project config, available tools.
 //! Outputs a structured prompt context that feeds into LLM prompts.
 
-use std::collections::HashMap;
 use crate::scene_bridge::EntityListItem;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // AgentContext
@@ -55,9 +55,17 @@ pub struct AgentContextBuilder {
     ctx: AgentContext,
 }
 
+impl Default for AgentContextBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentContextBuilder {
     pub fn new() -> Self {
-        Self { ctx: AgentContext::default() }
+        Self {
+            ctx: AgentContext::default(),
+        }
     }
 
     pub fn with_project(mut self, name: impl Into<String>) -> Self {
@@ -78,7 +86,9 @@ impl AgentContextBuilder {
 
     pub fn with_selection_name(mut self, name: String, components: Vec<String>) -> Self {
         self.ctx.selected_entity = Some(EntityContext {
-            name, components, transform: None,
+            name,
+            components,
+            transform: None,
         });
         self
     }
@@ -86,7 +96,8 @@ impl AgentContextBuilder {
     pub fn with_scene(mut self, entities: &[EntityListItem]) -> Self {
         self.ctx.scene_summary = Some(SceneContext {
             entity_count: entities.len(),
-            key_entities: entities.iter()
+            key_entities: entities
+                .iter()
                 .filter(|e| !e.name.is_empty() && !e.name.starts_with("entity_"))
                 .map(|e| e.name.clone())
                 .take(20)
@@ -96,11 +107,7 @@ impl AgentContextBuilder {
     }
 
     pub fn with_memory(mut self, recent_results: &[String], limit: usize) -> Self {
-        self.ctx.recent_memory = recent_results.iter()
-            .rev()
-            .take(limit)
-            .cloned()
-            .collect();
+        self.ctx.recent_memory = recent_results.iter().rev().take(limit).cloned().collect();
         self
     }
 
@@ -143,7 +150,8 @@ impl AgentContext {
         }
 
         if let Some(ref scene) = self.scene_summary {
-            parts.push(format!("Scene has {} entities. Key: {}",
+            parts.push(format!(
+                "Scene has {} entities. Key: {}",
                 scene.entity_count,
                 scene.key_entities.join(", "),
             ));
@@ -157,7 +165,10 @@ impl AgentContext {
         }
 
         if !self.available_tools.is_empty() {
-            parts.push(format!("Available tools: {}", self.available_tools.join(", ")));
+            parts.push(format!(
+                "Available tools: {}",
+                self.available_tools.join(", ")
+            ));
         }
 
         if !self.constraints.is_empty() {
@@ -182,8 +193,16 @@ mod tests {
     #[test]
     fn test_builder_full() {
         let entities = vec![
-            EntityListItem { name: "Player".into(), id: 1, components: vec![] },
-            EntityListItem { name: "Enemy".into(), id: 2, components: vec![] },
+            EntityListItem {
+                name: "Player".into(),
+                id: 1,
+                components: vec![],
+            },
+            EntityListItem {
+                name: "Enemy".into(),
+                id: 2,
+                components: vec![],
+            },
         ];
 
         let ctx = AgentContextBuilder::new()

@@ -287,12 +287,7 @@ mod tests {
     fn test_record_and_undo() {
         let mut rm = RollbackManager::new(10);
 
-        rm.record(
-            None,
-            OperationType::CreateEntity,
-            vec![],
-            make_snapshot(0),
-        );
+        rm.record(None, OperationType::CreateEntity, vec![], make_snapshot(0));
         assert!(rm.can_undo());
         assert!(!rm.can_redo());
 
@@ -322,7 +317,12 @@ mod tests {
         let _ = rm.undo();
         assert!(rm.can_redo());
 
-        rm.record(None, OperationType::ModifyComponent, vec![], make_snapshot(1));
+        rm.record(
+            None,
+            OperationType::ModifyComponent,
+            vec![],
+            make_snapshot(1),
+        );
         assert!(!rm.can_redo()); // redo stack cleared
         assert!(rm.can_undo());
     }
@@ -332,7 +332,12 @@ mod tests {
         let mut rm = RollbackManager::new(3);
 
         for i in 0..5 {
-            rm.record(None, OperationType::Custom(format!("op {}", i)), vec![], make_snapshot(i));
+            rm.record(
+                None,
+                OperationType::Custom(format!("op {}", i)),
+                vec![],
+                make_snapshot(i),
+            );
         }
         assert_eq!(rm.undo_count(), 3);
         // oldest two entries were evicted.
@@ -343,7 +348,12 @@ mod tests {
         let mut rm = RollbackManager::new(10);
 
         rm.record(None, OperationType::CreateEntity, vec![], make_snapshot(0));
-        rm.record(None, OperationType::ModifyComponent, vec![], make_snapshot(1));
+        rm.record(
+            None,
+            OperationType::ModifyComponent,
+            vec![],
+            make_snapshot(1),
+        );
 
         assert_eq!(rm.undo_count(), 2);
         let _ = rm.undo(); // undo modify
@@ -355,7 +365,12 @@ mod tests {
     fn test_clear() {
         let mut rm = RollbackManager::new(10);
         rm.record(None, OperationType::CreateEntity, vec![], make_snapshot(0));
-        rm.record(None, OperationType::ModifyComponent, vec![], make_snapshot(1));
+        rm.record(
+            None,
+            OperationType::ModifyComponent,
+            vec![],
+            make_snapshot(1),
+        );
         rm.clear();
         assert!(!rm.can_undo());
         assert!(!rm.can_redo());

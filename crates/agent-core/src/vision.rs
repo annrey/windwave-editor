@@ -72,11 +72,8 @@ pub struct VisionUsage {
 /// Convert a screenshot artifact to vision content
 pub fn observation_to_content(observation: &VisualObservation) -> VisionContent {
     // Create data URL for base64 image
-    let data_url = format!(
-        "data:image/png;base64,{}",
-        observation.image_base64
-    );
-    
+    let data_url = format!("data:image/png;base64,{}", observation.image_base64);
+
     VisionContent::ImageUrl {
         image_url: ImageUrl {
             url: data_url,
@@ -94,11 +91,11 @@ pub fn create_vision_message(
     let mut content = vec![VisionContent::Text {
         text: text.to_string(),
     }];
-    
+
     if let Some(obs) = observation {
         content.push(observation_to_content(obs));
     }
-    
+
     VisionMessage {
         role: role.to_string(),
         content,
@@ -110,7 +107,7 @@ pub fn create_vision_message(
 pub trait VisionClient: Send + Sync {
     /// Send a vision request
     async fn vision(&self, request: VisionRequest) -> Result<VisionResponse, VisionError>;
-    
+
     /// Check if vision is supported
     fn supports_vision(&self) -> bool;
 }
@@ -120,15 +117,20 @@ pub trait VisionClient: Send + Sync {
 pub enum VisionError {
     #[error("Vision not supported by this model")]
     NotSupported,
-    
+
     #[error("Invalid image format: {0}")]
     InvalidImage(String),
-    
+
     #[error("API error: {0}")]
     ApiError(String),
-    
+
+    #[cfg(feature = "reqwest")]
     #[error("HTTP error: {0}")]
     HttpError(#[from] reqwest::Error),
+
+    #[cfg(not(feature = "reqwest"))]
+    #[error("HTTP error: {0}")]
+    HttpError(String),
 }
 
 /// Vision model capabilities
@@ -149,7 +151,7 @@ impl VisionModel {
             VisionModel::GeminiProVision => "gemini-2.0-flash",
         }
     }
-    
+
     pub fn supports_vision(&self) -> bool {
         true
     }
@@ -158,14 +160,14 @@ impl VisionModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_create_vision_message_text_only() {
         let msg = create_vision_message("user", "What's in this image?", None);
         assert_eq!(msg.role, "user");
         assert_eq!(msg.content.len(), 1);
     }
-    
+
     #[test]
     fn test_observation_to_content() {
         let obs = VisualObservation {
@@ -174,7 +176,7 @@ mod tests {
             timestamp: 0.0,
             description: Some("test".to_string()),
         };
-        
+
         let content = observation_to_content(&obs);
         match content {
             VisionContent::ImageUrl { image_url } => {

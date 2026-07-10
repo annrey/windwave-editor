@@ -36,10 +36,7 @@ pub enum MemoryHook {
         elapsed_ms: u64,
     },
     /// A tool call failed.
-    PostToolCallFailure {
-        tool_name: String,
-        error: String,
-    },
+    PostToolCallFailure { tool_name: String, error: String },
     /// A scene mutation occurred.
     SceneAction {
         action_type: String,
@@ -47,19 +44,11 @@ pub enum MemoryHook {
         result: String,
     },
     /// A plan was created or revised.
-    PlanRevised {
-        plan_id: String,
-        reason: String,
-    },
+    PlanRevised { plan_id: String, reason: String },
     /// A goal was checked.
-    GoalCheck {
-        task_id: u64,
-        all_matched: bool,
-    },
+    GoalCheck { task_id: u64, all_matched: bool },
     /// Session ended — generate summary.
-    SessionEnd {
-        summary: String,
-    },
+    SessionEnd { summary: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -111,11 +100,17 @@ impl MemoryCapturePipeline {
 
         // Convert hook to memory entries
         match hook {
-            MemoryHook::SessionStart { project_path, session_id } => {
+            MemoryHook::SessionStart {
+                project_path,
+                session_id,
+            } => {
                 vec![CapturedMemory {
                     id: id.clone(),
                     tier: MemoryTier::Episodic,
-                    content: format!("Session started: project={}, session={}", project_path, session_id),
+                    content: format!(
+                        "Session started: project={}, session={}",
+                        project_path, session_id
+                    ),
                     tags: vec!["session_start".into(), session_id.clone()],
                     importance: 0.5,
                 }]
@@ -139,7 +134,10 @@ impl MemoryCapturePipeline {
                 }
                 entries
             }
-            MemoryHook::PreToolCall { tool_name, arguments } => {
+            MemoryHook::PreToolCall {
+                tool_name,
+                arguments,
+            } => {
                 vec![CapturedMemory {
                     id,
                     tier: MemoryTier::Procedural,
@@ -148,11 +146,18 @@ impl MemoryCapturePipeline {
                     importance: 0.3,
                 }]
             }
-            MemoryHook::PostToolCall { tool_name, result, elapsed_ms } => {
+            MemoryHook::PostToolCall {
+                tool_name,
+                result,
+                elapsed_ms,
+            } => {
                 vec![CapturedMemory {
                     id,
                     tier: MemoryTier::Working,
-                    content: format!("Tool {} completed in {}ms: {}", tool_name, elapsed_ms, result),
+                    content: format!(
+                        "Tool {} completed in {}ms: {}",
+                        tool_name, elapsed_ms, result
+                    ),
                     tags: vec!["tool_result".into(), tool_name.clone()],
                     importance: 0.4,
                 }]
@@ -166,7 +171,11 @@ impl MemoryCapturePipeline {
                     importance: 0.6,
                 }]
             }
-            MemoryHook::SceneAction { action_type, target, result } => {
+            MemoryHook::SceneAction {
+                action_type,
+                target,
+                result,
+            } => {
                 vec![CapturedMemory {
                     id: id.clone(),
                     tier: MemoryTier::Working,
@@ -184,11 +193,18 @@ impl MemoryCapturePipeline {
                     importance: 0.5,
                 }]
             }
-            MemoryHook::GoalCheck { task_id, all_matched } => {
+            MemoryHook::GoalCheck {
+                task_id,
+                all_matched,
+            } => {
                 vec![CapturedMemory {
                     id,
                     tier: MemoryTier::Working,
-                    content: format!("Goal check for task {}: {}", task_id, if *all_matched { "PASS" } else { "FAIL" }),
+                    content: format!(
+                        "Goal check for task {}: {}",
+                        task_id,
+                        if *all_matched { "PASS" } else { "FAIL" }
+                    ),
                     tags: vec!["goal_check".into(), format!("task_{}", task_id)],
                     importance: 0.4,
                 }]
@@ -208,12 +224,15 @@ impl MemoryCapturePipeline {
     /// Prune stale hashes from the dedup window.
     pub fn prune(&mut self) {
         let now = Instant::now();
-        self.recent_hashes.retain(|(_, ts)| now.duration_since(*ts) < self.dedup_window);
+        self.recent_hashes
+            .retain(|(_, ts)| now.duration_since(*ts) < self.dedup_window);
     }
 
     fn is_duplicate(&self, hash: u64) -> bool {
         let now = Instant::now();
-        self.recent_hashes.iter().any(|(h, ts)| *h == hash && now.duration_since(*ts) < self.dedup_window)
+        self.recent_hashes
+            .iter()
+            .any(|(h, ts)| *h == hash && now.duration_since(*ts) < self.dedup_window)
     }
 }
 

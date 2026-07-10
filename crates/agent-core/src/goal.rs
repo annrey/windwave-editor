@@ -79,10 +79,7 @@ pub enum GoalRequirementKind {
     },
 
     /// An entity's Sprite colour must exactly match the given RGBA values.
-    SpriteColorIs {
-        entity_name: String,
-        rgba: [f32; 4],
-    },
+    SpriteColorIs { entity_name: String, rgba: [f32; 4] },
 }
 
 /// A single requirement inside a `GoalState`, combining a concrete check with a
@@ -160,10 +157,7 @@ impl GoalRequirementResult {
         }
     }
 
-    pub fn mismatched(
-        requirement_id: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn mismatched(requirement_id: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             requirement_id: requirement_id.into(),
             matched: false,

@@ -111,28 +111,43 @@ impl AuditLog {
 
     /// Compute a hash that covers this entry's own content.
     fn content_hash(
-        index: u64, timestamp: u64, agent_id: u64,
-        action: &str, target: &str, result: &str,
-        risk_level: &str, user_approved: bool,
+        index: u64,
+        timestamp: u64,
+        agent_id: u64,
+        action: &str,
+        target: &str,
+        result: &str,
+        risk_level: &str,
+        user_approved: bool,
     ) -> String {
         let input = format!(
             "{}|{}|{}|{}|{}|{}|{}|{}",
-            index, timestamp, agent_id, action, target, result,
-            risk_level, user_approved,
+            index, timestamp, agent_id, action, target, result, risk_level, user_approved,
         );
         sha256_hex(&input)
     }
 
     /// Compute a chained checksum: hash of (content_hash || previous_checksum).
     fn compute_checksum(
-        index: u64, timestamp: u64, agent_id: u64,
-        action: &str, target: &str, result: &str,
-        risk_level: &str, user_approved: bool,
+        index: u64,
+        timestamp: u64,
+        agent_id: u64,
+        action: &str,
+        target: &str,
+        result: &str,
+        risk_level: &str,
+        user_approved: bool,
         previous_checksum: &str,
     ) -> String {
         let content = Self::content_hash(
-            index, timestamp, agent_id, action, target, result,
-            risk_level, user_approved,
+            index,
+            timestamp,
+            agent_id,
+            action,
+            target,
+            result,
+            risk_level,
+            user_approved,
         );
         let input = format!("{}|{}", content, previous_checksum);
         sha256_hex(&input)
@@ -145,11 +160,19 @@ impl AuditLog {
         }
         // Verify first entry against genesis (empty previous).
         let first = &self.entries[0];
-        if first.checksum != Self::compute_checksum(
-            first.index, first.timestamp, first.agent_id,
-            &first.action, &first.target, &first.result,
-            &first.risk_level, first.user_approved, "",
-        ) {
+        if first.checksum
+            != Self::compute_checksum(
+                first.index,
+                first.timestamp,
+                first.agent_id,
+                &first.action,
+                &first.target,
+                &first.result,
+                &first.risk_level,
+                first.user_approved,
+                "",
+            )
+        {
             return false;
         }
         // Verify each subsequent entry chains to its predecessor.
@@ -157,9 +180,14 @@ impl AuditLog {
             let prev = &self.entries[i - 1];
             let curr = &self.entries[i];
             let expected = Self::compute_checksum(
-                curr.index, curr.timestamp, curr.agent_id,
-                &curr.action, &curr.target, &curr.result,
-                &curr.risk_level, curr.user_approved,
+                curr.index,
+                curr.timestamp,
+                curr.agent_id,
+                &curr.action,
+                &curr.target,
+                &curr.result,
+                &curr.risk_level,
+                curr.user_approved,
                 &prev.checksum,
             );
             if expected != curr.checksum {
@@ -186,7 +214,14 @@ impl AuditLog {
 
     /// Return the most recent `n` entries.
     pub fn recent(&self, n: usize) -> Vec<&AuditEntry> {
-        self.entries.iter().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect()
+        self.entries
+            .iter()
+            .rev()
+            .take(n)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     }
 }
 
@@ -217,8 +252,24 @@ mod tests {
     fn test_audit_log_recording() {
         let mut log = AuditLog::new(100);
 
-        log.record(1700000000, 0, "create_entity", "Player", "success", "LowRisk", false);
-        log.record(1700000001, 0, "delete_entity", "Enemy_01", "success", "HighRisk", true);
+        log.record(
+            1700000000,
+            0,
+            "create_entity",
+            "Player",
+            "success",
+            "LowRisk",
+            false,
+        );
+        log.record(
+            1700000001,
+            0,
+            "delete_entity",
+            "Enemy_01",
+            "success",
+            "HighRisk",
+            true,
+        );
 
         assert_eq!(log.len(), 2);
         assert!(!log.is_empty());
@@ -228,8 +279,12 @@ mod tests {
     #[test]
     fn test_audit_log_verification_fails_on_tamper() {
         let mut log = AuditLog::new(100);
-        log.record(1700000000, 0, "op_a", "target_a", "success", "LowRisk", false);
-        log.record(1700000001, 0, "op_b", "target_b", "success", "LowRisk", false);
+        log.record(
+            1700000000, 0, "op_a", "target_a", "success", "LowRisk", false,
+        );
+        log.record(
+            1700000001, 0, "op_b", "target_b", "success", "LowRisk", false,
+        );
 
         assert!(log.verify());
 
@@ -242,7 +297,15 @@ mod tests {
     fn test_audit_log_recent() {
         let mut log = AuditLog::new(100);
         for i in 0..10 {
-            log.record(1700000000 + i, 1, format!("op_{}", i), "target", "success", "LowRisk", false);
+            log.record(
+                1700000000 + i,
+                1,
+                format!("op_{}", i),
+                "target",
+                "success",
+                "LowRisk",
+                false,
+            );
         }
 
         let recent = log.recent(3);
@@ -255,7 +318,15 @@ mod tests {
     fn test_audit_log_eviction() {
         let mut log = AuditLog::new(5);
         for i in 0..10 {
-            log.record(1700000000 + i, 0, format!("op_{}", i), "target", "success", "LowRisk", false);
+            log.record(
+                1700000000 + i,
+                0,
+                format!("op_{}", i),
+                "target",
+                "success",
+                "LowRisk",
+                false,
+            );
         }
 
         // Only last 5 retained
@@ -265,17 +336,25 @@ mod tests {
         let mut prev_checksum = "";
         for entry in &log.entries {
             let expected = AuditLog::compute_checksum(
-                entry.index, entry.timestamp, entry.agent_id,
-                &entry.action, &entry.target, &entry.result,
-                &entry.risk_level, entry.user_approved,
+                entry.index,
+                entry.timestamp,
+                entry.agent_id,
+                &entry.action,
+                &entry.target,
+                &entry.result,
+                &entry.risk_level,
+                entry.user_approved,
                 prev_checksum,
             );
             // First retained entry won't match genesis (prev=""), but later ones should.
             if prev_checksum.is_empty() {
                 // Skip: genesis chain is broken by eviction
             } else {
-                assert_eq!(expected, entry.checksum,
-                    "Entry {} checksum mismatch in retained window", entry.index);
+                assert_eq!(
+                    expected, entry.checksum,
+                    "Entry {} checksum mismatch in retained window",
+                    entry.index
+                );
             }
             prev_checksum = &entry.checksum;
         }

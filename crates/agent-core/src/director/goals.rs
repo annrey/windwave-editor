@@ -1,9 +1,9 @@
 //! Goal checking and review methods for DirectorRuntime.
 
-use crate::plan::{EditPlan, EditPlanStep, EditPlanStatus};
+use super::types::{DirectorRuntime, DirectorTraceEntry, EditorEvent, ReviewSummary};
 use crate::permission::OperationRisk;
+use crate::plan::{EditPlan, EditPlanStatus, EditPlanStep};
 use crate::types::now_millis;
-use super::types::{DirectorRuntime, EditorEvent, DirectorTraceEntry, ReviewSummary};
 
 impl DirectorRuntime {
     /// Run the goal checker on a task.
@@ -44,7 +44,11 @@ impl DirectorRuntime {
                 let summary = if result.all_matched {
                     format!(
                         "Goal check passed: {}/{} requirements matched for task {}.",
-                        result.requirement_results.iter().filter(|r| r.matched).count(),
+                        result
+                            .requirement_results
+                            .iter()
+                            .filter(|r| r.matched)
+                            .count(),
                         result.requirement_results.len(),
                         task_id
                     )
@@ -135,9 +139,7 @@ impl DirectorRuntime {
 
             let mut iss = Vec::new();
             if high_risk {
-                iss.push(
-                    "Plan contained high-risk or destructive operations.".to_string(),
-                );
+                iss.push("Plan contained high-risk or destructive operations.".to_string());
             }
             if !all_completed {
                 iss.push("Not all plans completed successfully.".to_string());
@@ -199,7 +201,8 @@ impl DirectorRuntime {
         step: &EditPlanStep,
     ) -> Vec<crate::goal::GoalRequirementKind> {
         let mut reqs = Vec::new();
-        if step.title.contains("创建") || step.title.contains("Create") {
+        use crate::keyword_matcher::KeywordMatcher;
+        if KeywordMatcher::is_create_operation(&step.title) {
             let parts: Vec<&str> = step.title.split_whitespace().collect();
             if let Some(name) = parts.last() {
                 reqs.push(crate::goal::GoalRequirementKind::EntityExists {

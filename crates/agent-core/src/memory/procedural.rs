@@ -48,11 +48,16 @@ impl WorkflowTemplate {
     }
 
     pub fn full_text(&self) -> String {
-        let steps_text = self.steps.iter()
+        let steps_text = self
+            .steps
+            .iter()
             .map(|s| format!("{}:{}", s.tool_name, s.description))
             .collect::<Vec<_>>()
             .join(" ");
-        format!("{} {} {} {}", self.name, self.trigger, self.category, steps_text)
+        format!(
+            "{} {} {} {}",
+            self.name, self.trigger, self.category, steps_text
+        )
     }
 }
 
@@ -75,7 +80,12 @@ pub struct DecisionPattern {
 }
 
 impl DecisionPattern {
-    pub fn new(id: u64, context: impl Into<String>, decision: impl Into<String>, outcome: impl Into<String>) -> Self {
+    pub fn new(
+        id: u64,
+        context: impl Into<String>,
+        decision: impl Into<String>,
+        outcome: impl Into<String>,
+    ) -> Self {
         Self {
             metadata: MemoryMetadata::new(id, MemoryTier::Procedural),
             context: context.into(),
@@ -100,7 +110,7 @@ impl DecisionPattern {
 /// - Keyword-based matching for workflow triggering
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProceduralMemory {
-    workflows: Vec<WorkflowTemplate>,
+    pub(crate) workflows: Vec<WorkflowTemplate>,
     patterns: Vec<DecisionPattern>,
     next_id: u64,
     /// Workflow name -> index
@@ -125,7 +135,10 @@ impl ProceduralMemory {
         let id = workflow.metadata.id;
         let idx = self.workflows.len();
         self.name_index.insert(workflow.name.clone(), idx);
-        self.category_index.entry(workflow.category.clone()).or_default().push(idx);
+        self.category_index
+            .entry(workflow.category.clone())
+            .or_default()
+            .push(idx);
         self.workflows.push(workflow);
         id
     }
@@ -138,21 +151,26 @@ impl ProceduralMemory {
         category: impl Into<String>,
     ) -> MemoryEntryId {
         let id = self.next_id();
-        let workflow = WorkflowTemplate::new(id.0, name, trigger)
-            .with_category(category);
+        let workflow = WorkflowTemplate::new(id.0, name, trigger).with_category(category);
         self.add_workflow(workflow)
     }
 
     /// Find workflows matching a request (keyword overlap)
     pub fn find_matching(&self, request: &str, top_k: usize) -> Vec<&WorkflowTemplate> {
         let request_lower = request.to_lowercase();
-        let request_tokens: Vec<String> = request_lower.split_whitespace().map(|s| s.to_string()).collect();
+        let request_tokens: Vec<String> = request_lower
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
 
-        let mut scored: Vec<(usize, f32)> = self.workflows.iter()
+        let mut scored: Vec<(usize, f32)> = self
+            .workflows
+            .iter()
             .enumerate()
             .map(|(idx, wf)| {
                 let wf_text = wf.full_text().to_lowercase();
-                let overlap = request_tokens.iter()
+                let overlap = request_tokens
+                    .iter()
                     .filter(|token| wf_text.contains(*token))
                     .count() as f32;
                 let score = overlap * wf.success_rate;
@@ -161,12 +179,10 @@ impl ProceduralMemory {
             .filter(|(_, score)| *score > 0.0)
             .collect();
 
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        scored.into_iter()
+        scored
+            .into_iter()
             .take(top_k)
             .filter_map(|(idx, _)| self.workflows.get(idx))
             .collect()
@@ -174,9 +190,11 @@ impl ProceduralMemory {
 
     /// Find workflows by category
     pub fn find_by_category(&self, category: &str) -> Vec<&WorkflowTemplate> {
-        self.category_index.get(category)
+        self.category_index
+            .get(category)
             .map(|indices| {
-                indices.iter()
+                indices
+                    .iter()
                     .filter_map(|&idx| self.workflows.get(idx))
                     .collect()
             })
@@ -185,7 +203,8 @@ impl ProceduralMemory {
 
     /// Get workflow by name
     pub fn get_workflow(&self, name: &str) -> Option<&WorkflowTemplate> {
-        self.name_index.get(name)
+        self.name_index
+            .get(name)
             .and_then(|&idx| self.workflows.get(idx))
     }
 
@@ -196,7 +215,8 @@ impl ProceduralMemory {
                 wf.use_count += 1;
                 // Exponential moving average
                 let alpha = 0.1;
-                wf.success_rate = wf.success_rate * (1.0 - alpha) + (if success { 1.0 } else { 0.0 }) * alpha;
+                wf.success_rate =
+                    wf.success_rate * (1.0 - alpha) + (if success { 1.0 } else { 0.0 }) * alpha;
                 wf.metadata.touch();
             }
         }
@@ -218,15 +238,17 @@ impl ProceduralMemory {
         success: bool,
     ) -> MemoryEntryId {
         // Try to find existing pattern
-        if let Some(idx) = self.patterns.iter().position(|p| {
-            p.context == context && p.decision == decision
-        }) {
+        if let Some(idx) = self
+            .patterns
+            .iter()
+            .position(|p| p.context == context && p.decision == decision)
+        {
             let pattern = &mut self.patterns[idx];
             pattern.observation_count += 1;
             pattern.outcome = outcome.to_string();
             let alpha = 0.1;
-            pattern.confidence = pattern.confidence * (1.0 - alpha)
-                + (if success { 1.0 } else { 0.0 }) * alpha;
+            pattern.confidence =
+                pattern.confidence * (1.0 - alpha) + (if success { 1.0 } else { 0.0 }) * alpha;
             pattern.metadata.touch();
             return pattern.metadata.id;
         }
@@ -238,32 +260,46 @@ impl ProceduralMemory {
     }
 
     /// Find decision patterns for a context
-    pub fn find_patterns(&self, context: &str, min_confidence: f32, top_k: usize) -> Vec<&DecisionPattern> {
+    pub fn find_patterns(
+        &self,
+        context: &str,
+        min_confidence: f32,
+        top_k: usize,
+    ) -> Vec<&DecisionPattern> {
         let context_lower = context.to_lowercase();
-        let mut scored: Vec<(usize, f32)> = self.patterns.iter()
+        let mut scored: Vec<(usize, f32)> = self
+            .patterns
+            .iter()
             .enumerate()
             .filter(|(_, p)| p.confidence >= min_confidence)
             .map(|(idx, p)| {
-                let overlap = if p.context.to_lowercase().contains(&context_lower) { 1.0 } else { 0.0 };
+                let overlap = if p.context.to_lowercase().contains(&context_lower) {
+                    1.0
+                } else {
+                    0.0
+                };
                 let score = overlap * p.confidence * (p.observation_count as f32).sqrt();
                 (idx, score)
             })
             .filter(|(_, score)| *score > 0.0)
             .collect();
 
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        scored.into_iter()
+        scored
+            .into_iter()
             .take(top_k)
             .filter_map(|(idx, _)| self.patterns.get(idx))
             .collect()
     }
 
     /// Build summary for LLM context
-    pub fn build_summary(&self, request: &str, max_workflows: usize, max_patterns: usize) -> String {
+    pub fn build_summary(
+        &self,
+        request: &str,
+        max_workflows: usize,
+        max_patterns: usize,
+    ) -> String {
         let mut parts = Vec::new();
 
         // Matching workflows
@@ -306,50 +342,55 @@ impl ProceduralMemory {
 
     /// Seed with default Bevy workflows
     pub fn seed_with_defaults(&mut self) {
-        let create_entity = WorkflowTemplate::new(self.next_id().0, "create_entity", "create spawn new entity")
-            .with_category("scene")
-            .with_step(WorkflowStep {
-                description: "Create entity with name".to_string(),
-                tool_name: "create_entity".to_string(),
-                parameters: Some(serde_json::json!({"name": "{entity_name}"})),
-            })
-            .with_step(WorkflowStep {
-                description: "Add Transform component".to_string(),
-                tool_name: "add_component".to_string(),
-                parameters: Some(serde_json::json!({"component": "Transform", "position": [0, 0, 0]})),
-            });
+        let create_entity =
+            WorkflowTemplate::new(self.next_id().0, "create_entity", "create spawn new entity")
+                .with_category("scene")
+                .with_step(WorkflowStep {
+                    description: "Create entity with name".to_string(),
+                    tool_name: "create_entity".to_string(),
+                    parameters: Some(serde_json::json!({"name": "{entity_name}"})),
+                })
+                .with_step(WorkflowStep {
+                    description: "Add Transform component".to_string(),
+                    tool_name: "add_component".to_string(),
+                    parameters: Some(
+                        serde_json::json!({"component": "Transform", "position": [0, 0, 0]}),
+                    ),
+                });
         self.add_workflow(create_entity);
 
-        let create_player = WorkflowTemplate::new(self.next_id().0, "create_player", "create player character")
-            .with_category("scene")
-            .with_step(WorkflowStep {
-                description: "Create player entity".to_string(),
-                tool_name: "create_entity".to_string(),
-                parameters: Some(serde_json::json!({"name": "Player"})),
-            })
-            .with_step(WorkflowStep {
-                description: "Add Player component".to_string(),
-                tool_name: "add_component".to_string(),
-                parameters: Some(serde_json::json!({"component": "Player"})),
-            })
-            .with_step(WorkflowStep {
-                description: "Add Sprite component".to_string(),
-                tool_name: "add_component".to_string(),
-                parameters: Some(serde_json::json!({"component": "Sprite", "color": "blue"})),
-            });
+        let create_player =
+            WorkflowTemplate::new(self.next_id().0, "create_player", "create player character")
+                .with_category("scene")
+                .with_step(WorkflowStep {
+                    description: "Create player entity".to_string(),
+                    tool_name: "create_entity".to_string(),
+                    parameters: Some(serde_json::json!({"name": "Player"})),
+                })
+                .with_step(WorkflowStep {
+                    description: "Add Player component".to_string(),
+                    tool_name: "add_component".to_string(),
+                    parameters: Some(serde_json::json!({"component": "Player"})),
+                })
+                .with_step(WorkflowStep {
+                    description: "Add Sprite component".to_string(),
+                    tool_name: "add_component".to_string(),
+                    parameters: Some(serde_json::json!({"component": "Sprite", "color": "blue"})),
+                });
         self.add_workflow(create_player);
 
-        let add_movement = WorkflowTemplate::new(self.next_id().0, "add_movement", "add movement system wasd")
-            .with_category("code")
-            .with_step(WorkflowStep {
-                description: "Create movement system".to_string(),
-                tool_name: "create_system".to_string(),
-                parameters: Some(serde_json::json!({
-                    "name": "player_movement",
-                    "query": "&mut Transform, With<Player>",
-                    "input": "WASD"
-                })),
-            });
+        let add_movement =
+            WorkflowTemplate::new(self.next_id().0, "add_movement", "add movement system wasd")
+                .with_category("code")
+                .with_step(WorkflowStep {
+                    description: "Create movement system".to_string(),
+                    tool_name: "create_system".to_string(),
+                    parameters: Some(serde_json::json!({
+                        "name": "player_movement",
+                        "query": "&mut Transform, With<Player>",
+                        "input": "WASD"
+                    })),
+                });
         self.add_workflow(add_movement);
     }
 
@@ -370,7 +411,9 @@ impl ProceduralMemory {
         }
 
         // Score workflows by usage and success rate
-        let mut scored: Vec<(usize, f32)> = self.workflows.iter()
+        let mut scored: Vec<(usize, f32)> = self
+            .workflows
+            .iter()
             .enumerate()
             .map(|(i, wf)| {
                 let usage_score = wf.use_count as f32;
@@ -384,7 +427,8 @@ impl ProceduralMemory {
         scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Collect names of workflows to remove
-        let to_remove: std::collections::HashSet<String> = scored.into_iter()
+        let to_remove: std::collections::HashSet<String> = scored
+            .into_iter()
             .take(count)
             .map(|(i, _)| self.workflows[i].name.clone())
             .collect();
@@ -403,7 +447,10 @@ impl ProceduralMemory {
         self.category_index.clear();
         for (idx, wf) in self.workflows.iter().enumerate() {
             self.name_index.insert(wf.name.clone(), idx);
-            self.category_index.entry(wf.category.clone()).or_insert_with(Vec::new).push(idx);
+            self.category_index
+                .entry(wf.category.clone())
+                .or_default()
+                .push(idx);
         }
     }
 
@@ -411,6 +458,57 @@ impl ProceduralMemory {
         let id = MemoryEntryId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    // =================================================================
+    // Auto-Learning Engine (B4)
+    // =================================================================
+
+    /// Auto-learn: promote high-confidence decision patterns to workflow templates.
+    ///
+    /// When a decision pattern reaches high confidence and has been observed enough,
+    /// it is promoted to a reusable workflow. Returns the number of new workflows created.
+    pub fn auto_learn_workflows(&mut self, min_confidence: f32, min_observations: u32) -> usize {
+        let candidates: Vec<DecisionPattern> = self
+            .patterns
+            .iter()
+            .filter(|p| p.confidence >= min_confidence && p.observation_count >= min_observations)
+            .cloned()
+            .collect();
+
+        let mut created = 0;
+        for pattern in candidates {
+            let wf_name = format!("auto_{}", pattern.context.replace(' ', "_"));
+
+            if self.name_index.contains_key(&wf_name) {
+                continue;
+            }
+
+            let step = WorkflowStep {
+                description: pattern.decision.clone(),
+                tool_name: "auto_learned".to_string(),
+                parameters: Some(serde_json::json!({
+                    "context": pattern.context,
+                    "decision": pattern.decision,
+                    "expected_outcome": pattern.outcome,
+                })),
+            };
+
+            let workflow = WorkflowTemplate::new(self.next_id().0, &wf_name, &pattern.context)
+                .with_category("auto_learned")
+                .with_step(step);
+
+            self.add_workflow(workflow);
+            created += 1;
+        }
+
+        created
+    }
+
+    /// Check if any patterns are ready for promotion and auto-promote them.
+    /// Uses default thresholds: confidence >= 0.8, observations >= 5.
+    pub fn auto_learn_default(&mut self) -> usize {
+        self.auto_learn_workflows(0.8, 5)
     }
 
     // =================================================================
@@ -429,7 +527,10 @@ impl ProceduralMemory {
         }
         let idx = self.workflows.len();
         self.name_index.insert(workflow.name.clone(), idx);
-        self.category_index.entry(workflow.category.clone()).or_default().push(idx);
+        self.category_index
+            .entry(workflow.category.clone())
+            .or_default()
+            .push(idx);
         self.workflows.push(workflow);
     }
 }

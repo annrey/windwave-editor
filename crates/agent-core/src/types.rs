@@ -94,10 +94,10 @@ pub struct ContextTag {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TagType {
-    Entity,    // @Player
-    Topic,     // #Physics
-    Command,   // /save
-    Urgent,    // !urgent
+    Entity,  // @Player
+    Topic,   // #Physics
+    Command, // /save
+    Urgent,  // !urgent
 }
 
 /// Agent capability descriptor

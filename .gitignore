@@ -1,53 +1,41 @@
-# Build output
+# Rust
 /target/
-Cargo.lock
+**/*.rs.bk
 
-# macOS
+# Keep Cargo.lock for the binary application (do NOT ignore Cargo.lock)
+
+# OS / IDE
 .DS_Store
-
-# IDE
+Thumbs.db
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Design documents (private)
-/design/
+# Secrets / local
+.env
+.env.*
+*.local
+
+# Runtime / noise
+/data/
+screenshot_*.png
 /session-log/
 /session-logs/
 /会话log/
+/sessions/
 
-# Documentation (ADRs, agent docs)
-/docs/
-
-# Local runtime data
-/data/
-skills-lock.json
-
-# Local issue tracking + agent config
+# Private local-only
+/design/
 .agents/
 .issues/
-
-# AI assistant configs (may contain personal preferences)
+.trae/
 .claude/
 .cursor/
-.cursorrules
-.gemini/
-.kiro/
 .mcp.json
-.opencode.json
-.qoder/
-.trae/
-.windsurfrules
-AGENTS.md
-CLAUDE.md
-GEMINI.md
-QODER.md
 
-# Local test data
-*.local
-*.env
-.env.*
-
-# OS files
-Thumbs.db
+# Never allow UA / Node pollution if accidentally copied
+node_modules/
+.pnpm-store/
+dist/
+*.tsbuildinfo

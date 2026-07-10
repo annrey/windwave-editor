@@ -3,15 +3,14 @@
 //! Provides the project management UI for AgentEdit.
 //! Panels: project creation wizard, recent projects list, project info bar.
 
+use crate::layout::{LayoutManager, PanelPosition};
+use agent_core::project::{
+    ProjectManager, ProjectTemplate, RecentProjectsList, PROJECT_MANIFEST_FILE,
+};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use log::info;
-use agent_core::project::{
-    ProjectManager, ProjectTemplate, RecentProjectsList,
-    PROJECT_MANIFEST_FILE,
-};
+use log::{error, info};
 use std::path::PathBuf;
-use crate::layout::{LayoutManager, PanelPosition};
 
 pub struct ProjectPanelPlugin;
 
@@ -19,17 +18,19 @@ impl Plugin for ProjectPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ProjectPanelState>()
             .init_resource::<ProjectUiConfig>()
-            .add_systems(Update, (
-                render_project_panel,
-                render_project_info_bar,
-                auto_load_recent_projects,
-            ));
+            .add_systems(
+                Update,
+                (
+                    render_project_panel,
+                    render_project_info_bar,
+                    auto_load_recent_projects,
+                ),
+            );
     }
 }
 
 #[derive(Resource)]
 pub struct ProjectPanelState {
-    pub visible: bool,
     pub project_manager: ProjectManager,
     pub recent_projects: RecentProjectsList,
     pub active_tab: ProjectTab,
@@ -42,9 +43,9 @@ pub struct ProjectPanelState {
 
 impl Default for ProjectPanelState {
     fn default() -> Self {
-        let recent = RecentProjectsList::load(RecentProjectsList::default_path()).unwrap_or_default();
+        let recent =
+            RecentProjectsList::load(RecentProjectsList::default_path()).unwrap_or_default();
         Self {
-            visible: false,
             project_manager: ProjectManager::new(),
             recent_projects: recent,
             active_tab: ProjectTab::Recent,
@@ -74,9 +75,7 @@ fn default_project_path() -> String {
         .unwrap_or_else(|_| ".".into())
 }
 
-fn auto_load_recent_projects(
-    mut state: ResMut<ProjectPanelState>,
-) {
+fn auto_load_recent_projects(mut state: ResMut<ProjectPanelState>) {
     // Called once on init - handled in Default
     _ = &mut state;
 }
@@ -157,7 +156,7 @@ fn render_recent_projects(ui: &mut egui::Ui, state: &mut ProjectPanelState) {
     egui::ScrollArea::vertical()
         .max_height(280.0)
         .show(ui, |ui| {
-            for (_i, proj) in projects.iter().enumerate() {
+            for proj in projects.iter() {
                 ui.horizontal(|ui| {
                     // Selection area
                     let response = ui.allocate_response(
@@ -170,10 +169,8 @@ fn render_recent_projects(ui: &mut egui::Ui, state: &mut ProjectPanelState) {
 
                     // Background
                     if is_hovered {
-                        ui.painter().rect_filled(
-                            rect, 4.0,
-                            egui::Color32::from_rgb(50, 50, 70),
-                        );
+                        ui.painter()
+                            .rect_filled(rect, 4.0, egui::Color32::from_rgb(50, 50, 70));
                     }
 
                     // Project name
@@ -197,9 +194,10 @@ fn render_recent_projects(ui: &mut egui::Ui, state: &mut ProjectPanelState) {
 
                     if response.clicked() {
                         if proj.path.exists() {
-                            match state.project_manager.load_project(
-                                proj.path.join(PROJECT_MANIFEST_FILE),
-                            ) {
+                            match state
+                                .project_manager
+                                .load_project(proj.path.join(PROJECT_MANIFEST_FILE))
+                            {
                                 Ok(_) => {
                                     state.recent_projects.add(
                                         &proj.name,
@@ -328,10 +326,10 @@ fn render_new_project_wizard(ui: &mut egui::Ui, state: &mut ProjectPanelState) {
         if ui.button("Create Project").clicked() {
             state.wizard_error = None;
             let path = PathBuf::from(&state.wizard_path);
-            match state.project_manager.create_project(
-                &state.wizard_name,
-                path.join(&state.wizard_name),
-            ) {
+            match state
+                .project_manager
+                .create_project(&state.wizard_name, path.join(&state.wizard_name))
+            {
                 Ok(manifest) => {
                     let template_name = format!("{:?}", state.wizard_template);
                     state.recent_projects.add(
@@ -340,7 +338,6 @@ fn render_new_project_wizard(ui: &mut egui::Ui, state: &mut ProjectPanelState) {
                         Some(template_name),
                     );
                     info!("Created project: {}", manifest.name);
-                    state.visible = false;
                 }
                 Err(e) => {
                     state.wizard_error = Some(format!("Create failed: {}", e));
@@ -356,7 +353,10 @@ fn render_project_overview(ui: &mut egui::Ui, state: &ProjectPanelState) {
     };
 
     ui.heading(&project.name);
-    ui.label(format!("Engine: {} v{}", project.engine, project.engine_version));
+    ui.label(format!(
+        "Engine: {} v{}",
+        project.engine, project.engine_version
+    ));
     ui.label(format!("Version: {}", project.version));
     ui.separator();
 
@@ -374,9 +374,15 @@ fn render_project_overview(ui: &mut egui::Ui, state: &ProjectPanelState) {
 
     // Agent config
     ui.label(egui::RichText::new("Agent Configuration").strong());
-    ui.label(format!("  Provider: {}", project.agent_config.default_llm_provider));
+    ui.label(format!(
+        "  Provider: {}",
+        project.agent_config.default_llm_provider
+    ));
     ui.label(format!("  Model: {}", project.agent_config.default_model));
-    ui.label(format!("  Confirmation: {}", project.agent_config.confirmation_level));
+    ui.label(format!(
+        "  Confirmation: {}",
+        project.agent_config.confirmation_level
+    ));
     ui.label(format!("  Max Steps: {}", project.agent_config.max_steps));
 
     ui.add_space(8.0);
@@ -419,13 +425,13 @@ fn render_project_info_bar(
 }
 
 /// Toggle project panel visibility
-pub fn toggle_project_panel(state: &mut ResMut<ProjectPanelState>) {
-    state.visible = !state.visible;
+pub fn toggle_project_panel(_state: &mut ResMut<ProjectPanelState>) {
+    // Visibility managed by LayoutManager
 }
 
 /// Open the project panel
-pub fn open_project_panel(state: &mut ResMut<ProjectPanelState>) {
-    state.visible = true;
+pub fn open_project_panel(_state: &mut ResMut<ProjectPanelState>) {
+    // Visibility managed by LayoutManager
 }
 
 /// Show the info bar

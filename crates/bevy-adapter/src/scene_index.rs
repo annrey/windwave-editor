@@ -85,8 +85,11 @@ impl SceneIndex {
             }
             let mut result = Vec::new();
             for node in nodes {
-                let components: Vec<String> =
-                    node.components.iter().map(|c| c.type_name.clone()).collect();
+                let components: Vec<String> = node
+                    .components
+                    .iter()
+                    .map(|c| c.type_name.clone())
+                    .collect();
 
                 let translation = node
                     .components
@@ -143,7 +146,7 @@ impl SceneIndex {
     }
 
     /// Recursively find a node by its id in the entity tree
-    fn find_node_by_id<'a>(
+    pub fn find_node_by_id<'a>(
         &self,
         target_id: u64,
         nodes: &'a [SceneEntityNode],
@@ -162,9 +165,19 @@ impl SceneIndex {
         }
         // Update or insert in root list
         if let Some(idx) = self.root_entities.iter().position(|n| n.id == id) {
-            self.root_entities[idx] = SceneEntityNode { id, name, components, children: Vec::new() };
+            self.root_entities[idx] = SceneEntityNode {
+                id,
+                name,
+                components,
+                children: Vec::new(),
+            };
         } else {
-            self.root_entities.push(SceneEntityNode { id, name, components, children: Vec::new() });
+            self.root_entities.push(SceneEntityNode {
+                id,
+                name,
+                components,
+                children: Vec::new(),
+            });
         }
     }
 
@@ -222,10 +235,42 @@ impl SceneIndex {
         }
         None
     }
+    /// Delete reconciliation: remove index entries for entities that no longer
+    /// exist in the live ECS set (clean up ghost entries).
+    /// `live_ids` should only contain agent ids > 0 that are still alive.
+    pub fn reconcile_deletions(&mut self, live_ids: &std::collections::HashSet<u64>) {
+        let indexed_ids: Vec<u64> = self.entities_by_name.values().copied().collect();
+        for id in indexed_ids {
+            if id != 0 && !live_ids.contains(&id) {
+                self.remove_entity(id);
+            }
+        }
+    }
 }
 
 impl Default for SceneIndex {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reconcile_deletions_removes_ghosts() {
+        let mut idx = SceneIndex::new();
+        idx.add_entity("Player".into(), 1, vec![]);
+        idx.add_entity("Enemy".into(), 2, vec![]);
+        assert_eq!(idx.entities_by_name.len(), 2);
+
+        let live: std::collections::HashSet<u64> = [1u64].into_iter().collect();
+        idx.reconcile_deletions(&live);
+
+        assert!(idx.entities_by_name.contains_key("Player"));
+        assert!(!idx.entities_by_name.contains_key("Enemy"));
+        assert_eq!(idx.entities_by_name.len(), 1);
+        assert!(idx.root_entities.iter().all(|n| n.id != 2));
     }
 }

@@ -5,6 +5,7 @@
 
 use bevy::prelude::*;
 use bevy::sprite::Sprite;
+use log::info;
 
 use crate::editor_selection::EditorSelection;
 use crate::viewport_picking::PickingState;

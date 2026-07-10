@@ -23,11 +23,7 @@ pub struct ReviewSummary {
 
 impl ReviewSummary {
     /// Create a new review summary with the given decision and summary text.
-    pub fn new(
-        task_id: u64,
-        decision: ReviewerDecision,
-        summary: impl Into<String>,
-    ) -> Self {
+    pub fn new(task_id: u64, decision: ReviewerDecision, summary: impl Into<String>) -> Self {
         Self {
             task_id,
             decision,
@@ -40,11 +36,7 @@ impl ReviewSummary {
     /// Reviewer itself encountered an error).
     ///
     /// The decision is set to `AskUser` so a human can intervene.
-    pub fn error(
-        task_id: u64,
-        summary: impl Into<String>,
-        issues: Vec<String>,
-    ) -> Self {
+    pub fn error(task_id: u64, summary: impl Into<String>, issues: Vec<String>) -> Self {
         Self {
             task_id,
             decision: ReviewerDecision::AskUser,
@@ -132,7 +124,9 @@ impl Reviewer {
                 task_id,
                 decision: ReviewerDecision::AskUser,
                 summary: "Goal-check state is inconsistent; manual confirmation needed.".into(),
-                issues: vec!["Internal inconsistency: all_matched=false but no failures listed.".into()],
+                issues: vec![
+                    "Internal inconsistency: all_matched=false but no failures listed.".into(),
+                ],
             }
         } else {
             let total = failed_requirements.len();
@@ -140,10 +134,7 @@ impl Reviewer {
                 ReviewSummary {
                     task_id,
                     decision: ReviewerDecision::RetryOrAskUser,
-                    summary: format!(
-                        "{} requirement(s) not met; retry or ask the user.",
-                        total
-                    ),
+                    summary: format!("{} requirement(s) not met; retry or ask the user.", total),
                     issues: failed_requirements.to_vec(),
                 }
             } else {
@@ -180,7 +171,8 @@ impl Reviewer {
             ReviewSummary {
                 task_id,
                 decision: ReviewerDecision::AskUser,
-                summary: "Strict review failed: unmet requirements; manual intervention required.".into(),
+                summary: "Strict review failed: unmet requirements; manual intervention required."
+                    .into(),
                 issues: failed_requirements.to_vec(),
             }
         }

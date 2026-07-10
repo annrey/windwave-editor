@@ -158,7 +158,9 @@ pub struct TransformPalette {
 
 impl TransformPalette {
     pub fn new() -> Self {
-        let mut palette = Self { presets: Vec::new() };
+        let mut palette = Self {
+            presets: Vec::new(),
+        };
         palette.register_defaults();
         palette
     }
@@ -205,15 +207,24 @@ impl TransformPalette {
     }
 
     pub fn list_by_category(&self, category: PresetCategory) -> Vec<&TransformPreset> {
-        self.presets.iter().filter(|p| p.category == category).collect()
+        self.presets
+            .iter()
+            .filter(|p| p.category == category)
+            .collect()
     }
 
     pub fn all(&self) -> &[TransformPreset] {
         &self.presets
     }
 
-    pub fn apply_transform(&self, preset_name: &str, entity_position: &mut [f32; 3]) -> Result<(), String> {
-        let preset = self.get(preset_name).ok_or_else(|| format!("预设 '{}' 不存在", preset_name))?;
+    pub fn apply_transform(
+        &self,
+        preset_name: &str,
+        entity_position: &mut [f32; 3],
+    ) -> Result<(), String> {
+        let preset = self
+            .get(preset_name)
+            .ok_or_else(|| format!("预设 '{}' 不存在", preset_name))?;
         *entity_position = preset.transform.position;
         Ok(())
     }
@@ -247,7 +258,7 @@ mod tests {
         ctx.select(2);
         assert_eq!(ctx.selected_count(), 2);
         assert!(ctx.is_selected(1));
-        
+
         ctx.deselect(1);
         assert!(!ctx.is_selected(1));
         assert_eq!(ctx.selected_count(), 1);
@@ -259,7 +270,7 @@ mod tests {
         ctx.mode = SelectionMode::Single;
         ctx.select(1);
         ctx.select(2);
-        assert_eq!(ctx.selected_count(), 1);  // Single mode replaces
+        assert_eq!(ctx.selected_count(), 1); // Single mode replaces
         assert!(ctx.is_selected(2));
     }
 

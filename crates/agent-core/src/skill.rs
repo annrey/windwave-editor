@@ -8,6 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use crate::registry::CapabilityKind;
 
@@ -22,7 +23,6 @@ pub struct SkillId(pub u64);
 // Skill Definition
 // ---------------------------------------------------------------------------
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDefinition {
     pub id: SkillId,
@@ -35,18 +35,23 @@ pub struct SkillDefinition {
 
 impl SkillDefinition {
     pub fn to_mcp_description(&self) -> serde_json::Value {
-        let properties: serde_json::Map<String, serde_json::Value> = self.inputs.iter()
+        let properties: serde_json::Map<String, serde_json::Value> = self
+            .inputs
+            .iter()
             .map(|i| {
-                (i.name.clone(), serde_json::json!({
-                    "type": match i.input_type {
-                        SkillInputType::String => "string",
-                        SkillInputType::Number => "number",
-                        SkillInputType::EntityId => "string",
-                        SkillInputType::Bool => "boolean",
-                        SkillInputType::Json => "object",
-                    },
-                    "description": i.description,
-                }))
+                (
+                    i.name.clone(),
+                    serde_json::json!({
+                        "type": match i.input_type {
+                            SkillInputType::String => "string",
+                            SkillInputType::Number => "number",
+                            SkillInputType::EntityId => "string",
+                            SkillInputType::Bool => "boolean",
+                            SkillInputType::Json => "object",
+                        },
+                        "description": i.description,
+                    }),
+                )
             })
             .collect();
 
@@ -88,7 +93,7 @@ pub enum SkillInputType {
 /// Implementations translate action strings (e.g. "spawn_entity", "set_transform")
 /// into real engine calls — typically via a `SceneBridge`.
 #[allow(unused_variables)]
-pub trait SkillActionHandler {
+pub trait SkillActionHandler: Send {
     fn handle(
         &mut self,
         action: &str,
@@ -157,7 +162,10 @@ pub enum SkillEdgeCondition {
     Always,
     OnSuccess,
     OnFailure,
-    OnOutput { key: String, expected: serde_json::Value },
+    OnOutput {
+        key: String,
+        expected: serde_json::Value,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -196,11 +204,33 @@ pub enum NodeState {
 // Skill Executor
 // ---------------------------------------------------------------------------
 
-pub struct SkillExecutor;
+/// Configuration for the SkillExecutor.
+#[derive(Debug, Clone)]
+pub struct SkillExecutorConfig {
+    /// Maximum number of nodes to execute in parallel within a layer.
+    /// Default: 8. Set to 1 for fully sequential execution.
+    pub max_parallel: usize,
+}
+
+impl Default for SkillExecutorConfig {
+    fn default() -> Self {
+        Self { max_parallel: 8 }
+    }
+}
+
+pub struct SkillExecutor {
+    config: SkillExecutorConfig,
+}
 
 impl SkillExecutor {
     pub fn new() -> Self {
-        Self
+        Self {
+            config: SkillExecutorConfig::default(),
+        }
+    }
+
+    pub fn with_config(config: SkillExecutorConfig) -> Self {
+        Self { config }
     }
 
     /// Validate that all node IDs referenced in edges exist.
@@ -211,7 +241,10 @@ impl SkillExecutor {
 
         for edge in &skill.edges {
             if !node_ids.contains(edge.from.as_str()) {
-                errors.push(format!("Edge references unknown node '{}' (from)", edge.from));
+                errors.push(format!(
+                    "Edge references unknown node '{}' (from)",
+                    edge.from
+                ));
             }
             if !node_ids.contains(edge.to.as_str()) {
                 errors.push(format!("Edge references unknown node '{}' (to)", edge.to));
@@ -268,6 +301,70 @@ impl SkillExecutor {
         Ok(order)
     }
 
+    /// Build execution layers via layered topological sort.
+    ///
+    /// Each inner `Vec<String>` represents a layer of nodes that have no
+    /// mutual dependencies and can be executed in parallel. Layers are
+    /// ordered such that all nodes in layer N are complete before any
+    /// node in layer N+1 starts.
+    ///
+    /// Example: A→B, A→C, B→D, C→D  →  [[A], [B, C], [D]]
+    pub fn build_execution_layers(
+        &self,
+        skill: &SkillDefinition,
+    ) -> Result<Vec<Vec<String>>, String> {
+        let mut in_degree: HashMap<&str, u32> = HashMap::new();
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+
+        for node in &skill.nodes {
+            in_degree.entry(&node.id).or_insert(0);
+            adjacency.entry(&node.id).or_default();
+        }
+
+        for edge in &skill.edges {
+            *in_degree.entry(&edge.to).or_insert(0) += 1;
+            adjacency.entry(&edge.from).or_default().push(&edge.to);
+        }
+
+        let mut layers: Vec<Vec<String>> = Vec::new();
+        let mut current_layer: Vec<String> = skill
+            .nodes
+            .iter()
+            .filter(|n| in_degree[n.id.as_str()] == 0)
+            .map(|n| n.id.clone())
+            .collect();
+
+        let mut processed: HashSet<String> = current_layer.iter().cloned().collect();
+
+        while !current_layer.is_empty() {
+            // Collect nodes whose in-degree drops to 0 after processing current layer
+            let mut next_layer: Vec<String> = Vec::new();
+
+            for node_id in &current_layer {
+                if let Some(neighbors) = adjacency.get(node_id.as_str()) {
+                    for &neighbor in neighbors {
+                        let deg = in_degree.get_mut(neighbor).unwrap();
+                        *deg -= 1;
+                        if *deg == 0 && !processed.contains(neighbor) {
+                            next_layer.push(neighbor.to_string());
+                            processed.insert(neighbor.to_string());
+                        }
+                    }
+                }
+            }
+
+            layers.push(current_layer);
+            current_layer = next_layer;
+        }
+
+        let total: usize = layers.iter().map(|l| l.len()).sum();
+        if total != skill.nodes.len() {
+            return Err("Skill graph contains a cycle".to_string());
+        }
+
+        Ok(layers)
+    }
+
     /// Find nodes that are ready to execute based on current node states and edges.
     pub fn find_ready_nodes(
         &self,
@@ -286,17 +383,13 @@ impl SkillExecutor {
                 continue;
             }
 
-            let upstream_complete = skill
-                .edges
-                .iter()
-                .filter(|e| e.to == node.id)
-                .all(|e| {
-                    let upstream_state = instance
-                        .node_states
-                        .get(&e.from)
-                        .unwrap_or(&NodeState::Pending);
-                    matches!(upstream_state, NodeState::Complete | NodeState::Skipped)
-                });
+            let upstream_complete = skill.edges.iter().filter(|e| e.to == node.id).all(|e| {
+                let upstream_state = instance
+                    .node_states
+                    .get(&e.from)
+                    .unwrap_or(&NodeState::Pending);
+                matches!(upstream_state, NodeState::Complete | NodeState::Skipped)
+            });
 
             if upstream_complete {
                 ready.push(node.id.clone());
@@ -323,7 +416,10 @@ impl SkillExecutor {
         let mut results = Vec::new();
 
         for node_id in &order {
-            let node = skill.nodes.iter().find(|n| &n.id == node_id)
+            let node = skill
+                .nodes
+                .iter()
+                .find(|n| &n.id == node_id)
                 .ok_or_else(|| format!("Node '{}' not found in skill definition", node_id))?;
 
             // Convert input_mapping JSON → params HashMap
@@ -344,7 +440,8 @@ impl SkillExecutor {
             }
 
             let action = node.tool_name.as_deref().unwrap_or("noop");
-            let result = handler.handle(action, &merged_params)
+            let result = handler
+                .handle(action, &merged_params)
                 .map_err(|e| format!("Node '{}' ({}) failed: {}", node.id, node.title, e))?;
 
             outputs.insert(node.id.clone(), result.clone());
@@ -357,6 +454,156 @@ impl SkillExecutor {
         }
 
         Ok(results)
+    }
+
+    /// Execute the full skill DAG with parallel execution within each layer.
+    ///
+    /// Nodes within the same layer (no mutual dependencies) are executed
+    /// concurrently using `tokio::spawn`, respecting `config.max_parallel`.
+    /// Downstream nodes receive upstream outputs via `upstream_output` in params.
+    pub async fn execute_parallel(
+        &self,
+        skill: &SkillDefinition,
+        handler: Arc<std::sync::Mutex<dyn SkillActionHandler>>,
+    ) -> Result<Vec<SkillNodeResult>, String> {
+        self.validate(skill).map_err(|errs| errs.join("; "))?;
+        let layers = self.build_execution_layers(skill)?;
+
+        let mut outputs: HashMap<String, serde_json::Value> = HashMap::new();
+        let mut results: Vec<SkillNodeResult> = Vec::new();
+
+        for layer in layers {
+            if layer.len() == 1 {
+                // Single node — execute directly without spawning
+                let node_id = &layer[0];
+                let node = self.find_node(skill, node_id)?;
+                let merged_params = self.merge_params(skill, &outputs, node_id);
+                let action = node.tool_name.as_deref().unwrap_or("noop");
+
+                let result = {
+                    let mut guard = handler.lock().map_err(|e| format!("Lock error: {e}"))?;
+                    guard
+                        .handle(action, &merged_params)
+                        .map_err(|e| format!("Node '{}' ({}) failed: {}", node.id, node.title, e))?
+                };
+
+                outputs.insert(node.id.clone(), result.clone());
+                results.push(SkillNodeResult {
+                    node_id: node.id.clone(),
+                    title: node.title.clone(),
+                    tool_name: node.tool_name.clone(),
+                    output: result,
+                });
+            } else {
+                // Multiple nodes — execute in parallel with tokio
+                let layer_clone = layer.clone();
+                let skill_clone = skill.clone();
+                let handler_arc = handler.clone();
+
+                // Limit concurrency
+                for chunk in layer_clone.chunks(self.config.max_parallel.max(1)) {
+                    let mut chunk_handles = Vec::new();
+                    for node_id in chunk {
+                        let skill_ref = skill_clone.clone();
+                        let handler_ref = handler_arc.clone();
+                        let node_id_owned = node_id.clone();
+                        let outputs_snapshot = outputs.clone();
+
+                        let handle = tokio::spawn(async move {
+                            let node = skill_ref
+                                .nodes
+                                .iter()
+                                .find(|n| n.id == node_id_owned)
+                                .unwrap();
+                            let merged = Self::merge_params_static(
+                                &skill_ref,
+                                &outputs_snapshot,
+                                &node_id_owned,
+                            );
+                            let action = node.tool_name.as_deref().unwrap_or("noop");
+
+                            let mut guard =
+                                handler_ref.lock().map_err(|e| format!("Lock error: {e}"))?;
+                            let result = guard.handle(action, &merged).map_err(|e| {
+                                format!("Node '{}' ({}) failed: {}", node.id, node.title, e)
+                            });
+
+                            Ok::<(String, serde_json::Value, SkillNodeResult), String>((
+                                node.id.clone(),
+                                result.clone()?,
+                                SkillNodeResult {
+                                    node_id: node.id.clone(),
+                                    title: node.title.clone(),
+                                    tool_name: node.tool_name.clone(),
+                                    output: result?,
+                                },
+                            ))
+                        });
+                        chunk_handles.push(handle);
+                    }
+
+                    // Wait for chunk to complete
+                    for handle in chunk_handles {
+                        match handle.await.map_err(|e| format!("Join error: {e}"))? {
+                            Ok((node_id, output, result_node)) => {
+                                outputs.insert(node_id, output);
+                                results.push(result_node);
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Helper: find a node by id in the skill definition.
+    fn find_node<'a>(
+        &self,
+        skill: &'a SkillDefinition,
+        node_id: &str,
+    ) -> Result<&'a SkillNode, String> {
+        skill
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .ok_or_else(|| format!("Node '{}' not found in skill definition", node_id))
+    }
+
+    /// Helper: merge input params with upstream outputs for a node.
+    fn merge_params(
+        &self,
+        skill: &SkillDefinition,
+        outputs: &HashMap<String, serde_json::Value>,
+        node_id: &str,
+    ) -> HashMap<String, serde_json::Value> {
+        Self::merge_params_static(skill, outputs, node_id)
+    }
+
+    fn merge_params_static(
+        skill: &SkillDefinition,
+        outputs: &HashMap<String, serde_json::Value>,
+        node_id: &str,
+    ) -> HashMap<String, serde_json::Value> {
+        let node = skill.nodes.iter().find(|n| n.id == node_id).unwrap();
+        let mut merged: HashMap<String, serde_json::Value> =
+            if let Some(obj) = node.input_mapping.as_object() {
+                obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                HashMap::new()
+            };
+
+        for edge in &skill.edges {
+            if edge.to == node_id {
+                if let Some(upstream_output) = outputs.get(&edge.from) {
+                    merged.insert("upstream_output".into(), upstream_output.clone());
+                }
+            }
+        }
+
+        merged
     }
 }
 
@@ -391,7 +638,7 @@ impl SkillRegistry {
 
         for node in &skill.nodes {
             self.capability_index
-                .entry(node.required_capability.clone())
+                .entry(node.required_capability)
                 .or_default()
                 .push(id);
         }
@@ -407,17 +654,10 @@ impl SkillRegistry {
         self.name_index.get(name).and_then(|id| self.skills.get(id))
     }
 
-    pub fn find_by_capability(
-        &self,
-        capability: &CapabilityKind,
-    ) -> Vec<&SkillDefinition> {
+    pub fn find_by_capability(&self, capability: &CapabilityKind) -> Vec<&SkillDefinition> {
         self.capability_index
             .get(capability)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.skills.get(id))
-                    .collect()
-            })
+            .map(|ids| ids.iter().filter_map(|id| self.skills.get(id)).collect())
             .unwrap_or_default()
     }
 
@@ -436,7 +676,10 @@ impl SkillRegistry {
     /// Generate MCP (Model Context Protocol) -style tool descriptions for all skills.
     /// Useful for LLM tool selection: the LLM can see available skills and their schemas.
     pub fn all_mcp_descriptions(&self) -> Vec<serde_json::Value> {
-        self.skills.values().map(|s| s.to_mcp_description()).collect()
+        self.skills
+            .values()
+            .map(|s| s.to_mcp_description())
+            .collect()
     }
 
     /// MCP descriptions filtered by capability
@@ -475,15 +718,13 @@ mod tests {
             id: SkillId(1),
             name: "create_enemy_ai".to_string(),
             description: "Create an enemy with AI component".to_string(),
-            inputs: vec![
-                SkillInput {
-                    name: "enemy_type".to_string(),
-                    description: "Type of enemy".to_string(),
-                    input_type: SkillInputType::String,
-                    required: true,
-                    default: None,
-                },
-            ],
+            inputs: vec![SkillInput {
+                name: "enemy_type".to_string(),
+                description: "Type of enemy".to_string(),
+                input_type: SkillInputType::String,
+                required: true,
+                default: None,
+            }],
             nodes: vec![
                 SkillNode {
                     id: "analyze_scene".to_string(),
@@ -509,7 +750,10 @@ mod tests {
                     required_capability: CapabilityKind::SceneWrite,
                     tool_name: Some("update_component".to_string()),
                     input_mapping: serde_json::json!({}),
-                    retry: RetryPolicy { max_retries: 5, ..RetryPolicy::default() },
+                    retry: RetryPolicy {
+                        max_retries: 5,
+                        ..RetryPolicy::default()
+                    },
                     rollback: Some("remove_component".to_string()),
                 },
             ],
@@ -621,5 +865,168 @@ mod tests {
         assert_eq!(policy.max_retries, 3);
         assert_eq!(policy.delay_ms, 1000);
         assert_eq!(policy.backoff_multiplier, 2.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Parallel execution tests
+    // -----------------------------------------------------------------------
+
+    /// Diamond DAG: A→B, A→C, B→D, C→D
+    /// Layers: [[A], [B, C], [D]]
+    fn make_diamond_skill() -> SkillDefinition {
+        SkillDefinition {
+            id: SkillId(2),
+            name: "diamond_skill".to_string(),
+            description: "Diamond DAG for parallel testing".to_string(),
+            inputs: vec![],
+            nodes: vec![
+                SkillNode {
+                    id: "A".to_string(),
+                    title: "Node A (root)".to_string(),
+                    required_capability: CapabilityKind::SceneRead,
+                    tool_name: Some("noop_a".to_string()),
+                    input_mapping: serde_json::json!({}),
+                    retry: RetryPolicy::default(),
+                    rollback: None,
+                },
+                SkillNode {
+                    id: "B".to_string(),
+                    title: "Node B (parallel 1)".to_string(),
+                    required_capability: CapabilityKind::SceneRead,
+                    tool_name: Some("noop_b".to_string()),
+                    input_mapping: serde_json::json!({}),
+                    retry: RetryPolicy::default(),
+                    rollback: None,
+                },
+                SkillNode {
+                    id: "C".to_string(),
+                    title: "Node C (parallel 2)".to_string(),
+                    required_capability: CapabilityKind::SceneRead,
+                    tool_name: Some("noop_c".to_string()),
+                    input_mapping: serde_json::json!({}),
+                    retry: RetryPolicy::default(),
+                    rollback: None,
+                },
+                SkillNode {
+                    id: "D".to_string(),
+                    title: "Node D (merge)".to_string(),
+                    required_capability: CapabilityKind::SceneWrite,
+                    tool_name: Some("noop_d".to_string()),
+                    input_mapping: serde_json::json!({}),
+                    retry: RetryPolicy::default(),
+                    rollback: None,
+                },
+            ],
+            edges: vec![
+                SkillEdge {
+                    from: "A".to_string(),
+                    to: "B".to_string(),
+                    condition: SkillEdgeCondition::Always,
+                },
+                SkillEdge {
+                    from: "A".to_string(),
+                    to: "C".to_string(),
+                    condition: SkillEdgeCondition::Always,
+                },
+                SkillEdge {
+                    from: "B".to_string(),
+                    to: "D".to_string(),
+                    condition: SkillEdgeCondition::Always,
+                },
+                SkillEdge {
+                    from: "C".to_string(),
+                    to: "D".to_string(),
+                    condition: SkillEdgeCondition::Always,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_build_execution_layers_diamond() {
+        let skill = make_diamond_skill();
+        let executor = SkillExecutor::new();
+        let layers = executor.build_execution_layers(&skill).unwrap();
+
+        assert_eq!(layers.len(), 3, "Expected 3 layers for diamond DAG");
+        assert_eq!(layers[0].len(), 1); // [A]
+        assert_eq!(layers[1].len(), 2); // [B, C]
+        assert_eq!(layers[2].len(), 1); // [D]
+
+        assert_eq!(layers[0][0], "A");
+        assert!(layers[1].contains(&"B".to_string()));
+        assert!(layers[1].contains(&"C".to_string()));
+        assert_eq!(layers[2][0], "D");
+    }
+
+    #[test]
+    fn test_build_execution_layers_linear() {
+        // Linear: A→B→C → 3 layers of 1 node each
+        let skill = make_create_enemy_skill();
+        let executor = SkillExecutor::new();
+        let layers = executor.build_execution_layers(&skill).unwrap();
+
+        assert_eq!(layers.len(), 3, "Expected 3 layers for linear DAG");
+        for layer in &layers {
+            assert_eq!(layer.len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_topo_layers_and_order_consistent() {
+        let skill = make_diamond_skill();
+        let executor = SkillExecutor::new();
+        let order = executor.build_execution_order(&skill).unwrap();
+        let layers = executor.build_execution_layers(&skill).unwrap();
+
+        // Flatten layers → should be a valid topological order
+        let flat: Vec<String> = layers.into_iter().flatten().collect();
+        assert_eq!(flat.len(), order.len());
+
+        // Same set of nodes
+        let mut flat_sorted = flat.clone();
+        flat_sorted.sort();
+        let mut order_sorted = order.clone();
+        order_sorted.sort();
+        assert_eq!(flat_sorted, order_sorted);
+    }
+
+    #[tokio::test]
+    async fn test_execute_parallel_diamond() {
+        let skill = make_diamond_skill();
+        let executor = SkillExecutor::new();
+        let handler = Arc::new(std::sync::Mutex::new(MockSkillActionHandler));
+
+        let results = executor.execute_parallel(&skill, handler).await.unwrap();
+        assert_eq!(results.len(), 4);
+        // All nodes should succeed
+        for r in &results {
+            assert!(r
+                .output
+                .get("handled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_parallel_with_max_parallel_limit() {
+        let skill = make_diamond_skill();
+        let config = SkillExecutorConfig { max_parallel: 1 };
+        let executor = SkillExecutor::with_config(config);
+        let handler = Arc::new(std::sync::Mutex::new(MockSkillActionHandler));
+
+        let results = executor.execute_parallel(&skill, handler).await.unwrap();
+        assert_eq!(results.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_execute_parallel_linear() {
+        let skill = make_create_enemy_skill();
+        let executor = SkillExecutor::new();
+        let handler = Arc::new(std::sync::Mutex::new(MockSkillActionHandler));
+
+        let results = executor.execute_parallel(&skill, handler).await.unwrap();
+        assert_eq!(results.len(), 3);
     }
 }

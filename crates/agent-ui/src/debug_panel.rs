@@ -3,17 +3,17 @@
 //! Provides runtime debugging tools for the Bevy ECS scene.
 //! Useful for both manual inspection and agent observability.
 
+use crate::layout::{LayoutManager, PanelPosition};
 use bevy::prelude::*;
 use bevy::sprite::Sprite;
-use bevy_egui::{egui, EguiContexts};
-use crate::layout::{LayoutManager, PanelPosition};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct DebugPanelPlugin;
 
 impl Plugin for DebugPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugPanelState>()
-            .add_systems(Update, render_debug_panel);
+            .add_systems(EguiPrimaryContextPass, render_debug_panel);
     }
 }
 
@@ -105,8 +105,11 @@ fn render_debug_panel(
             if let Some(entity) = state.selected_entity {
                 ui.separator();
                 render_entity_details(
-                    ui, entity,
-                    &transform_query, &sprite_query, &visibility_query,
+                    ui,
+                    entity,
+                    &transform_query,
+                    &sprite_query,
+                    &visibility_query,
                 );
             }
         });
@@ -176,11 +179,17 @@ fn render_entity_details(
     if let Ok(sprite) = sprite_query.get(entity) {
         ui.collapsing("Sprite", |ui| {
             let c = sprite.color.to_linear();
-            ui.label(format!("Color: rgba({:.2}, {:.2}, {:.2}, {:.2})", c.red, c.green, c.blue, c.alpha));
+            ui.label(format!(
+                "Color: rgba({:.2}, {:.2}, {:.2}, {:.2})",
+                c.red, c.green, c.blue, c.alpha
+            ));
             if let Some(size) = sprite.custom_size {
                 ui.label(format!("Size: ({:.1}, {:.1})", size.x, size.y));
             }
-            ui.label(format!("Flip X: {}, Flip Y: {}", sprite.flip_x, sprite.flip_y));
+            ui.label(format!(
+                "Flip X: {}, Flip Y: {}",
+                sprite.flip_x, sprite.flip_y
+            ));
         });
     }
 
@@ -207,15 +216,16 @@ fn render_performance_tab(ui: &mut egui::Ui, state: &DebugPanelState) {
     // FPS bar visualization
     if current_fps > 0.0 {
         let ratio = (current_fps / 120.0).clamp(0.0, 1.0);
-        ui.add(egui::ProgressBar::new(ratio)
-            .text(format!("{:.0} FPS", current_fps))
-            .fill(if current_fps >= 55.0 {
-                egui::Color32::from_rgb(16, 185, 129)
-            } else if current_fps >= 30.0 {
-                egui::Color32::from_rgb(245, 158, 11)
-            } else {
-                egui::Color32::from_rgb(239, 68, 68)
-            }),
+        ui.add(
+            egui::ProgressBar::new(ratio)
+                .text(format!("{:.0} FPS", current_fps))
+                .fill(if current_fps >= 55.0 {
+                    egui::Color32::from_rgb(16, 185, 129)
+                } else if current_fps >= 30.0 {
+                    egui::Color32::from_rgb(245, 158, 11)
+                } else {
+                    egui::Color32::from_rgb(239, 68, 68)
+                }),
         );
     }
 
@@ -234,7 +244,8 @@ fn render_performance_tab(ui: &mut egui::Ui, state: &DebugPanelState) {
                     egui::Color32::from_rgb(239, 68, 68)
                 };
                 let height = (t * 20.0).max(2.0);
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(2.0, height), egui::Sense::hover());
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(2.0, height), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 0.0, c);
             }
         });

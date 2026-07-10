@@ -62,7 +62,11 @@ pub struct RuntimeAgentProfile {
 }
 
 impl RuntimeAgentProfile {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, behavior: RuntimeBehaviorSpec) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        behavior: RuntimeBehaviorSpec,
+    ) -> Self {
         Self {
             id: RuntimeAgentProfileId(id.into()),
             name: name.into(),
@@ -77,10 +81,20 @@ impl RuntimeAgentProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuntimeBehaviorSpec {
-    StateMachine { states: Vec<RuntimeBehaviorState>, initial_state: String },
-    UtilityAI { considerations: Vec<RuntimeConsideration> },
-    Scripted { script_name: String },
-    LlmDriven { system_prompt: String, tool_allowlist: Vec<String> },
+    StateMachine {
+        states: Vec<RuntimeBehaviorState>,
+        initial_state: String,
+    },
+    UtilityAI {
+        considerations: Vec<RuntimeConsideration>,
+    },
+    Scripted {
+        script_name: String,
+    },
+    LlmDriven {
+        system_prompt: String,
+        tool_allowlist: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,23 +120,53 @@ pub struct RuntimeConsideration {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuntimeCondition {
     Always,
-    BlackboardEquals { key: String, value: serde_json::Value },
-    BlackboardExists { key: String },
-    DistanceToTargetLessThan { target_key: String, distance: f32 },
-    EventReceived { event_type: String },
+    BlackboardEquals {
+        key: String,
+        value: serde_json::Value,
+    },
+    BlackboardExists {
+        key: String,
+    },
+    DistanceToTargetLessThan {
+        target_key: String,
+        distance: f32,
+    },
+    EventReceived {
+        event_type: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuntimeAgentAction {
     Noop,
-    MoveTo { target: RuntimeTarget },
-    LookAt { target: RuntimeTarget },
-    SetVelocity { velocity: [f32; 3] },
-    PlayAnimation { name: String },
-    SpawnPrefab { prefab_id: String, at: RuntimeTarget },
-    ModifyOwnComponent { component_type: String, property: String, value: serde_json::Value },
-    EmitEvent { event_type: String, payload: serde_json::Value },
-    RequestEditorCommand { command: BevyEditorCommand },
+    MoveTo {
+        target: RuntimeTarget,
+    },
+    LookAt {
+        target: RuntimeTarget,
+    },
+    SetVelocity {
+        velocity: [f32; 3],
+    },
+    PlayAnimation {
+        name: String,
+    },
+    SpawnPrefab {
+        prefab_id: String,
+        at: RuntimeTarget,
+    },
+    ModifyOwnComponent {
+        component_type: String,
+        property: String,
+        value: serde_json::Value,
+    },
+    EmitEvent {
+        event_type: String,
+        payload: serde_json::Value,
+    },
+    RequestEditorCommand {
+        command: BevyEditorCommand,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -289,9 +333,15 @@ impl RuntimeAgentRegistry {
         self.instances.values().collect()
     }
 
-    pub fn apply_editor_control(&mut self, command: EditorAgentControlCommand) -> Result<(), String> {
+    pub fn apply_editor_control(
+        &mut self,
+        command: EditorAgentControlCommand,
+    ) -> Result<(), String> {
         match command {
-            EditorAgentControlCommand::AttachRuntimeAgent { entity_id, component } => {
+            EditorAgentControlCommand::AttachRuntimeAgent {
+                entity_id,
+                component,
+            } => {
                 self.attach_instance(RuntimeAgentInstance::new(entity_id, component));
                 Ok(())
             }
@@ -300,37 +350,63 @@ impl RuntimeAgentRegistry {
                 Ok(())
             }
             EditorAgentControlCommand::SetControlMode { entity_id, mode } => {
-                let instance = self.instances.get_mut(&entity_id).ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
+                let instance = self
+                    .instances
+                    .get_mut(&entity_id)
+                    .ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
                 instance.component.control_mode = mode;
                 Ok(())
             }
             EditorAgentControlCommand::SetRuntimeGoal { entity_id, goal } => {
-                let instance = self.instances.get_mut(&entity_id).ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
+                let instance = self
+                    .instances
+                    .get_mut(&entity_id)
+                    .ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
                 instance.active_goal = Some(goal);
                 Ok(())
             }
-            EditorAgentControlCommand::SetBlackboardValue { entity_id, key, value } => {
-                let instance = self.instances.get_mut(&entity_id).ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
+            EditorAgentControlCommand::SetBlackboardValue {
+                entity_id,
+                key,
+                value,
+            } => {
+                let instance = self
+                    .instances
+                    .get_mut(&entity_id)
+                    .ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
                 instance.blackboard.set(key, value);
                 Ok(())
             }
             EditorAgentControlCommand::SendRuntimeEvent { entity_id, event } => {
-                let instance = self.instances.get_mut(&entity_id).ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
-                let mut observation = instance.last_observation.clone().unwrap_or(RuntimeObservation {
-                    entity_id,
-                    visible_entities: Vec::new(),
-                    nearby_prefab_instances: Vec::new(),
-                    events: Vec::new(),
-                    facts: HashMap::new(),
-                });
+                let instance = self
+                    .instances
+                    .get_mut(&entity_id)
+                    .ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
+                let mut observation =
+                    instance
+                        .last_observation
+                        .clone()
+                        .unwrap_or(RuntimeObservation {
+                            entity_id,
+                            visible_entities: Vec::new(),
+                            nearby_prefab_instances: Vec::new(),
+                            events: Vec::new(),
+                            facts: HashMap::new(),
+                        });
                 observation.events.push(event);
                 instance.last_observation = Some(observation);
                 Ok(())
             }
             EditorAgentControlCommand::ExecuteRuntimeAction { entity_id, action } => {
-                let instance = self.instances.get_mut(&entity_id).ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
+                let instance = self
+                    .instances
+                    .get_mut(&entity_id)
+                    .ok_or_else(|| format!("runtime agent not found for entity {:?}", entity_id))?;
                 instance.component.status = RuntimeAgentStatus::Acting;
-                instance.blackboard.set("last_editor_action", serde_json::to_value(action).unwrap_or(serde_json::Value::Null));
+                instance.blackboard.set(
+                    "last_editor_action",
+                    serde_json::to_value(action).unwrap_or(serde_json::Value::Null),
+                );
                 Ok(())
             }
         }
@@ -348,7 +424,12 @@ pub fn evaluate_runtime_agent_tick(
     instance: &RuntimeAgentInstance,
     profile: &RuntimeAgentProfile,
 ) -> RuntimeAgentTickResult {
-    if !instance.component.tick_enabled || matches!(instance.component.control_mode, RuntimeAgentControlMode::Disabled) {
+    if !instance.component.tick_enabled
+        || matches!(
+            instance.component.control_mode,
+            RuntimeAgentControlMode::Disabled
+        )
+    {
         return RuntimeAgentTickResult {
             entity_id: instance.entity_id,
             status: RuntimeAgentStatus::Suspended,
@@ -357,14 +438,21 @@ pub fn evaluate_runtime_agent_tick(
     }
 
     let requested_actions = match &profile.behavior {
-        RuntimeBehaviorSpec::StateMachine { states, initial_state } => states
+        RuntimeBehaviorSpec::StateMachine {
+            states,
+            initial_state,
+        } => states
             .iter()
             .find(|state| &state.name == initial_state)
             .map(|state| state.actions.clone())
             .unwrap_or_default(),
         RuntimeBehaviorSpec::UtilityAI { considerations } => considerations
             .iter()
-            .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.weight
+                    .partial_cmp(&b.weight)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|consideration| vec![consideration.action.clone()])
             .unwrap_or_default(),
         RuntimeBehaviorSpec::Scripted { script_name } => vec![RuntimeAgentAction::EmitEvent {

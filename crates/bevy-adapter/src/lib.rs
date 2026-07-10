@@ -3,39 +3,50 @@
 //! Bridges the Agent core to Bevy engine, translating Agent actions to ECS operations.
 //! Provides EngineCommand DSL, SceneIndex for Agent reasoning, and rollback support.
 
+#![allow(clippy::type_complexity)]
+
 pub mod adapter;
+pub mod command_processor;
 pub mod integration;
 pub mod llm_runtime_agent;
+pub mod open_world_components;
 pub mod perception;
+pub mod prefab_ops;
 pub mod runtime_agent;
 pub mod scene_bridge_impl;
 pub mod scene_index;
 pub mod scene_io;
-pub mod command_processor;
-pub mod prefab_ops;
 pub mod screenshot;
 
-pub use adapter::BevyAdapterPlugin;
-pub use adapter::BevyAdapter;
-pub use adapter::EngineAdapter;
-pub use adapter::{EngineCommand, AssetType, AssetReference, ComponentPatch, EngineCommandResult};
-pub use adapter::{RollbackOperation, EntitySnapshot};
-pub use adapter::{AgentActionEvent, AgentTracked, AgentEntityId};
 pub use adapter::sync_entities_to_adapter;
-pub use command_processor::{CommandHistory, PendingCommands, CommandProcessorPlugin};
-pub use screenshot::{ScreenshotPlugin, ScreenshotQueue, ScreenshotArtifact, ScreenshotResult};
+pub use adapter::BevyAdapter;
+pub use adapter::BevyAdapterPlugin;
+pub use adapter::EngineAdapter;
+pub use adapter::{AgentActionEvent, AgentEntityId, AgentTracked};
+pub use adapter::{AssetReference, AssetType, ComponentPatch, EngineCommand, EngineCommandResult};
+pub use adapter::{EntitySnapshot, RollbackOperation};
+pub use command_processor::{CommandHistory, CommandProcessorPlugin, PendingCommands};
 pub use llm_runtime_agent::{
-    LlmRuntimeAgentPlugin, LlmRuntimeResource, LlmAgentRequest, LlmAgentResponse,
-    configure_llm_runtime, PendingLlmRequest,
+    configure_llm_runtime, LlmAgentRequest, LlmAgentResponse, LlmRuntimeAgentPlugin,
+    LlmRuntimeResource, PendingLlmRequest,
+};
+pub use open_world_components::{
+    apply_open_world_replay_state_to_world, process_open_world_combat_interaction,
+    process_open_world_loot_interaction, sync_open_world_replay_gameplay_state, Attack, CampMarker,
+    Combatant, EnemyBrain, FollowCamera, Interactable, InteractionZone, Inventory, LootContainer,
+    OpenWorldObject, OpenWorldReplayActorState, OpenWorldReplayEnemyState,
+    OpenWorldReplayGameplayState, OpenWorldReplayInventoryState, OpenWorldReplayLootState,
+    OpenWorldReplayPuzzleState, OpenWorldReplayQuestState, PlayerController, PuzzleAnchor,
+    PuzzleSwitch, Quest, QuestObjective, TemplateObject, WorldSurface, ZoneMarker,
 };
 pub use perception::{
-    PerceptionPlugin, PerceptionCapability, Perceivable, PerceptionConfig,
-    PerceivedEntityInfo, query_agent_perception, spawn_perceivable_entity,
+    query_agent_perception, spawn_perceivable_entity, Perceivable, PerceivedEntityInfo,
+    PerceptionCapability, PerceptionConfig, PerceptionPlugin,
 };
 pub use runtime_agent::{
-    RuntimeAgentComponent, RuntimeAgentPlugin, RuntimeAgentRegistry,
-    RuntimeAgentId, RuntimeAgentProfileId, RuntimeAgentControlMode,
-    RuntimeAgentStatus, RuntimeAgentAction, RuntimeTarget,
-    attach_runtime_agent, detach_runtime_agent, spawn_runtime_agent_entity,
-    runtime_action_to_engine_command, process_editor_control_command,
+    attach_runtime_agent, detach_runtime_agent, process_editor_control_command,
+    runtime_action_to_engine_command, spawn_runtime_agent_entity, RuntimeAgentAction,
+    RuntimeAgentComponent, RuntimeAgentControlMode, RuntimeAgentId, RuntimeAgentPlugin,
+    RuntimeAgentProfileId, RuntimeAgentRegistry, RuntimeAgentStatus, RuntimeTarget,
 };
+pub use screenshot::{ScreenshotArtifact, ScreenshotPlugin, ScreenshotQueue, ScreenshotResult};

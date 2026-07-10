@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 /// Importance level of a memory
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum MemoryImportance {
-    Critical,    // Never decay (user preferences, critical errors)
-    High,        // Slow decay
-    Medium,      // Normal decay
-    Low,         // Fast decay
-    Transient,   // Very fast decay (temporary computations)
+    Critical,  // Never decay (user preferences, critical errors)
+    High,      // Slow decay
+    Medium,    // Normal decay
+    Low,       // Fast decay
+    Transient, // Very fast decay (temporary computations)
 }
 
 impl MemoryImportance {
@@ -30,11 +30,17 @@ impl MemoryImportance {
     }
 
     pub fn from_score(score: f32) -> Self {
-        if score >= 0.9 { MemoryImportance::Critical }
-        else if score >= 0.7 { MemoryImportance::High }
-        else if score >= 0.4 { MemoryImportance::Medium }
-        else if score >= 0.2 { MemoryImportance::Low }
-        else { MemoryImportance::Transient }
+        if score >= 0.9 {
+            MemoryImportance::Critical
+        } else if score >= 0.7 {
+            MemoryImportance::High
+        } else if score >= 0.4 {
+            MemoryImportance::Medium
+        } else if score >= 0.2 {
+            MemoryImportance::Low
+        } else {
+            MemoryImportance::Transient
+        }
     }
 }
 

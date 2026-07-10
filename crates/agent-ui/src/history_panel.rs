@@ -6,18 +6,18 @@
 //! - Audit log: shows timestamped operations with results and risk levels
 //! - Edit history: visual timeline with undo/redo capabilities
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
 use crate::layout::LayoutManager;
-use agent_core::audit::{AuditLog, AuditEntry};
+use agent_core::audit::{AuditEntry, AuditLog};
 use agent_core::edit_history::EditHistory;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct HistoryPanelPlugin;
 
 impl Plugin for HistoryPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HistoryState>()
-            .add_systems(Update, render_history_panel);
+            .add_systems(EguiPrimaryContextPass, render_history_panel);
     }
 }
 
@@ -74,6 +74,7 @@ pub enum AgentFilter {
 fn render_history_panel(
     mut contexts: EguiContexts,
     mut state: ResMut<HistoryState>,
+    mut desk_state: ResMut<crate::DirectorDeskState>,
     layout_mgr: Res<LayoutManager>,
 ) {
     if !layout_mgr.is_visible("history") {
@@ -91,9 +92,13 @@ fn render_history_panel(
             ui.horizontal(|ui| {
                 ui.heading("History");
                 ui.separator();
-                
+
                 ui.selectable_value(&mut state.active_tab, HistoryTab::AuditLog, "📝 Audit Log");
-                ui.selectable_value(&mut state.active_tab, HistoryTab::EditHistory, "↩️ Edit History");
+                ui.selectable_value(
+                    &mut state.active_tab,
+                    HistoryTab::EditHistory,
+                    "↩️ Edit History",
+                );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Clear").clicked() {
@@ -112,7 +117,7 @@ fn render_history_panel(
 
             match state.active_tab {
                 HistoryTab::AuditLog => render_audit_log_tab(ui, &mut state),
-                HistoryTab::EditHistory => render_edit_history_tab(ui, &mut state),
+                HistoryTab::EditHistory => render_edit_history_tab(ui, &mut state, &mut desk_state),
             }
         });
 }
@@ -121,44 +126,40 @@ fn render_audit_log_tab(ui: &mut egui::Ui, state: &mut HistoryState) {
     // Filter toolbar
     ui.horizontal(|ui| {
         ui.label("Filter by:");
-        
+
         ui.selectable_value(
-            &mut state.filter_audit_by_result, 
-            AuditResultFilter::All, 
-            "All"
+            &mut state.filter_audit_by_result,
+            AuditResultFilter::All,
+            "All",
         );
         ui.selectable_value(
-            &mut state.filter_audit_by_result, 
-            AuditResultFilter::Success, 
-            "✅ Success"
+            &mut state.filter_audit_by_result,
+            AuditResultFilter::Success,
+            "✅ Success",
         );
         ui.selectable_value(
-            &mut state.filter_audit_by_result, 
-            AuditResultFilter::Failure, 
-            "❌ Failure"
+            &mut state.filter_audit_by_result,
+            AuditResultFilter::Failure,
+            "❌ Failure",
         );
         ui.selectable_value(
-            &mut state.filter_audit_by_result, 
-            AuditResultFilter::Forbidden, 
-            "🚫 Forbidden"
+            &mut state.filter_audit_by_result,
+            AuditResultFilter::Forbidden,
+            "🚫 Forbidden",
         );
-        
+
         ui.separator();
-        
+
+        ui.selectable_value(&mut state.filter_audit_by_agent, AgentFilter::All, "All");
         ui.selectable_value(
-            &mut state.filter_audit_by_agent, 
-            AgentFilter::All, 
-            "All"
+            &mut state.filter_audit_by_agent,
+            AgentFilter::Director,
+            "👤 Director",
         );
         ui.selectable_value(
-            &mut state.filter_audit_by_agent, 
-            AgentFilter::Director, 
-            "👤 Director"
-        );
-        ui.selectable_value(
-            &mut state.filter_audit_by_agent, 
-            AgentFilter::Agent, 
-            "🤖 Agent"
+            &mut state.filter_audit_by_agent,
+            AgentFilter::Agent,
+            "🤖 Agent",
         );
     });
 
@@ -233,7 +234,7 @@ fn render_audit_entry(ui: &mut egui::Ui, entry: &AuditEntry) {
         ui.label(
             egui::RichText::new(format!("#{}", entry.index))
                 .monospace()
-                .color(egui::Color32::GRAY)
+                .color(egui::Color32::GRAY),
         );
 
         // Timestamp
@@ -241,28 +242,29 @@ fn render_audit_entry(ui: &mut egui::Ui, entry: &AuditEntry) {
         ui.label(
             egui::RichText::new(&timestamp_str)
                 .monospace()
-                .color(egui::Color32::LIGHT_GRAY)
+                .color(egui::Color32::LIGHT_GRAY),
         );
 
         // Agent
-        let agent_name = if entry.agent_id == 0 { "Director" } else { "Agent" };
+        let agent_name = if entry.agent_id == 0 {
+            "Director"
+        } else {
+            "Agent"
+        };
         ui.label(
             egui::RichText::new(agent_name)
                 .monospace()
-                .color(egui::Color32::LIGHT_BLUE)
+                .color(egui::Color32::LIGHT_BLUE),
         );
 
         // Action
-        ui.label(
-            egui::RichText::new(&entry.action)
-                .monospace()
-        );
+        ui.label(egui::RichText::new(&entry.action).monospace());
 
         // Target
         ui.label(
             egui::RichText::new(&entry.target)
                 .monospace()
-                .color(egui::Color32::LIGHT_GREEN)
+                .color(egui::Color32::LIGHT_GREEN),
         );
 
         // Result
@@ -274,8 +276,7 @@ fn render_audit_entry(ui: &mut egui::Ui, entry: &AuditEntry) {
             _ => ("❓", egui::Color32::GRAY),
         };
         ui.label(
-            egui::RichText::new(format!("{} {}", result_icon, entry.result))
-                .color(result_color)
+            egui::RichText::new(format!("{} {}", result_icon, entry.result)).color(result_color),
         );
 
         // Risk level
@@ -285,28 +286,34 @@ fn render_audit_entry(ui: &mut egui::Ui, entry: &AuditEntry) {
             "HighRisk" => egui::Color32::RED,
             _ => egui::Color32::GRAY,
         };
-        ui.label(
-            egui::RichText::new(&entry.risk_level)
-                .color(risk_color)
-        );
+        ui.label(egui::RichText::new(&entry.risk_level).color(risk_color));
 
         // User approved
         let approved_text = if entry.user_approved { "✓" } else { "✗" };
-        let approved_color = if entry.user_approved { egui::Color32::GREEN } else { egui::Color32::GRAY };
-        ui.label(
-            egui::RichText::new(approved_text)
-                .color(approved_color)
-        );
+        let approved_color = if entry.user_approved {
+            egui::Color32::GREEN
+        } else {
+            egui::Color32::GRAY
+        };
+        ui.label(egui::RichText::new(approved_text).color(approved_color));
     });
 }
 
-fn render_edit_history_tab(ui: &mut egui::Ui, state: &mut HistoryState) {
+fn render_edit_history_tab(
+    ui: &mut egui::Ui,
+    state: &mut HistoryState,
+    desk_state: &mut crate::DirectorDeskState,
+) {
     // Add demo buttons for testing
     ui.horizontal(|ui| {
         if ui.button("Add Demo Edit").clicked() {
             let demo_ops = [
-                "CreateEntity", "SetTransform", "SetColor", 
-                "DeleteEntity", "SetVisibility", "MultiOp"
+                "CreateEntity",
+                "SetTransform",
+                "SetColor",
+                "DeleteEntity",
+                "SetVisibility",
+                "MultiOp",
             ];
             let op_name = demo_ops[state.mock_edit_history.len() % demo_ops.len()];
             state.mock_edit_history.push(op_name.to_string());
@@ -318,7 +325,6 @@ fn render_edit_history_tab(ui: &mut egui::Ui, state: &mut HistoryState) {
     // Undo/Redo buttons
     ui.horizontal(|ui| {
         let undo_enabled = state.edit_history.can_undo() || !state.mock_edit_history.is_empty();
-        let redo_enabled = state.edit_history.can_redo();
 
         if ui
             .add_enabled(undo_enabled, egui::Button::new("↩️ Undo"))
@@ -328,7 +334,8 @@ fn render_edit_history_tab(ui: &mut egui::Ui, state: &mut HistoryState) {
             if !state.mock_edit_history.is_empty() {
                 state.mock_edit_history.pop();
             }
-            // TODO: Need access to SceneBridge to actually perform undo on real history
+            // Push to main undo system
+            desk_state.pending_actions.push(crate::UserAction::Undo);
         }
 
         if let Some(name) = state.edit_history.top_undo_name() {
@@ -339,11 +346,13 @@ fn render_edit_history_tab(ui: &mut egui::Ui, state: &mut HistoryState) {
 
         ui.separator();
 
+        let redo_enabled = state.edit_history.can_redo();
         if ui
             .add_enabled(redo_enabled, egui::Button::new("↪️ Redo"))
             .clicked()
         {
-            // TODO: Need access to SceneBridge to actually perform redo
+            // Push to main redo system
+            desk_state.pending_actions.push(crate::UserAction::Redo);
         }
 
         if let Some(name) = state.edit_history.top_redo_name() {
@@ -375,33 +384,26 @@ fn render_edit_history_tab(ui: &mut egui::Ui, state: &mut HistoryState) {
         let history_items = state.mock_edit_history.clone();
         let total_count = history_items.len();
         let mut selected_idx = state.selected_history_index;
-        
+
         egui::ScrollArea::horizontal().show(ui, |ui| {
             ui.horizontal(|ui| {
                 // Show mock history items
                 for (i, name) in history_items.iter().enumerate() {
                     let is_selected = selected_idx == Some(i);
-                    let (new_selected, hover_text) = render_timeline_item(
-                        ui, 
-                        name, 
-                        i, 
-                        true, 
-                        false, 
-                        is_selected, 
-                        total_count
-                    );
-                    
+                    let (new_selected, hover_text) =
+                        render_timeline_item(ui, name, i, true, false, is_selected, total_count);
+
                     if new_selected {
                         selected_idx = if is_selected { None } else { Some(i) };
                     }
-                    
+
                     if let Some(text) = hover_text {
                         ui.label(text);
                     }
                 }
             });
         });
-        
+
         // Update state after the borrow
         state.selected_history_index = selected_idx;
     }
@@ -451,7 +453,8 @@ fn render_timeline_item(
 
     ui.vertical(|ui| {
         // Dot
-        let (rect, response) = ui.allocate_exact_size(egui::Vec2::new(20.0, 20.0), egui::Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::Vec2::new(20.0, 20.0), egui::Sense::click());
         let painter = ui.painter();
         painter.circle_filled(rect.center(), 8.0, fill_color);
         painter.circle_stroke(rect.center(), 8.0, egui::Stroke::new(2.0, border_color));
@@ -467,15 +470,11 @@ fn render_timeline_item(
 
         // Label
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(name)
-                .size(11.0)
-                .color(text_color)
-        );
+        ui.label(egui::RichText::new(name).size(11.0).color(text_color));
         ui.label(
             egui::RichText::new(format!("#{}", idx + 1))
                 .size(9.0)
-                .color(egui::Color32::GRAY)
+                .color(egui::Color32::GRAY),
         );
 
         if response.clicked() {

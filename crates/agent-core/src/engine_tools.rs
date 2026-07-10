@@ -11,7 +11,7 @@
 //!   - ReviewCodeTool       (§4.1)
 //!   - ApplyCodeChangeTool  (§4.1)
 
-use crate::tool::{Tool, ToolCategory, ToolParameter, ToolResult, ToolError, ParameterType};
+use crate::tool::{ParameterType, Tool, ToolCategory, ToolError, ToolParameter, ToolResult};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -30,25 +30,29 @@ impl GetEngineStateTool {
 }
 
 impl Tool for GetEngineStateTool {
-    fn name(&self) -> &str { "get_engine_state" }
+    fn name(&self) -> &str {
+        "get_engine_state"
+    }
     fn description(&self) -> &str {
         "Query engine status: frame count, entity count, memory usage, FPS"
     }
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "metrics".to_string(),
-                description: "Comma-separated metrics to query (entities, fps, memory, all)".to_string(),
-                param_type: ParameterType::String,
-                required: false,
-                default: Some(Value::String("all".to_string())),
-            },
-        ]
+        vec![ToolParameter {
+            name: "metrics".to_string(),
+            description: "Comma-separated metrics to query (entities, fps, memory, all)"
+                .to_string(),
+            param_type: ParameterType::String,
+            required: false,
+            default: Some(Value::String("all".to_string())),
+        }]
     }
-    fn category(&self) -> ToolCategory { ToolCategory::Engine }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Engine
+    }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let metrics_str = params.get("metrics")
+        let metrics_str = params
+            .get("metrics")
             .and_then(|v| v.as_str())
             .unwrap_or("all");
 
@@ -63,7 +67,9 @@ impl Tool for GetEngineStateTool {
             "status": "running",
         });
 
-        let bridge = self.bridge.lock()
+        let bridge = self
+            .bridge
+            .lock()
             .map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
 
         let entity_count = match bridge.as_ref() {
@@ -73,7 +79,9 @@ impl Tool for GetEngineStateTool {
 
         for metric in &requested {
             match *metric {
-                "entities" => { report["entities"] = serde_json::json!(entity_count); }
+                "entities" => {
+                    report["entities"] = serde_json::json!(entity_count);
+                }
                 "fps" => {
                     report["fps"] = serde_json::json!({
                         "note": "FPS requires Bevy Time resource; approximate from last frame"
@@ -84,11 +92,19 @@ impl Tool for GetEngineStateTool {
                         .args(["-o", "rss=", "-p", &std::process::id().to_string()])
                         .output()
                         .ok()
-                        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
+                        .and_then(|o| {
+                            String::from_utf8_lossy(&o.stdout)
+                                .trim()
+                                .parse::<u64>()
+                                .ok()
+                        })
                         .unwrap_or(0);
-                    report["memory_mb"] = serde_json::json!(((mem as f64 / 1024.0) * 10.0).round() / 10.0);
+                    report["memory_mb"] =
+                        serde_json::json!(((mem as f64 / 1024.0) * 10.0).round() / 10.0);
                 }
-                _ => { report[*metric] = serde_json::json!("unknown metric"); }
+                _ => {
+                    report[*metric] = serde_json::json!("unknown metric");
+                }
             }
         }
 
@@ -108,25 +124,28 @@ impl Tool for GetEngineStateTool {
 pub struct BuildProjectTool;
 
 impl Tool for BuildProjectTool {
-    fn name(&self) -> &str { "build_project" }
+    fn name(&self) -> &str {
+        "build_project"
+    }
     fn description(&self) -> &str {
         "Compile the project using cargo build (check-only for MVP)"
     }
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "mode".to_string(),
-                description: "Build mode: check (fast, clippy), debug, release".to_string(),
-                param_type: ParameterType::String,
-                required: false,
-                default: Some(Value::String("check".to_string())),
-            },
-        ]
+        vec![ToolParameter {
+            name: "mode".to_string(),
+            description: "Build mode: check (fast, clippy), debug, release".to_string(),
+            param_type: ParameterType::String,
+            required: false,
+            default: Some(Value::String("check".to_string())),
+        }]
     }
-    fn category(&self) -> ToolCategory { ToolCategory::Engine }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Engine
+    }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let mode = params.get("mode")
+        let mode = params
+            .get("mode")
             .and_then(|v| v.as_str())
             .unwrap_or("check");
 
@@ -171,7 +190,8 @@ impl Tool for BuildProjectTool {
                 })
             }
             Err(e) => Err(ToolError::ExecutionFailed(format!(
-                "Failed to run cargo: {}", e
+                "Failed to run cargo: {}",
+                e
             ))),
         }
     }
@@ -184,7 +204,9 @@ impl Tool for BuildProjectTool {
 pub struct PlayGameTool;
 
 impl Tool for PlayGameTool {
-    fn name(&self) -> &str { "play_game" }
+    fn name(&self) -> &str {
+        "play_game"
+    }
     fn description(&self) -> &str {
         "Launch the game in play mode for testing (cargo run)"
     }
@@ -206,14 +228,18 @@ impl Tool for PlayGameTool {
             },
         ]
     }
-    fn category(&self) -> ToolCategory { ToolCategory::Engine }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Engine
+    }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let profile = params.get("profile")
+        let profile = params
+            .get("profile")
             .and_then(|v| v.as_str())
             .unwrap_or("dev");
 
-        let dry_run = params.get("dry_run")
+        let dry_run = params
+            .get("dry_run")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
@@ -238,7 +264,11 @@ impl Tool for PlayGameTool {
             // Real exec — spawn cargo run
             let child = std::process::Command::new("cargo")
                 .arg("run")
-                .args(if profile == "release" { vec!["--release"] } else { vec![] })
+                .args(if profile == "release" {
+                    vec!["--release"]
+                } else {
+                    vec![]
+                })
                 .spawn();
 
             match child {
@@ -258,7 +288,8 @@ impl Tool for PlayGameTool {
                     })
                 }
                 Err(e) => Err(ToolError::ExecutionFailed(format!(
-                    "Failed to launch game: {}", e
+                    "Failed to launch game: {}",
+                    e
                 ))),
             }
         }
@@ -272,7 +303,9 @@ impl Tool for PlayGameTool {
 pub struct ExportAssetTool;
 
 impl Tool for ExportAssetTool {
-    fn name(&self) -> &str { "export_asset" }
+    fn name(&self) -> &str {
+        "export_asset"
+    }
     fn description(&self) -> &str {
         "Export project assets to a target directory (for distribution)"
     }
@@ -290,20 +323,22 @@ impl Tool for ExportAssetTool {
                 description: "Glob patterns for assets to export".to_string(),
                 param_type: ParameterType::Array(Box::new(ParameterType::String)),
                 required: false,
-                default: Some(Value::Array(vec![
-                    Value::String("assets/**/*".to_string()),
-                ])),
+                default: Some(Value::Array(vec![Value::String("assets/**/*".to_string())])),
             },
         ]
     }
-    fn category(&self) -> ToolCategory { ToolCategory::Engine }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Engine
+    }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let target_dir = params.get("target_dir")
+        let target_dir = params
+            .get("target_dir")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("target_dir".to_string()))?;
 
-        let patterns: Vec<String> = params.get("asset_patterns")
+        let patterns: Vec<String> = params
+            .get("asset_patterns")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -334,8 +369,9 @@ impl Tool for ExportAssetTool {
         if let Ok(entries) = std::fs::read_dir(target_dir) {
             let _ = entries.count();
         } else {
-            std::fs::create_dir_all(target_dir)
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create target dir: {}", e)))?;
+            std::fs::create_dir_all(target_dir).map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to create target dir: {}", e))
+            })?;
         }
 
         for src_path in &matched_files {
@@ -357,7 +393,11 @@ impl Tool for ExportAssetTool {
                 "Exported {} asset(s) to {}{}",
                 copied_count,
                 target_dir,
-                if copy_errors.is_empty() { String::new() } else { format!(" ({} errors)", copy_errors.len()) }
+                if copy_errors.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} errors)", copy_errors.len())
+                }
             ),
             data: Some(serde_json::json!({
                 "target_dir": target_dir,
@@ -378,25 +418,28 @@ impl Tool for ExportAssetTool {
 pub struct ReviewCodeTool;
 
 impl Tool for ReviewCodeTool {
-    fn name(&self) -> &str { "review_code" }
+    fn name(&self) -> &str {
+        "review_code"
+    }
     fn description(&self) -> &str {
         "Run code review checks: clippy lints, fmt check, basic static analysis"
     }
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "checks".to_string(),
-                description: "Comma-separated checks: clippy, fmt, check (default: all)".to_string(),
-                param_type: ParameterType::String,
-                required: false,
-                default: Some(Value::String("all".to_string())),
-            },
-        ]
+        vec![ToolParameter {
+            name: "checks".to_string(),
+            description: "Comma-separated checks: clippy, fmt, check (default: all)".to_string(),
+            param_type: ParameterType::String,
+            required: false,
+            default: Some(Value::String("all".to_string())),
+        }]
     }
-    fn category(&self) -> ToolCategory { ToolCategory::Code }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Code
+    }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let checks_str = params.get("checks")
+        let checks_str = params
+            .get("checks")
             .and_then(|v| v.as_str())
             .unwrap_or("all");
 
@@ -406,7 +449,8 @@ impl Tool for ReviewCodeTool {
             match std::process::Command::new("cargo").args(args).output() {
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    let issues: Vec<&str> = stderr.lines()
+                    let issues: Vec<&str> = stderr
+                        .lines()
                         .filter(|l| l.contains("warning") || l.contains("error"))
                         .collect();
                     serde_json::json!({
@@ -434,7 +478,9 @@ impl Tool for ReviewCodeTool {
             results.push(run(&["check"], "cargo check"));
         }
 
-        let all_pass = results.iter().all(|r| r["success"].as_bool().unwrap_or(false));
+        let all_pass = results
+            .iter()
+            .all(|r| r["success"].as_bool().unwrap_or(false));
 
         Ok(ToolResult {
             success: true,
@@ -459,7 +505,9 @@ impl Tool for ReviewCodeTool {
 pub struct ApplyCodeChangeTool;
 
 impl Tool for ApplyCodeChangeTool {
-    fn name(&self) -> &str { "apply_code_change" }
+    fn name(&self) -> &str {
+        "apply_code_change"
+    }
     fn description(&self) -> &str {
         "Apply a code change by writing content to a file path"
     }
@@ -488,18 +536,23 @@ impl Tool for ApplyCodeChangeTool {
             },
         ]
     }
-    fn category(&self) -> ToolCategory { ToolCategory::Code }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Code
+    }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let file_path = params.get("file_path")
+        let file_path = params
+            .get("file_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("file_path".to_string()))?;
 
-        let content = params.get("content")
+        let content = params
+            .get("content")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("content".to_string()))?;
 
-        let dry_run = params.get("dry_run")
+        let dry_run = params
+            .get("dry_run")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
@@ -530,9 +583,8 @@ impl Tool for ApplyCodeChangeTool {
                 })?;
             }
 
-            std::fs::write(file_path, content).map_err(|e| {
-                ToolError::ExecutionFailed(format!("Failed to write file: {}", e))
-            })?;
+            std::fs::write(file_path, content)
+                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write file: {}", e)))?;
 
             Ok(ToolResult {
                 success: true,
@@ -556,7 +608,10 @@ impl Tool for ApplyCodeChangeTool {
 // Registration
 // ============================================================================
 
-pub fn register_engine_tools(registry: &mut crate::tool::ToolRegistry, bridge: crate::scene_bridge::SharedSceneBridge) {
+pub fn register_engine_tools(
+    registry: &mut crate::tool::ToolRegistry,
+    bridge: crate::scene_bridge::SharedSceneBridge,
+) {
     registry.register(GetEngineStateTool::new(bridge));
     registry.register(BuildProjectTool);
     registry.register(PlayGameTool);
@@ -587,7 +642,10 @@ mod tests {
         let bridge = crate::scene_bridge::create_empty_shared_bridge();
         let tool = GetEngineStateTool::new(bridge);
         let mut params = HashMap::new();
-        params.insert("metrics".to_string(), Value::String("entities,fps".to_string()));
+        params.insert(
+            "metrics".to_string(),
+            Value::String("entities,fps".to_string()),
+        );
         let result = tool.execute(params).unwrap();
         assert!(result.success);
     }
@@ -631,8 +689,14 @@ mod tests {
     fn test_apply_code_change_dry_run() {
         let tool = ApplyCodeChangeTool;
         let mut params = HashMap::new();
-        params.insert("file_path".to_string(), Value::String("dummy.rs".to_string()));
-        params.insert("content".to_string(), Value::String("fn main() {}".to_string()));
+        params.insert(
+            "file_path".to_string(),
+            Value::String("dummy.rs".to_string()),
+        );
+        params.insert(
+            "content".to_string(),
+            Value::String("fn main() {}".to_string()),
+        );
         params.insert("dry_run".to_string(), Value::Bool(true));
         let result = tool.execute(params).unwrap();
         assert!(result.success);

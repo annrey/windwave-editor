@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 
-use crate::plan::{EditPlan, EditPlanStatus};
 use crate::permission::{PermissionEngine, PermissionRequirement};
+use crate::plan::{EditPlan, EditPlanStatus};
 use crate::planner::{Planner, PlannerContext};
 
 /// Manages the lifecycle of edit plans: creation, storage, approval,
@@ -174,6 +174,14 @@ impl PlanManager {
             }
         };
         engine.decide_for_plan(plan.risk_level)
+    }
+
+    /// Get the current approval status of a plan.
+    pub fn get_status(&self, plan_id: &str) -> crate::plan::EditPlanStatus {
+        self.plans
+            .get(plan_id)
+            .map(|p| p.status)
+            .unwrap_or(crate::plan::EditPlanStatus::Draft)
     }
 
     // ------------------------------------------------------------------

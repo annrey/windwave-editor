@@ -17,7 +17,10 @@ pub enum RollbackOperation {
     /// Remove an entity that was created.
     DeleteEntity { entity_id: u64 },
     /// Restore a Transform to a previous translation.
-    RestoreTransform { entity_id: u64, translation: [f32; 3] },
+    RestoreTransform {
+        entity_id: u64,
+        translation: [f32; 3],
+    },
     /// Restore a Sprite color to a previous RGBA value.
     RestoreSpriteColor { entity_id: u64, rgba: [f32; 4] },
 }
@@ -76,11 +79,7 @@ impl BevyAdapter {
     }
 
     /// Capture a point-in-time snapshot of an entity's state for rollback purposes.
-    pub fn capture_snapshot(
-        &self,
-        entity_id: u64,
-        world: &World,
-    ) -> Option<EntitySnapshot> {
+    pub fn capture_snapshot(&self, entity_id: u64, world: &World) -> Option<EntitySnapshot> {
         let agent_eid = EntityId(entity_id);
         let bevy_entity = self.get_bevy_entity(agent_eid)?;
         let entity_ref = world.get_entity(bevy_entity).ok()?;
@@ -94,23 +93,19 @@ impl BevyAdapter {
             .get::<Transform>()
             .map(|t| [t.translation.x, t.translation.y, t.translation.z]);
 
-        let rotation = entity_ref
-            .get::<Transform>()
-            .map(|t| {
-                let (roll, pitch, yaw) = t.rotation.to_euler(EulerRot::XYZ);
-                [roll, pitch, yaw]
-            });
+        let rotation = entity_ref.get::<Transform>().map(|t| {
+            let (roll, pitch, yaw) = t.rotation.to_euler(EulerRot::XYZ);
+            [roll, pitch, yaw]
+        });
 
         let scale = entity_ref
             .get::<Transform>()
             .map(|t| [t.scale.x, t.scale.y, t.scale.z]);
 
-        let sprite_color = entity_ref
-            .get::<Sprite>()
-            .map(|s| {
-                let col = s.color.to_linear();
-                [col.red, col.green, col.blue, col.alpha]
-            });
+        let sprite_color = entity_ref.get::<Sprite>().map(|s| {
+            let col = s.color.to_linear();
+            [col.red, col.green, col.blue, col.alpha]
+        });
 
         Some(EntitySnapshot {
             entity_id,

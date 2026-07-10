@@ -1,13 +1,19 @@
 //! Plan revision and LLM-based planning — revision detection, application, and LLM plan generation.
 
-use crate::plan::{EditPlan, EditPlanStep, EditPlanStatus, ExecutionMode, TargetModule};
-use crate::permission::OperationRisk;
-use crate::types::now_millis;
 use super::types::{DirectorRuntime, DirectorTraceEntry};
+use crate::permission::OperationRisk;
+use crate::plan::{EditPlan, EditPlanStatus, EditPlanStep, ExecutionMode, TargetModule};
+use crate::types::now_millis;
 
 impl DirectorRuntime {
     /// Sprint 1: Check if plan needs dynamic revision based on execution results.
-    pub(crate) fn check_plan_revision_needed(&self, _plan: &EditPlan, _current_idx: usize, result: &str) -> Option<String> {
+    #[allow(dead_code)]
+    pub(crate) fn check_plan_revision_needed(
+        &self,
+        _plan: &EditPlan,
+        _current_idx: usize,
+        result: &str,
+    ) -> Option<String> {
         let result_lower = result.to_lowercase();
 
         if result_lower.contains("already exists") || result_lower.contains("已存在") {
@@ -29,6 +35,7 @@ impl DirectorRuntime {
     /// - "replace:{old}->{new}" — replace a step title
     /// - "Skip duplicate creation steps" — auto-detected, skips creation steps
     /// - "Try alternative entity or create it first" — auto-detected, inserts prerequisite
+    #[allow(dead_code)]
     pub(crate) fn apply_plan_revision(&mut self, plan_id: &str, revision: &str) {
         let revision_lower = revision.to_lowercase();
 
@@ -37,26 +44,41 @@ impl DirectorRuntime {
                 let mut skipped = 0;
                 for step in &mut plan.steps {
                     let step_lower = step.title.to_lowercase();
-                    if step_lower.contains("create") || step_lower.contains("创建") || step_lower.contains("生成") {
-                        if !step.title.starts_with("[SKIPPED]") {
-                            step.title = format!("[SKIPPED] {}", step.title);
-                            step.action_description = format!("[SKIPPED] {}", step.action_description);
-                            skipped += 1;
-                        }
+                    if (step_lower.contains("create")
+                        || step_lower.contains("创建")
+                        || step_lower.contains("生成"))
+                        && !step.title.starts_with("[SKIPPED]")
+                    {
+                        step.title = format!("[SKIPPED] {}", step.title);
+                        step.action_description = format!("[SKIPPED] {}", step.action_description);
+                        skipped += 1;
                     }
                 }
                 self.trace_entries.push(DirectorTraceEntry {
                     timestamp_ms: now_millis(),
                     actor: "PlanReviser".into(),
-                    summary: format!("Skipped {} duplicate creation steps in plan '{}'", skipped, plan_id),
+                    summary: format!(
+                        "Skipped {} duplicate creation steps in plan '{}'",
+                        skipped, plan_id
+                    ),
                 });
             }
-        } else if revision_lower.contains("try alternative") || revision_lower.contains("create it first") {
+        } else if revision_lower.contains("try alternative")
+            || revision_lower.contains("create it first")
+        {
             if let Some(plan) = self.plan_manager.get_mut(plan_id) {
-                let insert_idx = plan.steps.iter().position(|s| {
-                    let lower = s.title.to_lowercase();
-                    lower.contains("update") || lower.contains("modify") || lower.contains("delete") || lower.contains("移动") || lower.contains("删除")
-                }).unwrap_or(0);
+                let insert_idx = plan
+                    .steps
+                    .iter()
+                    .position(|s| {
+                        let lower = s.title.to_lowercase();
+                        lower.contains("update")
+                            || lower.contains("modify")
+                            || lower.contains("delete")
+                            || lower.contains("移动")
+                            || lower.contains("删除")
+                    })
+                    .unwrap_or(0);
 
                 let new_step = EditPlanStep {
                     id: format!("prereq_{}", plan.steps.len() + 1),
@@ -71,7 +93,10 @@ impl DirectorRuntime {
                 self.trace_entries.push(DirectorTraceEntry {
                     timestamp_ms: now_millis(),
                     actor: "PlanReviser".into(),
-                    summary: format!("Inserted prerequisite step at position {} in plan '{}'", insert_idx, plan_id),
+                    summary: format!(
+                        "Inserted prerequisite step at position {} in plan '{}'",
+                        insert_idx, plan_id
+                    ),
                 });
             }
         }
@@ -82,31 +107,47 @@ impl DirectorRuntime {
         let error_lower = error.to_lowercase();
         let original_lower = original.to_lowercase();
 
-        if error_lower.contains("not found") || error_lower.contains("不存在") || error_lower.contains("找不到") {
+        if error_lower.contains("not found")
+            || error_lower.contains("不存在")
+            || error_lower.contains("找不到")
+        {
             let entity_name = Self::extract_entity_name(original);
             return Some(format!("Create entity '{}' before proceeding", entity_name));
         }
 
-        if error_lower.contains("permission") || error_lower.contains("拒绝") || error_lower.contains("unauthorized") {
+        if error_lower.contains("permission")
+            || error_lower.contains("拒绝")
+            || error_lower.contains("unauthorized")
+        {
             return Some(format!("[LOW_RISK] {}", original));
         }
 
-        if error_lower.contains("already exists") || error_lower.contains("已存在") || error_lower.contains("duplicate") {
-            if original_lower.contains("create") || original_lower.contains("创建") || original_lower.contains("生成") {
-                let modified = original
-                    .replace("Create", "Modify")
-                    .replace("create", "modify")
-                    .replace("创建", "修改")
-                    .replace("生成", "更新");
-                return Some(modified);
-            }
+        if (error_lower.contains("already exists")
+            || error_lower.contains("已存在")
+            || error_lower.contains("duplicate"))
+            && (original_lower.contains("create")
+                || original_lower.contains("创建")
+                || original_lower.contains("生成"))
+        {
+            let modified = original
+                .replace("Create", "Modify")
+                .replace("create", "modify")
+                .replace("创建", "修改")
+                .replace("生成", "更新");
+            return Some(modified);
         }
 
-        if error_lower.contains("invalid") || error_lower.contains("参数") || error_lower.contains("parameter") {
+        if error_lower.contains("invalid")
+            || error_lower.contains("参数")
+            || error_lower.contains("parameter")
+        {
             return Some(format!("{} (with default parameters)", original));
         }
 
-        if error_lower.contains("timeout") || error_lower.contains("rate limit") || error_lower.contains("timed out") {
+        if error_lower.contains("timeout")
+            || error_lower.contains("rate limit")
+            || error_lower.contains("timed out")
+        {
             return Some(format!("[SIMPLIFIED] {}", original));
         }
 
@@ -114,13 +155,19 @@ impl DirectorRuntime {
             return Some(format!("[SIMULATED] {}", original));
         }
 
-        if error_lower.contains("tool error") || error_lower.contains("execution failed") {
-            if original_lower.contains("delete") || original_lower.contains("删除") {
-                return Some(format!("[SAFE_ALTERNATIVE] Hide/disable '{}' instead of deleting", Self::extract_entity_name(original)));
-            }
+        if (error_lower.contains("tool error") || error_lower.contains("execution failed"))
+            && (original_lower.contains("delete") || original_lower.contains("删除"))
+        {
+            return Some(format!(
+                "[SAFE_ALTERNATIVE] Hide/disable '{}' instead of deleting",
+                Self::extract_entity_name(original)
+            ));
         }
 
-        if error_lower.contains("llm error") || error_lower.contains("maximum steps") || error_lower.contains("parse error") {
+        if error_lower.contains("llm error")
+            || error_lower.contains("maximum steps")
+            || error_lower.contains("parse error")
+        {
             return Some(format!("[RULE_BASED] {}", original));
         }
 
@@ -134,7 +181,9 @@ impl DirectorRuntime {
                 if step.id == step_id {
                     step.title = new_title.to_string();
                     step.action_description = new_title.to_string();
-                    if new_title.starts_with("[LOW_RISK]") || new_title.starts_with("[SAFE_ALTERNATIVE]") {
+                    if new_title.starts_with("[LOW_RISK]")
+                        || new_title.starts_with("[SAFE_ALTERNATIVE]")
+                    {
                         step.risk = OperationRisk::LowRisk;
                     }
                     break;
@@ -147,7 +196,13 @@ impl DirectorRuntime {
     fn extract_entity_name(title: &str) -> String {
         let words: Vec<&str> = title.split_whitespace().collect();
         for word in &words {
-            if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && word.len() > 1 {
+            if word
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+                && word.len() > 1
+            {
                 return word.to_string();
             }
         }
@@ -161,7 +216,8 @@ impl DirectorRuntime {
         let system_prompt = self.prompt_system.build_prompt(
             crate::prompt::PromptType::TaskPlanning,
             &crate::prompt::PromptContext {
-                selected_entities: self.plan_manager
+                selected_entities: self
+                    .plan_manager
                     .list()
                     .iter()
                     .flat_map(|p| p.steps.iter().map(|s| s.title.clone()))
@@ -193,7 +249,7 @@ impl DirectorRuntime {
         );
 
         let request = crate::llm::LlmRequest {
-            model: "gpt-4o-mini".to_string(),
+            model: crate::planner::get_default_model(),
             messages: vec![
                 crate::llm::LlmMessage {
                     role: crate::llm::Role::System,
@@ -229,11 +285,7 @@ impl DirectorRuntime {
                 .unwrap_or(content)
                 .trim()
         } else if content.contains("```") {
-            content
-                .split("```")
-                .nth(1)
-                .unwrap_or(content)
-                .trim()
+            content.split("```").nth(1).unwrap_or(content).trim()
         } else {
             content.trim()
         };
@@ -261,8 +313,7 @@ impl DirectorRuntime {
         let steps: Vec<EditPlanStep> = llm_plan
             .steps
             .into_iter()
-            .enumerate()
-            .map(|(_i, s)| EditPlanStep {
+            .map(|s| EditPlanStep {
                 id: s.id,
                 title: s.title.clone(),
                 target_module: TargetModule::Scene,

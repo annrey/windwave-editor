@@ -145,7 +145,10 @@ impl SemanticIndex {
             .iter()
             .filter(|cat| {
                 cat.name.to_lowercase().contains(&lower)
-                    || cat.keywords.iter().any(|kw| kw.to_lowercase().contains(&lower))
+                    || cat
+                        .keywords
+                        .iter()
+                        .any(|kw| kw.to_lowercase().contains(&lower))
                     || cat.description.to_lowercase().contains(&lower)
             })
             .collect()
@@ -194,7 +197,7 @@ impl SkillIndex {
 
         for cap in &entry.required_capabilities {
             self.capability_index
-                .entry(cap.clone())
+                .entry(*cap)
                 .or_default()
                 .push(entry.name.clone());
         }
@@ -208,10 +211,7 @@ impl SkillIndex {
             .and_then(|&idx| self.entries.get(idx))
     }
 
-    pub fn find_by_capability(
-        &self,
-        capability: &CapabilityKind,
-    ) -> Vec<&SkillIndexEntry> {
+    pub fn find_by_capability(&self, capability: &CapabilityKind) -> Vec<&SkillIndexEntry> {
         self.capability_index
             .get(capability)
             .map(|names| {

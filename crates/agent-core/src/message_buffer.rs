@@ -25,7 +25,15 @@ impl MessageBuffer {
     }
 
     pub fn recent_messages(&self, n: usize) -> Vec<Message> {
-        self.messages.iter().rev().take(n).cloned().collect::<Vec<_>>().into_iter().rev().collect()
+        self.messages
+            .iter()
+            .rev()
+            .take(n)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     }
 
     pub fn all_messages(&self) -> &[Message] {

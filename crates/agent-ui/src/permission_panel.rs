@@ -2,35 +2,25 @@
 //!
 //! Provides UI for configuring Agent permission policies and risk level settings.
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use agent_core::permission::{OperationRisk, PermissionPolicy};
-use crate::layout::{LayoutManager, LayoutCommand, PanelPosition};
+use crate::layout::{LayoutCommand, LayoutManager, PanelPosition};
 use crate::LayoutCommandQueue;
+use agent_core::permission::{OperationRisk, PermissionPolicy};
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct PermissionPanelPlugin;
 
 impl Plugin for PermissionPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PermissionState>()
-            .add_systems(Update, render_permission_panel);
+            .add_systems(EguiPrimaryContextPass, render_permission_panel);
     }
 }
 
 /// Permission configuration state
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct PermissionState {
-    pub visible: bool,
     pub policy: PermissionPolicy,
-}
-
-impl Default for PermissionState {
-    fn default() -> Self {
-        Self {
-            visible: false,
-            policy: PermissionPolicy::default(),
-        }
-    }
 }
 
 impl PermissionState {
@@ -68,12 +58,21 @@ impl PermissionState {
     /// Get a summary of the current policy
     pub fn policy_summary(&self) -> String {
         let mut summary = String::new();
-        
+
         summary.push_str("Current Policy:\n");
-        summary.push_str(&format!("- Auto-allow: {}\n", self.format_risks(&self.policy.auto_allow)));
-        summary.push_str(&format!("- Require confirmation: {}\n", self.format_risks(&self.policy.require_confirmation)));
-        summary.push_str(&format!("- Forbidden: {}", self.format_risks(&self.policy.forbidden)));
-        
+        summary.push_str(&format!(
+            "- Auto-allow: {}\n",
+            self.format_risks(&self.policy.auto_allow)
+        ));
+        summary.push_str(&format!(
+            "- Require confirmation: {}\n",
+            self.format_risks(&self.policy.require_confirmation)
+        ));
+        summary.push_str(&format!(
+            "- Forbidden: {}",
+            self.format_risks(&self.policy.forbidden)
+        ));
+
         summary
     }
 
@@ -81,7 +80,8 @@ impl PermissionState {
         if risks.is_empty() {
             "None".to_string()
         } else {
-            risks.iter()
+            risks
+                .iter()
                 .map(|&r| risk_to_string(r))
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -202,7 +202,9 @@ fn render_permission_panel(
                 }
                 ui.add_space(8.0);
                 if ui.button("Close").clicked() {
-                    layout_queue.push(LayoutCommand::HidePanel { panel_id: "permission".to_string() });
+                    layout_queue.push(LayoutCommand::HidePanel {
+                        panel_id: "permission".to_string(),
+                    });
                 }
             });
         });
@@ -210,31 +212,50 @@ fn render_permission_panel(
 
 fn render_risk_row(ui: &mut egui::Ui, state: &mut PermissionState, risk: OperationRisk) {
     let mut current_action = state.get_action_for_risk(risk);
-    
+
     ui.group(|ui| {
         ui.vertical(|ui| {
             // Risk level name and description
             ui.horizontal(|ui| {
-                ui.colored_label(risk_color(risk), egui::RichText::new(risk_to_string(risk)).strong());
+                ui.colored_label(
+                    risk_color(risk),
+                    egui::RichText::new(risk_to_string(risk)).strong(),
+                );
             });
             ui.add_space(2.0);
-            ui.label(egui::RichText::new(risk_description(risk)).size(10.0).color(egui::Color32::from_gray(160)));
+            ui.label(
+                egui::RichText::new(risk_description(risk))
+                    .size(10.0)
+                    .color(egui::Color32::from_gray(160)),
+            );
             ui.add_space(4.0);
-            
+
             // Action selection
             ui.horizontal(|ui| {
                 ui.label("Action:");
-                
+
                 let changed = egui::ComboBox::from_id_salt(format!("risk_action_{:?}", risk))
                     .selected_text(current_action.to_string())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut current_action, RiskAction::AutoAllow, "Auto-Allow");
-                        ui.selectable_value(&mut current_action, RiskAction::NeedConfirmation, "Need Confirmation");
-                        ui.selectable_value(&mut current_action, RiskAction::Forbidden, "Forbidden");
+                        ui.selectable_value(
+                            &mut current_action,
+                            RiskAction::AutoAllow,
+                            "Auto-Allow",
+                        );
+                        ui.selectable_value(
+                            &mut current_action,
+                            RiskAction::NeedConfirmation,
+                            "Need Confirmation",
+                        );
+                        ui.selectable_value(
+                            &mut current_action,
+                            RiskAction::Forbidden,
+                            "Forbidden",
+                        );
                     })
                     .response
                     .changed();
-                
+
                 if changed {
                     state.set_action_for_risk(risk, current_action);
                 }
@@ -244,6 +265,6 @@ fn render_risk_row(ui: &mut egui::Ui, state: &mut PermissionState, risk: Operati
 }
 
 /// Toggle permission panel visibility
-pub fn toggle_permission_panel(state: &mut ResMut<PermissionState>) {
-    state.visible = !state.visible;
+pub fn toggle_permission_panel(_state: &mut ResMut<PermissionState>) {
+    // Visibility managed by LayoutManager
 }

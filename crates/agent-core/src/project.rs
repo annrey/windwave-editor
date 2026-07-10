@@ -106,8 +106,13 @@ impl ProjectManifest {
     }
 
     /// Set metadata value
-    pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Serialize) -> Result<(), serde_json::Error> {
-        self.metadata.insert(key.into(), serde_json::to_value(value)?);
+    pub fn set_metadata(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Serialize,
+    ) -> Result<(), serde_json::Error> {
+        self.metadata
+            .insert(key.into(), serde_json::to_value(value)?);
         Ok(())
     }
 
@@ -131,7 +136,10 @@ impl ProjectManifest {
     }
 
     /// Create default project structure
-    pub fn create_project_structure(&self, base_path: impl AsRef<Path>) -> Result<(), ProjectError> {
+    pub fn create_project_structure(
+        &self,
+        base_path: impl AsRef<Path>,
+    ) -> Result<(), ProjectError> {
         let base = base_path.as_ref();
 
         // Create directories
@@ -146,11 +154,12 @@ impl ProjectManifest {
         if self.scenes.is_empty() {
             let scene_path = base.join("scenes").join("main.scene");
             let default_scene = crate::scene_serializer::SceneFile::new("Main Scene");
-            default_scene.save(&scene_path)
-                .map_err(|e| ProjectError::Io(std::io::Error::new(
+            default_scene.save(&scene_path).map_err(|e| {
+                ProjectError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("Failed to save default scene: {}", e)
-                )))?;
+                    format!("Failed to save default scene: {}", e),
+                ))
+            })?;
         }
 
         Ok(())
@@ -164,9 +173,17 @@ impl ProjectManager {
     }
 
     /// Load a project
-    pub fn load_project(&mut self, path: impl AsRef<Path>) -> Result<&ProjectManifest, ProjectError> {
+    pub fn load_project(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<&ProjectManifest, ProjectError> {
         let manifest = ProjectManifest::load(&path)?;
-        self.project_path = Some(path.as_ref().parent().map(|p| p.to_path_buf()).unwrap_or_default());
+        self.project_path = Some(
+            path.as_ref()
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_default(),
+        );
         self.current_project = Some(manifest);
         Ok(self.current_project.as_ref().unwrap())
     }
@@ -288,11 +305,31 @@ impl ProjectTemplate {
     pub fn all() -> &'static [(ProjectTemplate, &'static str, &'static str)] {
         &[
             (Self::Empty, "Empty", "Minimal Bevy project with a camera"),
-            (Self::Platform2D, "2D Platformer", "Side-scrolling platformer with physics"),
-            (Self::TopDownRPG, "Top-Down RPG", "Top-down character movement and tilemap"),
-            (Self::FirstPerson3D, "First Person 3D", "First-person camera with basic 3D scene"),
-            (Self::UIApplication, "UI Application", "UI-heavy app with panels and widgets"),
-            (Self::Narrative, "Narrative Game", "AI-driven narrative game with dialogue system"),
+            (
+                Self::Platform2D,
+                "2D Platformer",
+                "Side-scrolling platformer with physics",
+            ),
+            (
+                Self::TopDownRPG,
+                "Top-Down RPG",
+                "Top-down character movement and tilemap",
+            ),
+            (
+                Self::FirstPerson3D,
+                "First Person 3D",
+                "First-person camera with basic 3D scene",
+            ),
+            (
+                Self::UIApplication,
+                "UI Application",
+                "UI-heavy app with panels and widgets",
+            ),
+            (
+                Self::Narrative,
+                "Narrative Game",
+                "AI-driven narrative game with dialogue system",
+            ),
         ]
     }
 
@@ -337,7 +374,10 @@ impl ProjectManifest {
         let scene = template.default_scene().to_string();
 
         let mut metadata = HashMap::new();
-        metadata.insert("template".to_string(), serde_json::json!(format!("{:?}", template)));
+        metadata.insert(
+            "template".to_string(),
+            serde_json::json!(format!("{:?}", template)),
+        );
         metadata.insert("resolution".to_string(), serde_json::json!([res_w, res_h]));
         if template.has_physics() {
             metadata.insert("physics".to_string(), serde_json::json!(true));
@@ -377,7 +417,12 @@ impl RecentProjectsList {
     const MAX_RECENT: usize = 10;
 
     /// Add or update a project in the recent list
-    pub fn add(&mut self, name: impl Into<String>, path: impl Into<PathBuf>, template: Option<String>) {
+    pub fn add(
+        &mut self,
+        name: impl Into<String>,
+        path: impl Into<PathBuf>,
+        template: Option<String>,
+    ) {
         let path: PathBuf = path.into();
         let name: String = name.into();
 
@@ -385,12 +430,15 @@ impl RecentProjectsList {
         self.projects.retain(|p| p.path != path);
 
         // Insert at front
-        self.projects.insert(0, RecentProject {
-            name,
-            path,
-            template,
-            last_opened: chrono::Utc::now().to_rfc3339(),
-        });
+        self.projects.insert(
+            0,
+            RecentProject {
+                name,
+                path,
+                template,
+                last_opened: chrono::Utc::now().to_rfc3339(),
+            },
+        );
 
         // Trim to max
         self.projects.truncate(Self::MAX_RECENT);
@@ -423,37 +471,48 @@ impl RecentProjectsList {
                 let list: Self = serde_json::from_str(&json)?;
                 Ok(list)
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Self::default())
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(ProjectError::Io(e)),
         }
     }
 
     /// Default path for recent projects file
     pub fn default_path() -> PathBuf {
-        dirs_next().unwrap_or_else(|| PathBuf::from("."))
+        dirs_next()
+            .unwrap_or_else(|| PathBuf::from("."))
             .join("agentedit")
             .join("recent_projects.json")
     }
 }
 
 fn dirs_next() -> Option<PathBuf> {
-    std::env::var("AGENTEDIT_CONFIG_DIR").ok()
+    std::env::var("AGENTEDIT_CONFIG_DIR")
+        .ok()
         .map(PathBuf::from)
         .or_else(|| {
             #[cfg(target_os = "macos")]
-            { std::env::var("HOME").ok().map(|h| PathBuf::from(h).join("Library").join("Application Support")) }
+            {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
+            }
             #[cfg(not(target_os = "macos"))]
-            { dirs_next_cross() }
+            {
+                dirs_next_cross()
+            }
         })
 }
 
 #[cfg(not(target_os = "macos"))]
 fn dirs_next_cross() -> Option<PathBuf> {
-    std::env::var("XDG_CONFIG_HOME").ok()
+    std::env::var("XDG_CONFIG_HOME")
+        .ok()
         .map(PathBuf::from)
-        .or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config")))
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".config"))
+        })
 }
 
 #[cfg(test)]

@@ -88,33 +88,41 @@ impl CodeGraph {
 
     /// 获取节点的直接依赖（出边）
     pub fn direct_deps(&self, node_id: &str) -> Vec<&CodeNode> {
-        let targets: HashSet<&str> = self.edges
+        let targets: HashSet<&str> = self
+            .edges
             .iter()
             .filter(|e| e.source_id == node_id)
             .map(|e| e.target_id.as_str())
             .collect();
-        self.nodes.values().filter(|n| targets.contains(n.id.as_str())).collect()
+        self.nodes
+            .values()
+            .filter(|n| targets.contains(n.id.as_str()))
+            .collect()
     }
 
     /// 获取节点的直接依赖者（入边）
     pub fn direct_dependents(&self, node_id: &str) -> Vec<&CodeNode> {
-        let sources: HashSet<&str> = self.edges
+        let sources: HashSet<&str> = self
+            .edges
             .iter()
             .filter(|e| e.target_id == node_id)
             .map(|e| e.source_id.as_str())
             .collect();
-        self.nodes.values().filter(|n| sources.contains(n.id.as_str())).collect()
+        self.nodes
+            .values()
+            .filter(|n| sources.contains(n.id.as_str()))
+            .collect()
     }
 
     /// 计算影响半径 - 从指定节点出发，所有被影响的节点（反向遍历依赖）
     pub fn impact_radius(&self, node_ids: &[String], max_depth: usize) -> Vec<&CodeNode> {
         let mut visited = HashSet::new();
         let mut result = Vec::new();
-        
+
         for node_id in node_ids {
             self.traverse_backward(node_id, 0, max_depth, &mut visited, &mut result);
         }
-        
+
         result
     }
 
@@ -136,7 +144,8 @@ impl CodeGraph {
             result.push(node);
         }
 
-        let sources: Vec<String> = self.edges
+        let sources: Vec<String> = self
+            .edges
             .iter()
             .filter(|e| e.target_id == node_id)
             .map(|e| e.source_id.clone())

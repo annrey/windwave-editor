@@ -1,5 +1,5 @@
-use crate::types::current_timestamp;
 use crate::memory_injector::MemoryError;
+use crate::types::current_timestamp;
 use serde::{Deserialize, Serialize};
 
 /// 对话摘要
@@ -34,7 +34,11 @@ impl MemoryCompressor {
     }
 
     pub fn needs_compression(&self) -> bool {
-        let estimated_turns = self.pending_content.split('\n').filter(|s| !s.is_empty()).count();
+        let estimated_turns = self
+            .pending_content
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .count();
         estimated_turns >= self.compression_threshold
     }
 
@@ -43,7 +47,11 @@ impl MemoryCompressor {
             return Err(MemoryError::Serialization("No content to compress".into()));
         }
 
-        let original_turns = self.pending_content.split('\n').filter(|s| !s.is_empty()).count();
+        let original_turns = self
+            .pending_content
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .count();
         let summary_text = self.generate_summary(&self.pending_content);
         let key_points = self.extract_key_points(&self.pending_content);
         let entities = self.extract_entities(&self.pending_content);
@@ -84,10 +92,7 @@ impl MemoryCompressor {
     fn extract_key_points(&self, content: &str) -> Vec<String> {
         let mut points = Vec::new();
         for line in content.lines() {
-            let lower = line.to_lowercase();
-            if lower.contains("创建") || lower.contains("create")
-                || lower.contains("修改") || lower.contains("update")
-                || lower.contains("删除") || lower.contains("delete") {
+            if crate::keyword_matcher::KeywordMatcher::has_operation_keywords(line) {
                 points.push(line.trim().to_string());
             }
         }
@@ -99,16 +104,18 @@ impl MemoryCompressor {
         let mut seen = std::collections::HashSet::new();
 
         for word in content.split_whitespace() {
-            let cleaned: String = word.chars()
+            let cleaned: String = word
+                .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
             if cleaned.len() > 2
                 && cleaned.chars().next().unwrap_or(' ').is_uppercase()
-                && !seen.contains(&cleaned) {
-                if !["The", "And", "For", "With", "From", "This", "That"].contains(&cleaned.as_str()) {
-                    entities.push(cleaned.clone());
-                    seen.insert(cleaned);
-                }
+                && !seen.contains(&cleaned)
+                && !["The", "And", "For", "With", "From", "This", "That"]
+                    .contains(&cleaned.as_str())
+            {
+                entities.push(cleaned.clone());
+                seen.insert(cleaned);
             }
         }
         entities
@@ -148,8 +155,10 @@ mod compression_tests {
         assert!(compressor.needs_compression());
         let summary = compressor.compress().unwrap();
         assert!(summary.summary_text.contains("创建"));
-        assert!(summary.entities_mentioned.contains(&"Enemy_01".to_string())
-            || summary.entities_mentioned.contains(&"Player".to_string()));
+        assert!(
+            summary.entities_mentioned.contains(&"Enemy_01".to_string())
+                || summary.entities_mentioned.contains(&"Player".to_string())
+        );
     }
 
     #[test]

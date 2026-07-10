@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::types::current_timestamp;
+use serde::{Deserialize, Serialize};
 
 /// 当前工作集 - 追踪用户当前在做什么、关注什么
 #[derive(Debug, Clone, Serialize, Deserialize)]

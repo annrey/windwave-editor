@@ -198,10 +198,7 @@ pub enum RollbackOperation {
     },
 
     /// Restore the Sprite colour to its previous value.
-    RestoreSpriteColor {
-        entity_name: String,
-        rgba: [f32; 4],
-    },
+    RestoreSpriteColor { entity_name: String, rgba: [f32; 4] },
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +225,8 @@ impl TransactionStore {
     /// convenience (callers typically hold the ID).
     pub fn start(&mut self, transaction: EditTransaction) -> EditTransaction {
         let clone = transaction.clone();
-        self.transactions.insert(transaction.id.clone(), transaction);
+        self.transactions
+            .insert(transaction.id.clone(), transaction);
         clone
     }
 
@@ -386,7 +384,10 @@ mod tests {
             .expect("record should succeed");
 
         store.commit("txn_b", 200).expect("commit should succeed");
-        assert_eq!(store.get("txn_b").unwrap().status, TransactionStatus::Committed);
+        assert_eq!(
+            store.get("txn_b").unwrap().status,
+            TransactionStatus::Committed
+        );
     }
 
     #[test]
@@ -412,8 +413,13 @@ mod tests {
 
         let result = store.record_operation(
             "txn_c",
-            EditOperation::CreateEntity { entity_name: "X".into(), components_json: serde_json::json!({}) },
-            RollbackOperation::DeleteEntity { entity_name: "X".into() },
+            EditOperation::CreateEntity {
+                entity_name: "X".into(),
+                components_json: serde_json::json!({}),
+            },
+            RollbackOperation::DeleteEntity {
+                entity_name: "X".into(),
+            },
         );
         assert!(result.is_err());
     }

@@ -2,24 +2,23 @@
 //!
 //! UI for browsing project assets.
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use crate::project_panel::ProjectPanelState;
 use crate::layout::{LayoutManager, PanelPosition};
+use crate::project_panel::ProjectPanelState;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct AssetBrowserPlugin;
 
 impl Plugin for AssetBrowserPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AssetBrowserState>()
-            .add_systems(Update, render_asset_browser);
+            .add_systems(EguiPrimaryContextPass, render_asset_browser);
     }
 }
 
 /// Asset browser state
 #[derive(Resource, Default)]
 pub struct AssetBrowserState {
-    pub visible: bool,
     pub current_dir: String,
     pub search_filter: String,
     pub selected_asset: Option<String>,
@@ -114,7 +113,14 @@ fn render_asset_browser(
                         state.current_dir = parent.to_string_lossy().to_string();
                     }
                 }
-                ui.label(format!("📁 {}", if state.current_dir.is_empty() { "Assets" } else { &state.current_dir }));
+                ui.label(format!(
+                    "📁 {}",
+                    if state.current_dir.is_empty() {
+                        "Assets"
+                    } else {
+                        &state.current_dir
+                    }
+                ));
             });
 
             ui.separator();
@@ -128,66 +134,66 @@ fn render_asset_browser(
             ui.separator();
 
             // Asset grid/list
-            egui::ScrollArea::vertical()
-                .show(ui, |ui| {
-                    let assets = scan_assets(&state.current_dir, &state.search_filter, &scan_root);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let assets = scan_assets(&state.current_dir, &state.search_filter, &scan_root);
 
-                    if assets.is_empty() {
-                        ui.label("No assets found");
-                    } else {
-                        // Grid layout - 4 columns
-                        let columns = 4;
-                        let rows = (assets.len() + columns - 1) / columns;
+                if assets.is_empty() {
+                    ui.label("No assets found");
+                } else {
+                    // Grid layout - 4 columns
+                    let columns = 4;
+                    let rows = assets.len().div_ceil(columns);
 
-                        for row in 0..rows {
-                            ui.horizontal(|ui| {
-                                for col in 0..columns {
-                                    let idx = row * columns + col;
-                                    if idx >= assets.len() {
-                                        break;
-                                    }
+                    for row in 0..rows {
+                        ui.horizontal(|ui| {
+                            for col in 0..columns {
+                                let idx = row * columns + col;
+                                if idx >= assets.len() {
+                                    break;
+                                }
 
-                                    let asset = &assets[idx];
-                                    let is_selected = state.selected_asset.as_ref() == Some(&asset.path);
+                                let asset = &assets[idx];
+                                let is_selected =
+                                    state.selected_asset.as_ref() == Some(&asset.path);
 
-                                    // Asset card
-                                    let response = ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label(asset.asset_type.icon());
-                                            if asset.is_folder {
-                                                ui.label("📁");
-                                            }
-                                        });
-
-                                        let text = if is_selected {
-                                            egui::RichText::new(&asset.name)
-                                                .strong()
-                                                .color(egui::Color32::WHITE)
-                                        } else {
-                                            egui::RichText::new(&asset.name)
-                                                .color(egui::Color32::LIGHT_GRAY)
-                                        };
-                                        ui.label(text);
+                                // Asset card
+                                let response = ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(asset.asset_type.icon());
+                                        if asset.is_folder {
+                                            ui.label("📁");
+                                        }
                                     });
 
-                                    if response.response.clicked() {
-                                        if asset.is_folder {
-                                            state.current_dir = asset.path.clone();
-                                        } else {
-                                            state.selected_asset = Some(asset.path.clone());
-                                        }
-                                    }
+                                    let text = if is_selected {
+                                        egui::RichText::new(&asset.name)
+                                            .strong()
+                                            .color(egui::Color32::WHITE)
+                                    } else {
+                                        egui::RichText::new(&asset.name)
+                                            .color(egui::Color32::LIGHT_GRAY)
+                                    };
+                                    ui.label(text);
+                                });
 
-                                    // Double click to import
-                                    if response.response.double_clicked() && !asset.is_folder {
-                                        // Signal import
+                                if response.response.clicked() {
+                                    if asset.is_folder {
+                                        state.current_dir = asset.path.clone();
+                                    } else {
+                                        state.selected_asset = Some(asset.path.clone());
                                     }
                                 }
-                            });
-                            ui.separator();
-                        }
+
+                                // Double click to import
+                                if response.response.double_clicked() && !asset.is_folder {
+                                    // Signal import
+                                }
+                            }
+                        });
+                        ui.separator();
                     }
-                });
+                }
+            });
 
             // Selected asset details
             if let Some(ref path) = state.selected_asset {
@@ -259,20 +265,18 @@ fn scan_assets(dir: &str, filter: &str, default_root: &str) -> Vec<AssetEntry> {
     }
 
     // Sort: folders first, then by name
-    entries.sort_by(|a, b| {
-        match (a.is_folder, b.is_folder) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
-        }
+    entries.sort_by(|a, b| match (a.is_folder, b.is_folder) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
     });
 
     entries
 }
 
 /// Toggle asset browser visibility
-pub fn toggle_asset_browser(state: &mut ResMut<AssetBrowserState>) {
-    state.visible = !state.visible;
+pub fn toggle_asset_browser(_state: &mut ResMut<AssetBrowserState>) {
+    // Visibility managed by LayoutManager
 }
 
 /// Refresh asset list

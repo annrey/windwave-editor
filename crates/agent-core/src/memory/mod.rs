@@ -8,26 +8,49 @@
 //!
 //! Plus: Three-stream hybrid retrieval (BM25 + Vector + Recency RRF fusion)
 
-pub mod working;
+pub mod compression;
 pub mod episodic;
-pub mod semantic;
-pub mod procedural;
-pub mod retrieval;
 pub mod lifecycle;
-pub mod system;
+pub mod memory_injector;
+pub mod persistence;
 pub mod preferences;
+pub mod procedural;
+pub mod registry;
+pub mod retrieval;
+pub mod scene_context;
+pub mod semantic;
+pub mod system;
+pub mod types;
+pub mod working;
 
-pub use working::{WorkingMemory, WorkingMemoryEntry, EntryType as WorkingEntryType};
-pub use episodic::{EpisodicMemory, Episode, EpisodeType, EpisodeSearchResult};
-pub use semantic::{SemanticMemory, SemanticNode, SemanticRelation, RelationType};
-pub use procedural::{ProceduralMemory, WorkflowTemplate, WorkflowStep, DecisionPattern};
+pub use episodic::{Episode, EpisodeSearchResult, EpisodeType, EpisodicMemory};
+pub use lifecycle::{DecayConfig, MemoryImportance, MemoryLifecycle};
+pub use procedural::{DecisionPattern, ProceduralMemory, WorkflowStep, WorkflowTemplate};
 pub use retrieval::{
-    HybridRetriever, RetrievalQuery, RetrievalResult, RetrievalStream,
-    Bm25Scorer, VectorScorer, RrfFusion,
+    Bm25Scorer, HybridRetriever, RetrievalQuery, RetrievalResult, RetrievalStream, RrfFusion,
+    VectorScorer,
 };
-pub use lifecycle::{MemoryLifecycle, DecayConfig, MemoryImportance};
-pub use system::{MemorySystem, MemoryConfig, MemoryQuery, MemoryContext, MemoryStats};
-pub use preferences::{UserPreferences, UserPreference, PreferenceCategory, PreferenceInteraction, InteractionOutcome};
+pub use semantic::{RelationType, SemanticMemory, SemanticNode, SemanticRelation};
+pub use system::MemorySystem;
+pub use types::{
+    CompressionSummary, MemoryConfig, MemoryContext, MemoryLoadResult, MemoryPersistenceInfo,
+    MemoryQuery, MemoryStats,
+};
+pub use working::{EntryType as WorkingEntryType, WorkingMemory, WorkingMemoryEntry};
+
+/// Shared tokenization utility used by episodic and semantic memory.
+/// Lowercases, splits on non-alphanumeric boundaries, filters short tokens.
+pub(crate) fn tokenize(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| s.len() > 1)
+        .map(|s| s.to_string())
+        .collect()
+}
+pub use preferences::{
+    InteractionOutcome, PreferenceCategory, PreferenceInteraction, UserPreference, UserPreferences,
+};
+pub use registry::{AgentMemoryEntry, AgentMemoryId, MemorySystemRegistry};
 
 use serde::{Deserialize, Serialize};
 

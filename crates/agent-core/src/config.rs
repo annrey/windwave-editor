@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 // Configuration structures
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentEditConfig {
     /// LLM provider settings
     pub llm: LlmConfig,
@@ -122,21 +122,6 @@ pub struct GameSkillConfig {
 // Defaults
 // ---------------------------------------------------------------------------
 
-impl Default for AgentEditConfig {
-    fn default() -> Self {
-        Self {
-            llm: LlmConfig::default(),
-            assets: AssetProvidersConfig::default(),
-            agent: AgentBehaviorConfig::default(),
-            ui: UiConfig::default(),
-            git: GitSettingsConfig::default(),
-            bench: BenchSettingsConfig::default(),
-            game_skill: GameSkillConfig::default(),
-            extra: HashMap::new(),
-        }
-    }
-}
-
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -149,7 +134,7 @@ impl Default for LlmConfig {
             timeout_seconds: 60,
             fallback_models: vec![
                 crate::llm::models::OPENAI_FAST.to_string(),
-                crate::llm::models::CLAUDE_DEFAULT.to_string()
+                crate::llm::models::CLAUDE_DEFAULT.to_string(),
             ],
         }
     }
@@ -245,6 +230,12 @@ pub struct ConfigLoader {
     config_paths: Vec<PathBuf>,
 }
 
+impl Default for ConfigLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigLoader {
     pub fn new() -> Self {
         Self {
@@ -265,18 +256,19 @@ impl ConfigLoader {
             ],
         }
     }
-    
+
     /// Set a CLI override
     pub fn set_cli_override(&mut self, key: &str, value: &str) {
-        self.cli_overrides.insert(key.to_string(), value.to_string());
+        self.cli_overrides
+            .insert(key.to_string(), value.to_string());
     }
-    
+
     /// Parse CLI arguments into overrides
     pub fn parse_cli_args(&mut self, args: &[String]) {
         let mut i = 0;
         while i < args.len() {
             let arg = &args[i];
-            
+
             match arg.as_str() {
                 "-p" | "--prompt" => {
                     if i + 1 < args.len() {
@@ -345,16 +337,16 @@ impl ConfigLoader {
                 }
                 _ => {}
             }
-            
+
             i += 1;
         }
     }
-    
+
     /// Load configuration from all sources
     pub fn load(&mut self) -> Result<AgentEditConfig, ConfigError> {
         // 1. Start with defaults
         let mut config = AgentEditConfig::default();
-        
+
         // 2. Load from config files (lowest priority)
         for path in &self.config_paths {
             if path.exists() {
@@ -363,29 +355,33 @@ impl ConfigLoader {
                         config = self.merge_configs(config, file_config);
                     }
                     Err(e) => {
-                        eprintln!("Warning: Failed to load config from {}: {}", path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to load config from {}: {}",
+                            path.display(),
+                            e
+                        );
                     }
                 }
             }
         }
-        
+
         // 3. Apply environment variables (medium priority)
         config = self.apply_env_vars(config)?;
-        
+
         // 4. Apply CLI overrides (highest priority)
         config = self.apply_cli_overrides(config)?;
-        
+
         self.config = config.clone();
         Ok(config)
     }
-    
+
     /// Load configuration from a JSON file
     fn load_from_file(&self, path: &Path) -> Result<AgentEditConfig, ConfigError> {
         let content = std::fs::read_to_string(path)?;
         let config: AgentEditConfig = serde_json::from_str(&content)?;
         Ok(config)
     }
-    
+
     /// Apply environment variables
     fn apply_env_vars(&self, mut config: AgentEditConfig) -> Result<AgentEditConfig, ConfigError> {
         // LLM settings
@@ -398,7 +394,7 @@ impl ConfigLoader {
         if let Ok(val) = std::env::var("OPENAI_MODEL") {
             config.llm.model = val;
         }
-        
+
         // Asset providers
         if let Ok(val) = std::env::var("OPENGAME_IMAGE_PROVIDER") {
             config.assets.image_provider = val;
@@ -424,7 +420,7 @@ impl ConfigLoader {
         if let Ok(val) = std::env::var("OPENGAME_REASONING_API_KEY") {
             config.assets.reasoning_api_key = Some(val);
         }
-        
+
         // Agent behavior
         if let Ok(val) = std::env::var("AGENTEDIT_APPROVAL_MODE") {
             config.agent.approval_mode = match val.as_str() {
@@ -440,22 +436,25 @@ impl ConfigLoader {
         if let Ok(val) = std::env::var("AGENTEDIT_LOG_LEVEL") {
             config.agent.log_level = val;
         }
-        
+
         // Git settings
         if let Ok(val) = std::env::var("AGENTEDIT_GIT_ENABLED") {
             config.git.enabled = val.parse().unwrap_or(true);
         }
-        
+
         // Bench settings
         if let Ok(val) = std::env::var("AGENTEDIT_BENCH_ENABLED") {
             config.bench.enabled = val.parse().unwrap_or(true);
         }
-        
+
         Ok(config)
     }
-    
+
     /// Apply CLI overrides
-    fn apply_cli_overrides(&self, mut config: AgentEditConfig) -> Result<AgentEditConfig, ConfigError> {
+    fn apply_cli_overrides(
+        &self,
+        mut config: AgentEditConfig,
+    ) -> Result<AgentEditConfig, ConfigError> {
         for (key, value) in &self.cli_overrides {
             match key.as_str() {
                 "llm.provider" => config.llm.provider = value.clone(),
@@ -514,18 +513,23 @@ impl ConfigLoader {
                 }
                 "agent.prompt" => {
                     // Store in extra for later use
-                    config.extra.insert("prompt".to_string(), serde_json::Value::String(value.clone()));
+                    config.extra.insert(
+                        "prompt".to_string(),
+                        serde_json::Value::String(value.clone()),
+                    );
                 }
                 _ => {
                     // Store unknown overrides in extra
-                    config.extra.insert(key.clone(), serde_json::Value::String(value.clone()));
+                    config
+                        .extra
+                        .insert(key.clone(), serde_json::Value::String(value.clone()));
                 }
             }
         }
-        
+
         Ok(config)
     }
-    
+
     /// Merge two configurations (second wins)
     fn merge_configs(&self, base: AgentEditConfig, override_: AgentEditConfig) -> AgentEditConfig {
         AgentEditConfig {
@@ -547,25 +551,25 @@ impl ConfigLoader {
             },
         }
     }
-    
+
     /// Save current configuration to file
     pub fn save_to_file(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
         let json = serde_json::to_string_pretty(&self.config)?;
         std::fs::write(path, json)?;
         Ok(())
     }
-    
+
     /// Get current configuration
     pub fn config(&self) -> &AgentEditConfig {
         &self.config
     }
-    
+
     /// Print provider status banner (like OpenGame)
     pub fn print_provider_status(&self) {
         println!("┌─────────────────────────────────────────┐");
         println!("│         AgentEdit Provider Status        │");
         println!("├─────────────────────────────────────────┤");
-        
+
         // LLM
         let llm_status = if self.config.llm.api_key.is_empty() {
             "❌ Not configured"
@@ -573,7 +577,7 @@ impl ConfigLoader {
             &format!("✅ {} ({}", self.config.llm.provider, self.config.llm.model)
         };
         println!("│ LLM:     {:<30} │", llm_status);
-        
+
         // Image
         let image_status = if self.config.assets.image_api_key.is_none() {
             "❌ Not configured"
@@ -581,31 +585,52 @@ impl ConfigLoader {
             &format!("✅ {}", self.config.assets.image_provider)
         };
         println!("│ Image:   {:<30} │", image_status);
-        
+
         // Video
         let video_status = if self.config.assets.video_api_key.is_none() {
             "❌ Not configured"
         } else {
-            &format!("✅ {}", self.config.assets.video_provider.as_deref().unwrap_or("N/A"))
+            &format!(
+                "✅ {}",
+                self.config
+                    .assets
+                    .video_provider
+                    .as_deref()
+                    .unwrap_or("N/A")
+            )
         };
         println!("│ Video:   {:<30} │", video_status);
-        
+
         // Audio
         let audio_status = if self.config.assets.audio_api_key.is_none() {
             "❌ Not configured"
         } else {
-            &format!("✅ {}", self.config.assets.audio_provider.as_deref().unwrap_or("N/A"))
+            &format!(
+                "✅ {}",
+                self.config
+                    .assets
+                    .audio_provider
+                    .as_deref()
+                    .unwrap_or("N/A")
+            )
         };
         println!("│ Audio:   {:<30} │", audio_status);
-        
+
         // Reasoning
         let reasoning_status = if self.config.assets.reasoning_api_key.is_none() {
             "❌ Not configured"
         } else {
-            &format!("✅ {}", self.config.assets.reasoning_provider.as_deref().unwrap_or("N/A"))
+            &format!(
+                "✅ {}",
+                self.config
+                    .assets
+                    .reasoning_provider
+                    .as_deref()
+                    .unwrap_or("N/A")
+            )
         };
         println!("│ Reason:  {:<30} │", reasoning_status);
-        
+
         // Git
         let git_status = if self.config.git.enabled {
             "✅ Enabled"
@@ -613,7 +638,7 @@ impl ConfigLoader {
             "❌ Disabled"
         };
         println!("│ Git:     {:<30} │", git_status);
-        
+
         // Bench
         let bench_status = if self.config.bench.enabled {
             "✅ Enabled"
@@ -621,7 +646,7 @@ impl ConfigLoader {
             "❌ Disabled"
         };
         println!("│ Bench:   {:<30} │", bench_status);
-        
+
         println!("└─────────────────────────────────────────┘");
     }
 }
@@ -632,10 +657,8 @@ impl ConfigLoader {
 
 use std::sync::{Arc, RwLock};
 
-static GLOBAL_CONFIG: once_cell::sync::Lazy<Arc<RwLock<AgentEditConfig>>> = 
-    once_cell::sync::Lazy::new(|| {
-        Arc::new(RwLock::new(AgentEditConfig::default()))
-    });
+static GLOBAL_CONFIG: once_cell::sync::Lazy<Arc<RwLock<AgentEditConfig>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(AgentEditConfig::default())));
 
 pub fn init_global_config(config: AgentEditConfig) {
     if let Ok(mut guard) = GLOBAL_CONFIG.write() {
@@ -736,7 +759,7 @@ pub const EXAMPLE_SETTINGS: &str = r#"{
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_config() {
         let config = AgentEditConfig::default();
@@ -745,7 +768,7 @@ mod tests {
         assert!(config.git.enabled);
         assert!(config.bench.enabled);
     }
-    
+
     #[test]
     fn test_config_loader_parse_cli() {
         let mut loader = ConfigLoader::new();
@@ -756,35 +779,44 @@ mod tests {
             "test-key".to_string(),
             "--yolo".to_string(),
         ];
-        
+
         loader.parse_cli_args(&args);
-        
-        assert_eq!(loader.cli_overrides.get("llm.model"), Some(&"gpt-4".to_string()));
-        assert_eq!(loader.cli_overrides.get("llm.api_key"), Some(&"test-key".to_string()));
-        assert_eq!(loader.cli_overrides.get("agent.approval_mode"), Some(&"yolo".to_string()));
+
+        assert_eq!(
+            loader.cli_overrides.get("llm.model"),
+            Some(&"gpt-4".to_string())
+        );
+        assert_eq!(
+            loader.cli_overrides.get("llm.api_key"),
+            Some(&"test-key".to_string())
+        );
+        assert_eq!(
+            loader.cli_overrides.get("agent.approval_mode"),
+            Some(&"yolo".to_string())
+        );
     }
-    
+
     #[test]
     fn test_env_var_override() {
         let loader = ConfigLoader::new();
         let config = AgentEditConfig::default();
-        
+
         // This test would need actual env vars set
         // Just verify the method exists and returns Ok
         let result = loader.apply_env_vars(config);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_example_settings_valid() {
         let config: Result<AgentEditConfig, _> = serde_json::from_str(EXAMPLE_SETTINGS);
         assert!(config.is_ok());
-        
+
         let config = config.unwrap();
         assert_eq!(config.llm.model, "gpt-4o");
         assert_eq!(config.agent.approval_mode, ApprovalMode::AutoEdit);
     }
-    
+
     #[test]
     fn test_approval_mode_serialization() {
         let modes = vec![
@@ -792,7 +824,7 @@ mod tests {
             ApprovalMode::AutoEdit,
             ApprovalMode::Yolo,
         ];
-        
+
         for mode in modes {
             let json = serde_json::to_string(&mode).unwrap();
             let deserialized: ApprovalMode = serde_json::from_str(&json).unwrap();

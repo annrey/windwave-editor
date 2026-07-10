@@ -25,7 +25,12 @@ impl RetrievalQuery {
         Self {
             text: text.into(),
             max_results: 10,
-            tiers: vec![MemoryTier::Working, MemoryTier::Episodic, MemoryTier::Semantic, MemoryTier::Procedural],
+            tiers: vec![
+                MemoryTier::Working,
+                MemoryTier::Episodic,
+                MemoryTier::Semantic,
+                MemoryTier::Procedural,
+            ],
             min_score: 0.0,
         }
     }
@@ -88,13 +93,17 @@ impl RrfFusion {
     }
 
     /// Fuse multiple ranked lists into a single ranking
-    pub fn fuse(&self, ranked_lists: Vec<Vec<(MemoryEntryId, MemoryTier, String)>>) -> Vec<(MemoryEntryId, f32, MemoryTier, String)> {
+    pub fn fuse(
+        &self,
+        ranked_lists: Vec<Vec<(MemoryEntryId, MemoryTier, String)>>,
+    ) -> Vec<(MemoryEntryId, f32, MemoryTier, String)> {
         let mut scores: HashMap<MemoryEntryId, (f32, MemoryTier, String)> = HashMap::new();
 
         for list in ranked_lists {
             for (rank, (id, tier, content)) in list.into_iter().enumerate() {
                 let rrf_score = 1.0 / (self.k + rank as f32);
-                scores.entry(id)
+                scores
+                    .entry(id)
                     .and_modify(|(s, t, _c)| {
                         *s += rrf_score;
                         // Keep the tier/content from the highest-ranked list
@@ -111,10 +120,7 @@ impl RrfFusion {
             .map(|(id, (score, tier, content))| (id, score, tier, content))
             .collect();
 
-        results.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         results
     }
@@ -146,7 +152,8 @@ impl HybridRetriever {
 
         // Working memory: recency-based (already ordered)
         if query.tiers.contains(&MemoryTier::Working) {
-            let list: Vec<_> = working_entries.into_iter()
+            let list: Vec<_> = working_entries
+                .into_iter()
                 .map(|(id, content)| (id, MemoryTier::Working, content))
                 .collect();
             if !list.is_empty() {
@@ -156,11 +163,13 @@ impl HybridRetriever {
 
         // Episodic memory: BM25 score-based ranking
         if query.tiers.contains(&MemoryTier::Episodic) {
-            let mut scored: Vec<_> = episodic_results.into_iter()
+            let mut scored: Vec<_> = episodic_results
+                .into_iter()
                 .map(|(id, score, content)| (id, score, MemoryTier::Episodic, content))
                 .collect();
             scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            let list: Vec<_> = scored.into_iter()
+            let list: Vec<_> = scored
+                .into_iter()
                 .map(|(id, _, tier, content)| (id, tier, content))
                 .collect();
             if !list.is_empty() {
@@ -170,11 +179,13 @@ impl HybridRetriever {
 
         // Semantic memory: vector similarity-based ranking
         if query.tiers.contains(&MemoryTier::Semantic) {
-            let mut scored: Vec<_> = semantic_results.into_iter()
+            let mut scored: Vec<_> = semantic_results
+                .into_iter()
                 .map(|(id, score, content)| (id, score, MemoryTier::Semantic, content))
                 .collect();
             scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            let list: Vec<_> = scored.into_iter()
+            let list: Vec<_> = scored
+                .into_iter()
                 .map(|(id, _, tier, content)| (id, tier, content))
                 .collect();
             if !list.is_empty() {
@@ -184,7 +195,8 @@ impl HybridRetriever {
 
         // Procedural memory: keyword match ranking
         if query.tiers.contains(&MemoryTier::Procedural) {
-            let list: Vec<_> = procedural_results.into_iter()
+            let list: Vec<_> = procedural_results
+                .into_iter()
                 .map(|(id, content)| (id, MemoryTier::Procedural, content))
                 .collect();
             if !list.is_empty() {
@@ -195,7 +207,8 @@ impl HybridRetriever {
         // Fuse all ranked lists
         let fused = self.rrf.fuse(ranked_lists);
 
-        fused.into_iter()
+        fused
+            .into_iter()
             .take(query.max_results)
             .map(|(id, score, tier, content)| RetrievalResult {
                 entry_id: id,
@@ -234,7 +247,8 @@ impl RetrievalStream {
         self.results.extend(results);
         // Re-sort by score
         self.results.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score)
+            b.score
+                .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         // Deduplicate by entry_id
@@ -258,7 +272,7 @@ impl RetrievalStream {
                 "[{} | score: {:.3}] {}",
                 tier_name,
                 result.score,
-                result.content.lines().next().unwrap_or("").to_string()
+                result.content.lines().next().unwrap_or("")
             ));
         }
         parts.join("\n")

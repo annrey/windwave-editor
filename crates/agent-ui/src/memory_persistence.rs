@@ -4,8 +4,8 @@
 //! Note: PersistentMemory is not a Bevy Resource, so we use a wrapper approach.
 
 use agent_core::persistent_memory::PersistentMemory;
+use log::{error, info, warn};
 use std::path::PathBuf;
-use log::{info, warn, error};
 
 /// Configuration for memory persistence
 pub struct MemoryPersistenceConfig {
@@ -44,9 +44,15 @@ pub fn load_persistent_memory(config: &MemoryPersistenceConfig) -> PersistentMem
 
     match PersistentMemory::load(&config.memory_file_path) {
         Ok(loaded) => {
-            info!("Loaded persistent memory from {:?}", config.memory_file_path);
+            info!(
+                "Loaded persistent memory from {:?}",
+                config.memory_file_path
+            );
             info!("  - {} learned patterns", loaded.learned_patterns.len());
-            info!("  - {} entity knowledge entries", loaded.entity_knowledge.len());
+            info!(
+                "  - {} entity knowledge entries",
+                loaded.entity_knowledge.len()
+            );
             loaded
         }
         Err(e) => {

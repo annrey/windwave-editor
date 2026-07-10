@@ -39,8 +39,10 @@ pub struct NodePort {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PortType {
-    FlowInput, FlowOutput,
-    DataInput, DataOutput,
+    FlowInput,
+    FlowOutput,
+    DataInput,
+    DataOutput,
 }
 
 /// 可视化节点
@@ -77,14 +79,26 @@ pub struct VisualScript {
 
 impl VisualScript {
     pub fn new(id: String, name: String) -> Self {
-        Self { id, name, nodes: Vec::new(), connections: Vec::new(), variables: HashMap::new() }
+        Self {
+            id,
+            name,
+            nodes: Vec::new(),
+            connections: Vec::new(),
+            variables: HashMap::new(),
+        }
     }
 
     pub fn add_node(&mut self, node: VisualNode) {
         self.nodes.push(node);
     }
 
-    pub fn connect(&mut self, source_node: &str, source_port: &str, target_node: &str, target_port: &str) {
+    pub fn connect(
+        &mut self,
+        source_node: &str,
+        source_port: &str,
+        target_node: &str,
+        target_port: &str,
+    ) {
         self.connections.push(NodeConnection {
             id: format!("conn_{}", self.connections.len()),
             source_node: source_node.into(),
@@ -99,10 +113,16 @@ impl VisualScript {
         let mut errors = Vec::new();
         for conn in &self.connections {
             if !self.nodes.iter().any(|n| n.id == conn.source_node) {
-                errors.push(format!("连接 {} 引用不存在的源节点 {}", conn.id, conn.source_node));
+                errors.push(format!(
+                    "连接 {} 引用不存在的源节点 {}",
+                    conn.id, conn.source_node
+                ));
             }
             if !self.nodes.iter().any(|n| n.id == conn.target_node) {
-                errors.push(format!("连接 {} 引用不存在的目标节点 {}", conn.id, conn.target_node));
+                errors.push(format!(
+                    "连接 {} 引用不存在的目标节点 {}",
+                    conn.id, conn.target_node
+                ));
             }
         }
         errors
@@ -161,7 +181,12 @@ pub struct BehaviorTree {
 
 impl BehaviorTree {
     pub fn new(id: String, name: String) -> Self {
-        Self { id, name, nodes: HashMap::new(), root_id: None }
+        Self {
+            id,
+            name,
+            nodes: HashMap::new(),
+            root_id: None,
+        }
     }
 
     pub fn add_node(&mut self, node: BehaviorTreeNode) {
@@ -176,9 +201,12 @@ impl BehaviorTree {
     }
 
     pub fn get_children(&self, parent_id: &str) -> Vec<&BehaviorTreeNode> {
-        self.nodes.get(parent_id)
+        self.nodes
+            .get(parent_id)
             .map(|parent| {
-                parent.children.iter()
+                parent
+                    .children
+                    .iter()
                     .filter_map(|cid| self.nodes.get(cid))
                     .collect()
             })
@@ -223,7 +251,12 @@ pub struct DataColumn {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DataType {
-    String, Integer, Float, Boolean, EntityRef, AssetRef,
+    String,
+    Integer,
+    Float,
+    Boolean,
+    EntityRef,
+    AssetRef,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,7 +267,12 @@ pub struct DataRow {
 
 impl DataTable {
     pub fn new(id: String, name: String) -> Self {
-        Self { id, name, columns: Vec::new(), rows: Vec::new() }
+        Self {
+            id,
+            name,
+            columns: Vec::new(),
+            rows: Vec::new(),
+        }
     }
 
     pub fn add_column(&mut self, column: DataColumn) {
@@ -246,13 +284,18 @@ impl DataTable {
     }
 
     pub fn get_cell(&self, row_id: &str, column_name: &str) -> Option<&serde_json::Value> {
-        self.rows.iter()
+        self.rows
+            .iter()
             .find(|r| r.id == row_id)
             .and_then(|r| r.cells.get(column_name))
     }
 
-    pub fn row_count(&self) -> usize { self.rows.len() }
-    pub fn column_count(&self) -> usize { self.columns.len() }
+    pub fn row_count(&self) -> usize {
+        self.rows.len()
+    }
+    pub fn column_count(&self) -> usize {
+        self.columns.len()
+    }
 }
 
 // ============================================================================
@@ -267,39 +310,52 @@ mod tests {
     fn test_visual_script_validation() {
         let mut script = VisualScript::new("s1".into(), "Test".into());
         script.add_node(VisualNode {
-            id: "n1".into(), node_type: VisualNodeType::EventStart,
-            title: "Start".into(), inputs: vec![], outputs: vec![],
-            properties: HashMap::new(), position: (0.0, 0.0),
+            id: "n1".into(),
+            node_type: VisualNodeType::EventStart,
+            title: "Start".into(),
+            inputs: vec![],
+            outputs: vec![],
+            properties: HashMap::new(),
+            position: (0.0, 0.0),
         });
         script.connect("n1", "out", "n2", "in");
         let errors = script.validate();
-        assert!(!errors.is_empty());  // n2 doesn't exist
+        assert!(!errors.is_empty()); // n2 doesn't exist
     }
 
     #[test]
     fn test_behavior_tree_validation() {
         let mut bt = BehaviorTree::new("bt1".into(), "Patrol".into());
         bt.add_node(BehaviorTreeNode {
-            id: "root".into(), node_type: BtNodeType::Sequence,
-            name: "Root".into(), children: vec!["child1".into()],
-            properties: HashMap::new(), status: BtStatus::Idle,
+            id: "root".into(),
+            node_type: BtNodeType::Sequence,
+            name: "Root".into(),
+            children: vec!["child1".into()],
+            properties: HashMap::new(),
+            status: BtStatus::Idle,
         });
         let errors = bt.validate();
-        assert!(!errors.is_empty());  // child1 doesn't exist
+        assert!(!errors.is_empty()); // child1 doesn't exist
     }
 
     #[test]
     fn test_behavior_tree_children() {
         let mut bt = BehaviorTree::new("bt2".into(), "Test".into());
         bt.add_node(BehaviorTreeNode {
-            id: "root".into(), node_type: BtNodeType::Selector,
-            name: "Root".into(), children: vec!["a1".into()],
-            properties: HashMap::new(), status: BtStatus::Idle,
+            id: "root".into(),
+            node_type: BtNodeType::Selector,
+            name: "Root".into(),
+            children: vec!["a1".into()],
+            properties: HashMap::new(),
+            status: BtStatus::Idle,
         });
         bt.add_node(BehaviorTreeNode {
-            id: "a1".into(), node_type: BtNodeType::Action,
-            name: "Move".into(), children: vec![],
-            properties: HashMap::new(), status: BtStatus::Idle,
+            id: "a1".into(),
+            node_type: BtNodeType::Action,
+            name: "Move".into(),
+            children: vec![],
+            properties: HashMap::new(),
+            status: BtStatus::Idle,
         });
         assert_eq!(bt.get_children("root").len(), 1);
         assert!(bt.validate().is_empty());
@@ -309,36 +365,60 @@ mod tests {
     fn test_data_table() {
         let mut table = DataTable::new("d1".into(), "Enemies".into());
         table.add_column(DataColumn {
-            name: "name".into(), data_type: DataType::String, default_value: None,
+            name: "name".into(),
+            data_type: DataType::String,
+            default_value: None,
         });
         table.add_column(DataColumn {
-            name: "hp".into(), data_type: DataType::Integer, default_value: None,
+            name: "hp".into(),
+            data_type: DataType::Integer,
+            default_value: None,
         });
         let mut cells = HashMap::new();
         cells.insert("name".into(), serde_json::json!("Goblin"));
         cells.insert("hp".into(), serde_json::json!(50));
-        table.add_row(DataRow { id: "r1".into(), cells });
+        table.add_row(DataRow {
+            id: "r1".into(),
+            cells,
+        });
         assert_eq!(table.row_count(), 1);
         assert_eq!(table.column_count(), 2);
-        assert_eq!(table.get_cell("r1", "name").and_then(|v| v.as_str()), Some("Goblin"));
+        assert_eq!(
+            table.get_cell("r1", "name").and_then(|v| v.as_str()),
+            Some("Goblin")
+        );
     }
 
     #[test]
     fn test_visual_script_connect() {
         let mut script = VisualScript::new("s2".into(), "Test".into());
         script.add_node(VisualNode {
-            id: "start".into(), node_type: VisualNodeType::EventStart,
-            title: "Start".into(), inputs: vec![], outputs: vec![
-                NodePort { id: "out1".into(), name: "out".into(), port_type: PortType::FlowOutput, data_type: "flow".into() },
-            ],
-            properties: HashMap::new(), position: (0.0, 0.0),
+            id: "start".into(),
+            node_type: VisualNodeType::EventStart,
+            title: "Start".into(),
+            inputs: vec![],
+            outputs: vec![NodePort {
+                id: "out1".into(),
+                name: "out".into(),
+                port_type: PortType::FlowOutput,
+                data_type: "flow".into(),
+            }],
+            properties: HashMap::new(),
+            position: (0.0, 0.0),
         });
         script.add_node(VisualNode {
-            id: "action".into(), node_type: VisualNodeType::Action,
-            title: "Do Something".into(), inputs: vec![
-                NodePort { id: "in1".into(), name: "in".into(), port_type: PortType::FlowInput, data_type: "flow".into() },
-            ], outputs: vec![],
-            properties: HashMap::new(), position: (200.0, 0.0),
+            id: "action".into(),
+            node_type: VisualNodeType::Action,
+            title: "Do Something".into(),
+            inputs: vec![NodePort {
+                id: "in1".into(),
+                name: "in".into(),
+                port_type: PortType::FlowInput,
+                data_type: "flow".into(),
+            }],
+            outputs: vec![],
+            properties: HashMap::new(),
+            position: (200.0, 0.0),
         });
         script.connect("start", "out1", "action", "in1");
         assert_eq!(script.connections.len(), 1);

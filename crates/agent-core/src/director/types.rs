@@ -1,16 +1,16 @@
 //! DirectorRuntime types, enums, and helper structs.
 
+use super::plan_manager::PlanManager;
 use crate::event::EventBus;
-use crate::skill::{SkillRegistry, SkillExecutor, SkillActionHandler};
-use crate::rollback::RollbackManager;
 use crate::fallback::FallbackEngine;
+use crate::hybrid_controller::HybridEditorController;
 use crate::metrics::AgentMetrics;
 use crate::prompt::PromptSystem;
-use crate::registry::AgentRegistry;
+use crate::registry::{AgentId, AgentRegistry};
+use crate::rollback::RollbackManager;
 use crate::scene_bridge::SceneBridge;
+use crate::skill::{SkillActionHandler, SkillExecutor, SkillRegistry};
 use crate::strategy::ReActAgent;
-use crate::hybrid_controller::HybridEditorController;
-use super::plan_manager::PlanManager;
 
 // ---------------------------------------------------------------------------
 // SceneBridgeSkillHandler — translates SkillNode actions → SceneBridge calls
@@ -40,9 +40,15 @@ impl SkillActionHandler for SceneBridgeSkillHandler<'_> {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("entity");
-                let position = params.get("position").and_then(|v| v.as_array()).map(|arr| {
-                    [arr[0].as_f64().unwrap_or(0.0), arr[1].as_f64().unwrap_or(0.0)]
-                });
+                let position = params
+                    .get("position")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        [
+                            arr[0].as_f64().unwrap_or(0.0),
+                            arr[1].as_f64().unwrap_or(0.0),
+                        ]
+                    });
 
                 let mut patches = Vec::new();
                 if let Some(sprite_color) = params.get("sprite_color") {
@@ -61,7 +67,10 @@ impl SkillActionHandler for SceneBridgeSkillHandler<'_> {
                 Ok(serde_json::json!({"entity_id": id, "name": name}))
             }
             "set_transform" => {
-                let entity_id = params.get("entity_id").and_then(|v| v.as_u64()).unwrap_or(0);
+                let entity_id = params
+                    .get("entity_id")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let mut props = std::collections::HashMap::new();
                 if let Some(pos) = params.get("position") {
                     props.insert("position".into(), pos.clone());
@@ -72,7 +81,10 @@ impl SkillActionHandler for SceneBridgeSkillHandler<'_> {
                 Ok(serde_json::Value::Null)
             }
             "set_sprite" => {
-                let entity_id = params.get("entity_id").and_then(|v| v.as_u64()).unwrap_or(0);
+                let entity_id = params
+                    .get("entity_id")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let mut props = std::collections::HashMap::new();
                 if let Some(color) = params.get("color") {
                     props.insert("color".into(), color.clone());
@@ -83,17 +95,16 @@ impl SkillActionHandler for SceneBridgeSkillHandler<'_> {
                 Ok(serde_json::Value::Null)
             }
             "query_scene" => {
-                let filter = params
-                    .get("filter")
-                    .and_then(|v| v.as_str());
-                let comp_type = params
-                    .get("component_type")
-                    .and_then(|v| v.as_str());
+                let filter = params.get("filter").and_then(|v| v.as_str());
+                let comp_type = params.get("component_type").and_then(|v| v.as_str());
                 let entities = self.bridge.query_entities(filter, comp_type);
                 Ok(serde_json::to_value(entities).unwrap_or(serde_json::Value::Null))
             }
             "delete_entity" => {
-                let entity_id = params.get("entity_id").and_then(|v| v.as_u64()).unwrap_or(0);
+                let entity_id = params
+                    .get("entity_id")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 self.bridge
                     .delete_entity(entity_id)
                     .map_err(|e| format!("delete_entity failed: {}", e))?;
@@ -268,6 +279,11 @@ pub enum EditorEvent {
         /// Whether execution succeeded overall.
         success: bool,
     },
+    /// Editor mode changed (LLM ↔ rule-based).
+    ModeChanged {
+        /// Current execution mode: "llm" or "rule".
+        mode: String,
+    },
     /// Generic error event.
     Error {
         /// Error message.
@@ -378,61 +394,93 @@ pub enum LlmStatus {
 /// * **Plan mode** — full plan → permission → execute pipeline.
 /// * **ReAct mode** — LLM-driven think-act-observe loop (Sprint 1).
 ///
-/// # State
+/// DirectorRuntime is the central orchestrator for all agent subsystems.
 ///
 /// - `plans`: all plans currently managed by the runtime (active and completed).
 /// - `pending_approvals`: list of plan IDs waiting for user confirmation.
-/// - `events`: all events emitted (for subscribers to consume).
-/// - `trace_entries`: detailed execution trace for debugging.
+///
+/// ## Subsystem Groups
+///
+/// | Group | Fields | Responsibility |
+/// |-------|--------|----------------|
+/// | Planning | plan_manager, dynamic_planner, skill_registry, skill_executor | Plan lifecycle + skill DAG + dynamic revision |
+/// | Observability | events, trace_entries, event_bus, audit_log, metrics | Event log, tracing, pub/sub, audit |
+/// | Intelligence | llm_client, react_agent, hybrid_controller, prompt_system, fallback_engine | LLM, ReAct, hybrid execution, prompt engineering, fallback |
+/// | Memory | memory_registry, active_agent, memory_injector, event_bridge | 4-tier memory, auto-capture, event archiving |
+/// | Safety | rollback_manager, edit_history, reflection_engine, shadow_git | Transaction rollback, undo/redo, error recovery, file snapshots |
+/// | Multi-Agent | agent_registry, comm_hub | Team dispatch, inter-agent messaging |
+/// | Scene & Visual | scene_bridge, vgrc_controller | Scene entity ops, visual reasoning loop |
+///
+/// See `execution.rs` for test coverage per subsystem.
 pub struct DirectorRuntime {
-    /// Plan lifecycle management (CRUD, approval, permission).
+    // ── Planning & Skills ──
     pub(crate) plan_manager: PlanManager,
-    /// Log of all emitted events.
-    pub(crate) events: Vec<EditorEvent>,
-    /// Detailed execution trace for debugging / audit purposes.
-    pub(crate) trace_entries: Vec<DirectorTraceEntry>,
-    /// Whether GoalChecker validation is enabled (MVP: false; Phase 2: true).
-    pub(crate) goal_checker_enabled: bool,
-    pub(crate) scene_bridge: Option<Box<dyn SceneBridge>>,
-    /// EventBus for publishing key events to UI / engine subscribers.
-    pub(crate) event_bus: EventBus,
-    /// Skill system for structured DAG-based execution.
+    pub(crate) dynamic_planner: crate::dynamic_planner::DynamicPlanner,
     pub(crate) skill_registry: SkillRegistry,
     pub(crate) skill_executor: SkillExecutor,
-    /// Operation log + undo/redo stacks.
-    pub(crate) rollback_manager: RollbackManager,
-    /// LLM unavailable → local rule engine fallback.
-    pub(crate) fallback_engine: FallbackEngine,
-    /// Aggregated performance metrics.
-    pub(crate) metrics: AgentMetrics,
-    /// Layered prompt engineering system.
-    pub(crate) prompt_system: PromptSystem,
-    /// Optional agent registry for Team mode dispatch.
-    pub(crate) agent_registry: Option<AgentRegistry>,
-    /// Optional LLM client for AI-powered planning and tool selection.
-    /// When None, falls back to rule-based systems.
-    pub(crate) llm_client: Option<Box<dyn crate::llm::LlmClient>>,
-    /// Inter-agent communication hub (pub/sub messaging + shared context).
-    pub(crate) comm_hub: crate::agent_comm::CommunicationHub,
-    /// Fine-grained EditOp-based undo/redo history (SuperSplat-inspired).
-    pub(crate) edit_history: crate::edit_history::EditHistory,
-    /// Append-only cryptographically-linked audit log.
+
+    // ── Observability & Auditing ──
+    pub(crate) events: Vec<EditorEvent>,
+    pub(crate) trace_entries: Vec<DirectorTraceEntry>,
+    pub(crate) event_bus: EventBus,
     pub(crate) audit_log: crate::audit::AuditLog,
-    /// ReAct Agent for LLM-driven think-act-observe execution loop (Sprint 1).
-    /// When Some, uses ReAct for Direct/Plan execution instead of keyword matching.
+    pub(crate) metrics: AgentMetrics,
+
+    // ── AI Intelligence ──
+    pub(crate) llm_client: Option<Box<dyn crate::llm::LlmClient>>,
     pub(crate) react_agent: Option<ReActAgent>,
-    /// Memory system for four-tier memory (Working/Episodic/Semantic/Procedural).
-    pub(crate) memory_system: crate::memory::MemorySystem,
-    /// Sprint 2: MemoryInjector for automatic context capture and LLM injection.
-    pub(crate) memory_injector: crate::memory_injector::MemoryInjector,
-    /// Sprint 2-B1: Event→Memory bridge for auto-capturing events into 4-layer memory.
-    pub(crate) event_bridge: crate::memory_injector::EventMemoryBridge,
-    /// Sprint 1-A2: Dynamic planner for plan-and-solve intelligent revision.
-    pub(crate) dynamic_planner: crate::dynamic_planner::DynamicPlanner,
-    /// Sprint 1-A3: Reflection engine for automatic error recovery and retry.
-    pub(crate) reflection_engine: crate::reflection_engine::ReflectionEngine,
-    /// Sprint 3-D2: VGRC (Visual Grounded Reasoning Cycle) controller for screenshot→analyze→operate→verify loop.
-    pub(crate) vgrc_controller: Option<crate::visual_system::VgcrController>,
-    /// Sprint 3-D3: HybridEditorController for LLM + Rule-based hybrid execution.
     pub(crate) hybrid_controller: Option<HybridEditorController>,
+    pub(crate) prompt_system: PromptSystem,
+    pub(crate) fallback_engine: FallbackEngine,
+
+    // ── Memory (4-tier) ──
+    pub(crate) memory_registry: crate::memory::MemorySystemRegistry,
+    pub(crate) active_agent: crate::memory::AgentMemoryId,
+    pub(crate) memory_injector: crate::memory_injector::MemoryInjector,
+    pub(crate) event_bridge: crate::memory_injector::EventMemoryBridge,
+
+    // ── Safety & Recovery ──
+    pub(crate) rollback_manager: RollbackManager,
+    pub(crate) edit_history: crate::edit_history::EditHistory,
+    pub(crate) reflection_engine: crate::reflection_engine::ReflectionEngine,
+    pub(crate) shadow_git: crate::shadow_git::ShadowGitService,
+
+    // ── Multi-Agent ──
+    pub(crate) agent_registry: Option<AgentRegistry>,
+    pub(crate) agent_pending_approvals: std::collections::HashMap<String, AgentId>,
+    pub(crate) comm_hub: crate::agent_comm::CommunicationHub,
+
+    // ── Scene & Visual ──
+    pub(crate) scene_bridge: Option<Box<dyn SceneBridge>>,
+    pub(crate) vgrc_controller: Option<crate::visual_system::VgcrController>,
+    pub(crate) capture_pipeline: crate::capture_pipeline::MemoryCapturePipeline,
+
+    // ── Visual Snapshot (for UI consumption) ──
+    pub(crate) last_vgrc_result: Option<crate::visual_system::VgcrCycleResult>,
+    pub(crate) last_vgrc_cycle: Option<crate::visual_system::VgrcCycleResult>,
+    pub(crate) last_visual_observation: Option<crate::visual_system::VisualObservation>,
+
+    // ── Configuration ──
+    pub(crate) goal_checker_enabled: bool,
+
+    // ── Rule System ──
+    pub(crate) rule_system: crate::rule_system::RuleSystem,
+
+    // ── Collaboration Extensions (from Ruflo & Multica) ──
+    pub(crate) collaboration: Option<crate::agent_collaboration::AgentCollaborationSystem>,
+
+    // ── Reasoning & Learning ──
+    pub(crate) reasoning_bank: crate::reasoning_bank::ReasoningBankManager,
+
+    // ── Squad ──
+    pub(crate) squad: Option<crate::squad::Squad>,
+
+    // ── Skill Compound ──
+    pub(crate) compound: crate::skills_compound::SkillCompound,
+
+    // ── Hybrid Controller State ──
+    pub(crate) previous_llm_mode: String,
+
+    // ── Persistence ──
+    pub(crate) memory_dir: Option<String>,
 }

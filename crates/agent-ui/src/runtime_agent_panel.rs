@@ -7,20 +7,18 @@
 //! - Setting agent goals
 //! - Viewing LLM inference logs
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use bevy_adapter::{
-    RuntimeAgentComponent, RuntimeAgentStatus, PerceptionCapability
-};
-use crate::layout::{LayoutManager, LayoutCommand, PanelPosition};
+use crate::layout::{LayoutCommand, LayoutManager, PanelPosition};
 use crate::LayoutCommandQueue;
+use bevy::prelude::*;
+use bevy_adapter::{PerceptionCapability, RuntimeAgentComponent, RuntimeAgentStatus};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct RuntimeAgentPanelPlugin;
 
 impl Plugin for RuntimeAgentPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RuntimeAgentPanelState>()
-            .add_systems(Update, render_runtime_agent_panel);
+            .add_systems(EguiPrimaryContextPass, render_runtime_agent_panel);
     }
 }
 
@@ -51,7 +49,12 @@ pub struct RuntimeAgentPanelState {
 fn render_runtime_agent_panel(
     mut contexts: EguiContexts,
     mut state: ResMut<RuntimeAgentPanelState>,
-    agent_query: Query<(Entity, &RuntimeAgentComponent, Option<&Name>, Option<&PerceptionCapability>)>,
+    agent_query: Query<(
+        Entity,
+        &RuntimeAgentComponent,
+        Option<&Name>,
+        Option<&PerceptionCapability>,
+    )>,
     layout_mgr: Res<LayoutManager>,
     mut layout_queue: ResMut<LayoutCommandQueue>,
 ) {
@@ -60,7 +63,9 @@ fn render_runtime_agent_panel(
 
     // Toggle visibility with F6 key
     if ctx.input(|i| i.key_pressed(egui::Key::F6)) {
-        layout_queue.push(LayoutCommand::TogglePanel { panel_id: "runtime_agents".to_string() });
+        layout_queue.push(LayoutCommand::TogglePanel {
+            panel_id: "runtime_agents".to_string(),
+        });
     }
 
     if !layout_mgr.is_visible("runtime_agents") {
@@ -83,7 +88,11 @@ fn render_runtime_agent_panel(
             ui.horizontal(|ui| {
                 ui.heading("Active Agents");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("Press F6 to toggle").size(10.0).color(egui::Color32::from_gray(128)));
+                    ui.label(
+                        egui::RichText::new("Press F6 to toggle")
+                            .size(10.0)
+                            .color(egui::Color32::from_gray(128)),
+                    );
                 });
             });
             ui.separator();
@@ -103,7 +112,10 @@ fn render_runtime_agent_panel(
                 }
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("Select an agent to view details").color(egui::Color32::from_gray(128)));
+                    ui.label(
+                        egui::RichText::new("Select an agent to view details")
+                            .color(egui::Color32::from_gray(128)),
+                    );
                 });
             }
         });
@@ -113,7 +125,12 @@ fn render_runtime_agent_panel(
 fn render_agent_list(
     ui: &mut egui::Ui,
     state: &mut RuntimeAgentPanelState,
-    agent_query: &Query<(Entity, &RuntimeAgentComponent, Option<&Name>, Option<&PerceptionCapability>)>,
+    agent_query: &Query<(
+        Entity,
+        &RuntimeAgentComponent,
+        Option<&Name>,
+        Option<&PerceptionCapability>,
+    )>,
 ) {
     // Filter input
     ui.horizontal(|ui| {
@@ -127,7 +144,11 @@ fn render_agent_list(
 
     // Agent count
     let agent_count = agent_query.iter().count();
-    ui.label(egui::RichText::new(format!("{} agents active", agent_count)).size(11.0).color(egui::Color32::from_gray(128)));
+    ui.label(
+        egui::RichText::new(format!("{} agents active", agent_count))
+            .size(11.0)
+            .color(egui::Color32::from_gray(128)),
+    );
     ui.add_space(4.0);
 
     // Scrollable list
@@ -137,12 +158,13 @@ fn render_agent_list(
             for (entity, agent, name, _perception) in agent_query.iter() {
                 let name_str = name.map(|n| n.as_str()).unwrap_or("Unnamed");
                 let id_str = &agent.id.0;
-                
+
                 // Apply filter
                 let filter = state.filter_text.to_lowercase();
-                if !filter.is_empty() 
+                if !filter.is_empty()
                     && !name_str.to_lowercase().contains(&filter)
-                    && !id_str.to_lowercase().contains(&filter) {
+                    && !id_str.to_lowercase().contains(&filter)
+                {
                     continue;
                 }
 
@@ -152,15 +174,20 @@ fn render_agent_list(
 
                 let response = ui.selectable_label(
                     is_selected,
-                    egui::RichText::new(format!("{} [{}]", name_str, id_str))
-                        .color(if is_selected { egui::Color32::WHITE } else { egui::Color32::from_gray(220) }),
+                    egui::RichText::new(format!("{} [{}]", name_str, id_str)).color(
+                        if is_selected {
+                            egui::Color32::WHITE
+                        } else {
+                            egui::Color32::from_gray(220)
+                        },
+                    ),
                 );
 
                 ui.horizontal(|_ui| {
                     if response.clicked() {
                         state.selected_agent = Some(entity);
                     }
-                    
+
                     _ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.colored_label(status_color, format!("{:?}", agent.status));
                         ui.label("•");
@@ -181,7 +208,7 @@ fn render_agent_details(
     perception: Option<&PerceptionCapability>,
 ) {
     let name_str = name.map(|n| n.as_str()).unwrap_or("Unnamed");
-    
+
     // Header
     ui.horizontal(|ui| {
         ui.heading(name_str);
@@ -213,7 +240,7 @@ fn render_agent_details(
         } else {
             ui.label("No active goal");
         }
-        
+
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut state.goal_input).hint_text("New goal..."));
             if ui.button("Set Goal").clicked() && !state.goal_input.is_empty() {
@@ -231,7 +258,7 @@ fn render_agent_details(
             if let Some(ref obs) = agent.last_observation {
                 ui.label(format!("Visible entities: {}", obs.visible_entities.len()));
                 ui.label(format!("Recent events: {}", obs.events.len()));
-                
+
                 // Perception capability details
                 if let Some(perc) = perception {
                     ui.separator();
@@ -240,7 +267,7 @@ fn render_agent_details(
                     ui.label(format!("  Vision angle: {:.0}°", perc.vision_angle));
                     ui.label(format!("  Hearing range: {:.1}", perc.hearing_range));
                 }
-                
+
                 // Observation details
                 if !obs.visible_entities.is_empty() {
                     ui.separator();
@@ -264,16 +291,18 @@ fn render_agent_details(
             if snapshot.is_empty() {
                 ui.label("Blackboard is empty");
             } else {
-                egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
-                    for (key, value) in snapshot.iter() {
-                ui.horizontal(|ui| {
-                            ui.label(format!("{}:", key));
-                            ui.monospace(format!("{:?}", value));
-                        });
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .max_height(150.0)
+                    .show(ui, |ui| {
+                        for (key, value) in snapshot.iter() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{}:", key));
+                                ui.monospace(format!("{:?}", value));
+                            });
+                        }
+                    });
             }
-            
+
             // Add new entry
             ui.separator();
             ui.horizontal(|ui| {
@@ -301,13 +330,13 @@ fn render_agent_details(
             } else {
                 ui.label("No LLM inference history");
             }
-            
+
             if let Some(count) = agent.blackboard.get("pending_action_count") {
                 if let Some(count_num) = count.as_u64() {
                     ui.label(format!("Pending actions: {}", count_num));
                 }
             }
-            
+
             ui.separator();
             ui.label(format!("Behavior: {:?}", agent.behavior));
         });
@@ -340,5 +369,7 @@ fn get_status_color(status: &RuntimeAgentStatus) -> egui::Color32 {
 
 /// Helper to toggle panel visibility via layout command
 pub fn toggle_runtime_agent_panel(queue: &mut LayoutCommandQueue) {
-    queue.push(LayoutCommand::TogglePanel { panel_id: "runtime_agents".to_string() });
+    queue.push(LayoutCommand::TogglePanel {
+        panel_id: "runtime_agents".to_string(),
+    });
 }

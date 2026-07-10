@@ -13,6 +13,7 @@ path = "src/main.rs"
 agent-core = { path = "crates/agent-core" }
 agent-ui = { path = "crates/agent-ui" }
 bevy-adapter = { path = "crates/bevy-adapter" }
+multica-bridge = { path = "crates/multica-bridge" }
 
 bevy = { version = "0.17", default-features = false, features = [
     "bevy_log",
@@ -23,6 +24,7 @@ bevy = { version = "0.17", default-features = false, features = [
     "bevy_asset",
     "bevy_ui",
     "bevy_text",
+    "png",
 ] }
 bevy_egui = "0.38"
 serde_json = "1.0"
@@ -34,17 +36,23 @@ members = [
     "crates/agent-core",
     "crates/agent-ui",
     "crates/bevy-adapter",
+    "crates/multica-bridge",
+    "crates/ai-frameworks",
+    "crates/game-simulator",
 ]
-
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = ["AgentEdit Team"]
 
 [workspace.dependencies]
-bevy = { version = "0.17", default-features = false }
+bevy = { version = "0.17", default-features = false, features = ["png"] }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 log = "0.4"
+chrono = "0.4"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+ai-frameworks = { path = "crates/ai-frameworks" }
 
 [profile.dev]
 opt-level = 1

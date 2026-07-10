@@ -3,26 +3,26 @@
 //! All tools implement the Tool trait and are registered in ToolRegistry.
 //! Supports categorization, parameter validation, and parallel execution.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Tool trait - all tools must implement this
 pub trait Tool: Send + Sync {
     /// Unique tool name (e.g., "query_entity", "create_component")
     fn name(&self) -> &str;
-    
+
     /// Human-readable description
     fn description(&self) -> &str;
-    
+
     /// Parameters the tool accepts
     fn parameters(&self) -> Vec<ToolParameter>;
-    
+
     /// Tool category for organization
     fn category(&self) -> ToolCategory;
-    
+
     /// Execute the tool with given parameters
-    /// 
+    ///
     /// Returns ToolResult with success status and output data
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError>;
 }
@@ -50,18 +50,18 @@ pub enum ParameterType {
     Color,
     Enum(Vec<String>),
     Object(Vec<ToolParameter>), // Nested object
-    Array(Box<ParameterType>), // Array of type
+    Array(Box<ParameterType>),  // Array of type
 }
 
 /// Tool categories for organization
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolCategory {
-    Scene,      // Scene manipulation (entities, components)
-    Code,       // Code generation and modification
-    Asset,      // Asset management
-    Engine,     // Engine control (build, play, export)
-    External,   // External APIs (search, AI generation)
-    Utility,    // Utility tools (math, string ops)
+    Scene,    // Scene manipulation (entities, components)
+    Code,     // Code generation and modification
+    Asset,    // Asset management
+    Engine,   // Engine control (build, play, export)
+    External, // External APIs (search, AI generation)
+    Utility,  // Utility tools (math, string ops)
 }
 
 impl ToolCategory {
@@ -75,7 +75,7 @@ impl ToolCategory {
             ToolCategory::Utility => "Utility",
         }
     }
-    
+
     pub fn description(&self) -> &'static str {
         match self {
             ToolCategory::Scene => "Scene manipulation tools for entities and components",
@@ -107,7 +107,7 @@ impl ToolResult {
             execution_time_ms: 0,
         }
     }
-    
+
     /// Create an error result
     pub fn error(message: impl Into<String>) -> Self {
         Self {
@@ -117,7 +117,7 @@ impl ToolResult {
             execution_time_ms: 0,
         }
     }
-    
+
     /// Get a summary of the result
     pub fn summary(&self) -> String {
         if self.success {
@@ -133,16 +133,16 @@ impl ToolResult {
 pub enum ToolError {
     #[error("Tool not found: {0}")]
     NotFound(String),
-    
+
     #[error("Missing required parameter: {0}")]
     MissingParameter(String),
-    
+
     #[error("Invalid parameter value: {0}")]
     InvalidParameter(String),
-    
+
     #[error("Tool execution failed: {0}")]
     ExecutionFailed(String),
-    
+
     #[error("Tool timeout")]
     Timeout,
 }
@@ -156,7 +156,7 @@ pub struct ToolCall {
 }
 
 /// Tool Registry - manages available tools
-/// 
+///
 /// Provides registration, lookup, and execution of tools.
 /// Supports categorization and filtering.
 pub struct ToolRegistry {
@@ -172,107 +172,106 @@ impl ToolRegistry {
             categories: HashMap::new(),
         }
     }
-    
+
     /// Register a tool
     pub fn register<T: Tool + 'static>(&mut self, tool: T) {
         let name = tool.name().to_string();
         let category = tool.category();
-        
+
         self.tools.insert(name.clone(), Box::new(tool));
-        
-        self.categories
-            .entry(category)
-            .or_default()
-            .push(name);
+
+        self.categories.entry(category).or_default().push(name);
     }
-    
+
     /// Get a tool by name
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
         self.tools.get(name).map(|t| t.as_ref())
     }
-    
+
     /// Check if tool exists
     pub fn has(&self, name: &str) -> bool {
         self.tools.contains_key(name)
     }
-    
+
     /// Execute a single tool call
     pub fn execute(&self, call: &ToolCall) -> Result<ToolResult, ToolError> {
-        let tool = self.get(&call.tool_name)
+        let tool = self
+            .get(&call.tool_name)
             .ok_or_else(|| ToolError::NotFound(call.tool_name.clone()))?;
-        
+
         // Validate required parameters
         for param in tool.parameters() {
             if param.required && !call.parameters.contains_key(&param.name) {
                 return Err(ToolError::MissingParameter(param.name.clone()));
             }
         }
-        
+
         // Execute
         let start = std::time::Instant::now();
-        let mut result = tool.execute(call.parameters.clone())
+        let mut result = tool
+            .execute(call.parameters.clone())
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-        
+
         result.execution_time_ms = start.elapsed().as_millis() as u64;
         Ok(result)
     }
-    
+
     /// Execute multiple tool calls (serial)
     pub fn execute_all(&self, calls: Vec<ToolCall>) -> Vec<Result<ToolResult, ToolError>> {
-        calls.into_iter()
-            .map(|call| self.execute(&call))
-            .collect()
+        calls.into_iter().map(|call| self.execute(&call)).collect()
     }
-    
+
     /// List all available tool names
     pub fn list_tools(&self) -> Vec<String> {
         self.tools.keys().cloned().collect()
     }
-    
+
     /// List tools in a category
     pub fn list_by_category(&self, category: ToolCategory) -> Vec<String> {
-        self.categories.get(&category)
-            .cloned()
-            .unwrap_or_default()
+        self.categories.get(&category).cloned().unwrap_or_default()
     }
-    
+
     /// Get all categories
     pub fn categories(&self) -> Vec<ToolCategory> {
         self.categories.keys().cloned().collect()
     }
-    
+
     /// Generate tool descriptions for LLM context
     pub fn describe_all(&self) -> String {
-        self.tools.values()
+        self.tools
+            .values()
             .map(|t| format_tool_description(t.as_ref()))
             .collect::<Vec<_>>()
             .join("\n\n")
     }
-    
+
     /// Generate descriptions for relevant tools only
     pub fn describe_relevant(&self, context: &str) -> String {
         // Simple keyword matching - can be improved with embeddings
         let lowercase_context = context.to_lowercase();
         let keywords: Vec<_> = lowercase_context.split_whitespace().collect();
-        
-        let relevant: Vec<_> = self.tools.values()
+
+        let relevant: Vec<_> = self
+            .tools
+            .values()
             .filter(|t| {
                 let desc = t.description().to_lowercase();
                 keywords.iter().any(|kw| desc.contains(*kw))
             })
             .map(|t| format_tool_description(t.as_ref()))
             .collect();
-        
+
         if relevant.is_empty() {
             self.describe_all()
         } else {
             relevant.join("\n\n")
         }
     }
-    
+
     /// Generate structured MCP-style tool descriptions for LLM tool selection
     pub fn all_mcp_descriptions(&self) -> Vec<serde_json::Value> {
-        self.tools.values()
+        self.tools
+            .values()
             .map(|t| tool_to_mcp_description(t.as_ref()))
             .collect()
     }
@@ -280,26 +279,26 @@ impl ToolRegistry {
     /// Remove a tool
     pub fn unregister(&mut self, name: &str) -> Option<Box<dyn Tool>> {
         let tool = self.tools.remove(name)?;
-        
+
         // Remove from category
         if let Some(cat_tools) = self.categories.get_mut(&tool.category()) {
             cat_tools.retain(|n| n != name);
         }
-        
+
         Some(tool)
     }
-    
+
     /// Clear all tools
     pub fn clear(&mut self) {
         self.tools.clear();
         self.categories.clear();
     }
-    
+
     /// Get count of registered tools
     pub fn len(&self) -> usize {
         self.tools.len()
     }
-    
+
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
@@ -314,34 +313,45 @@ impl Default for ToolRegistry {
 
 /// Format a tool description for LLM consumption
 fn format_tool_description(tool: &dyn Tool) -> String {
-    let params = tool.parameters()
+    let params = tool
+        .parameters()
         .iter()
         .map(|p| {
             let required = if p.required { "required" } else { "optional" };
-            format!("  - {} ({:?}, {}): {}", 
-                p.name, p.param_type, required, p.description)
+            format!(
+                "  - {} ({:?}, {}): {}",
+                p.name, p.param_type, required, p.description
+            )
         })
         .collect::<Vec<_>>()
         .join("\n");
-    
+
     format!(
         "Tool: {}\nCategory: {:?}\nDescription: {}\nParameters:\n{}",
         tool.name(),
         tool.category(),
         tool.description(),
-        if params.is_empty() { "  (none)".to_string() } else { params }
+        if params.is_empty() {
+            "  (none)".to_string()
+        } else {
+            params
+        }
     )
 }
 
 /// Generate MCP-style JSON tool description from a Tool instance
 fn tool_to_mcp_description(tool: &dyn Tool) -> serde_json::Value {
-    let properties: serde_json::Map<String, serde_json::Value> = tool.parameters()
+    let properties: serde_json::Map<String, serde_json::Value> = tool
+        .parameters()
         .iter()
         .map(|p| {
-            (p.name.clone(), serde_json::json!({
-                "type": parameter_type_to_string(&p.param_type),
-                "description": p.description,
-            }))
+            (
+                p.name.clone(),
+                serde_json::json!({
+                    "type": parameter_type_to_string(&p.param_type),
+                    "description": p.description,
+                }),
+            )
         })
         .collect();
 
@@ -376,22 +386,22 @@ fn parameter_type_to_string(pt: &ParameterType) -> &'static str {
 }
 
 /// Builder for creating ToolParameters fluently
+#[derive(Default)]
 pub struct ParameterBuilder {
     params: Vec<ToolParameter>,
-}
-
-impl Default for ParameterBuilder {
-    fn default() -> Self {
-        Self { params: Vec::new() }
-    }
 }
 
 impl ParameterBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-    
-    pub fn string(mut self, name: impl Into<String>, description: impl Into<String>, required: bool) -> Self {
+
+    pub fn string(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        required: bool,
+    ) -> Self {
         self.params.push(ToolParameter {
             name: name.into(),
             description: description.into(),
@@ -401,8 +411,13 @@ impl ParameterBuilder {
         });
         self
     }
-    
-    pub fn number(mut self, name: impl Into<String>, description: impl Into<String>, required: bool) -> Self {
+
+    pub fn number(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        required: bool,
+    ) -> Self {
         self.params.push(ToolParameter {
             name: name.into(),
             description: description.into(),
@@ -412,8 +427,13 @@ impl ParameterBuilder {
         });
         self
     }
-    
-    pub fn entity(mut self, name: impl Into<String>, description: impl Into<String>, required: bool) -> Self {
+
+    pub fn entity(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        required: bool,
+    ) -> Self {
         self.params.push(ToolParameter {
             name: name.into(),
             description: description.into(),
@@ -423,7 +443,7 @@ impl ParameterBuilder {
         });
         self
     }
-    
+
     pub fn build(self) -> Vec<ToolParameter> {
         self.params
     }
@@ -438,32 +458,31 @@ impl Tool for EchoTool {
     fn name(&self) -> &str {
         "echo"
     }
-    
+
     fn description(&self) -> &str {
         "Echoes back the input message for testing"
     }
-    
+
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "message".to_string(),
-                description: "Message to echo".to_string(),
-                param_type: ParameterType::String,
-                required: true,
-                default: None,
-            }
-        ]
+        vec![ToolParameter {
+            name: "message".to_string(),
+            description: "Message to echo".to_string(),
+            param_type: ParameterType::String,
+            required: true,
+            default: None,
+        }]
     }
-    
+
     fn category(&self) -> ToolCategory {
         ToolCategory::Utility
     }
-    
+
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let message = params.get("message")
+        let message = params
+            .get("message")
             .and_then(|v: &Value| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("message".to_string()))?;
-        
+
         Ok(ToolResult {
             success: true,
             message: format!("Echo: {}", message),
@@ -480,11 +499,11 @@ impl Tool for MathTool {
     fn name(&self) -> &str {
         "math"
     }
-    
+
     fn description(&self) -> &str {
         "Performs mathematical calculations"
     }
-    
+
     fn parameters(&self) -> Vec<ToolParameter> {
         vec![
             ToolParameter {
@@ -515,24 +534,27 @@ impl Tool for MathTool {
             },
         ]
     }
-    
+
     fn category(&self) -> ToolCategory {
         ToolCategory::Utility
     }
-    
+
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let op = params.get("operation")
+        let op = params
+            .get("operation")
             .and_then(|v: &Value| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("operation".to_string()))?;
-        
-        let a = params.get("a")
+
+        let a = params
+            .get("a")
             .and_then(|v: &Value| v.as_f64())
             .ok_or_else(|| ToolError::MissingParameter("a".to_string()))?;
-        
-        let b = params.get("b")
+
+        let b = params
+            .get("b")
             .and_then(|v: &Value| v.as_f64())
             .ok_or_else(|| ToolError::MissingParameter("b".to_string()))?;
-        
+
         let result = match op {
             "add" => a + b,
             "subtract" => a - b,
@@ -545,7 +567,7 @@ impl Tool for MathTool {
             }
             _ => return Err(ToolError::InvalidParameter("operation".to_string())),
         };
-        
+
         Ok(ToolResult::success(result))
     }
 }
@@ -553,28 +575,28 @@ impl Tool for MathTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_tool_registry() {
         let mut registry = ToolRegistry::new();
-        
+
         registry.register(EchoTool);
         registry.register(MathTool);
-        
+
         assert_eq!(registry.len(), 2);
         assert!(registry.has("echo"));
         assert!(registry.has("math"));
-        
+
         let tools = registry.list_tools();
         assert!(tools.contains(&"echo".to_string()));
         assert!(tools.contains(&"math".to_string()));
     }
-    
+
     #[test]
     fn test_execute_echo() {
         let mut registry = ToolRegistry::new();
         registry.register(EchoTool);
-        
+
         let call = ToolCall {
             tool_name: "echo".to_string(),
             parameters: {
@@ -584,17 +606,17 @@ mod tests {
             },
             call_id: "1".to_string(),
         };
-        
+
         let result = registry.execute(&call).unwrap();
         assert!(result.success);
         assert!(result.message.contains("Echo"));
     }
-    
+
     #[test]
     fn test_execute_math() {
         let mut registry = ToolRegistry::new();
         registry.register(MathTool);
-        
+
         let call = ToolCall {
             tool_name: "math".to_string(),
             parameters: {
@@ -606,22 +628,22 @@ mod tests {
             },
             call_id: "1".to_string(),
         };
-        
+
         let result = registry.execute(&call).unwrap();
         assert!(result.success);
     }
-    
+
     #[test]
     fn test_missing_parameter() {
         let mut registry = ToolRegistry::new();
         registry.register(EchoTool);
-        
+
         let call = ToolCall {
             tool_name: "echo".to_string(),
             parameters: HashMap::new(), // Missing required "message"
             call_id: "1".to_string(),
         };
-        
+
         let result = registry.execute(&call);
         assert!(result.is_err());
     }

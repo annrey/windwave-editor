@@ -2,17 +2,17 @@
 //!
 //! Provides UI for configuring Agent LLM parameters and behavior.
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use crate::layout::{LayoutManager, LayoutCommand, PanelPosition};
+use crate::layout::{LayoutCommand, LayoutManager, PanelPosition};
 use crate::LayoutCommandQueue;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct AgentConfigPanelPlugin;
 
 impl Plugin for AgentConfigPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AgentConfigState>()
-            .add_systems(Update, render_agent_config_panel);
+            .add_systems(EguiPrimaryContextPass, render_agent_config_panel);
     }
 }
 
@@ -120,8 +120,16 @@ fn render_agent_config_panel(
                 egui::ComboBox::from_id_salt("llm_provider")
                     .selected_text(state.provider_display())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.llm_provider, "openai".to_string(), "OpenAI");
-                        ui.selectable_value(&mut state.llm_provider, "claude".to_string(), "Claude");
+                        ui.selectable_value(
+                            &mut state.llm_provider,
+                            "openai".to_string(),
+                            "OpenAI",
+                        );
+                        ui.selectable_value(
+                            &mut state.llm_provider,
+                            "claude".to_string(),
+                            "Claude",
+                        );
                         ui.selectable_value(&mut state.llm_provider, "local".to_string(), "Local");
                     });
             });
@@ -205,7 +213,9 @@ fn render_agent_config_panel(
 
             // Close button
             if ui.button("Close").clicked() {
-                layout_queue.push(LayoutCommand::HidePanel { panel_id: "agent_config".to_string() });
+                layout_queue.push(LayoutCommand::HidePanel {
+                    panel_id: "agent_config".to_string(),
+                });
             }
         });
 }

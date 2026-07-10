@@ -64,16 +64,25 @@ impl<'a> RuntimeContextCollector<'a> {
             let entity_count = names.len();
 
             ctx.selected_entities = names.join(", ");
-            ctx.extra.insert("entity_count".into(), entity_count.to_string());
+            ctx.extra
+                .insert("entity_count".into(), entity_count.to_string());
 
             // Scene summary for LLM (cap at 20 entities to avoid overflow)
             let scene_summary = if entity_count <= 20 {
-                format!("Scene contains {} entities: {}", entity_count, ctx.selected_entities)
+                format!(
+                    "Scene contains {} entities: {}",
+                    entity_count, ctx.selected_entities
+                )
             } else {
                 format!(
                     "Scene contains {} entities (showing 20): {}...",
                     entity_count,
-                    names.iter().take(20).cloned().collect::<Vec<_>>().join(", ")
+                    names
+                        .iter()
+                        .take(20)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             };
             ctx.extra.insert("scene_summary".into(), scene_summary);
@@ -81,7 +90,9 @@ impl<'a> RuntimeContextCollector<'a> {
 
         // Recent action history
         if !self.recent_actions.is_empty() {
-            let action_summary = self.recent_actions.iter()
+            let action_summary = self
+                .recent_actions
+                .iter()
                 .take(5)
                 .cloned()
                 .collect::<Vec<_>>()
@@ -99,7 +110,9 @@ impl<'a> RuntimeContextCollector<'a> {
 }
 
 impl<'a> Default for RuntimeContextCollector<'a> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -132,12 +145,11 @@ mod tests {
 
     #[test]
     fn test_collect_recent_actions() {
-        let collector = RuntimeContextCollector::new()
-            .with_recent_actions(vec![
-                "create_entity(Player)".into(),
-                "set_color(Player, red)".into(),
-                "move_entity(Player, x=5)".into(),
-            ]);
+        let collector = RuntimeContextCollector::new().with_recent_actions(vec![
+            "create_entity(Player)".into(),
+            "set_color(Player, red)".into(),
+            "move_entity(Player, x=5)".into(),
+        ]);
         let ctx = collector.collect();
 
         let actions = ctx.extra.get("recent_actions").unwrap();

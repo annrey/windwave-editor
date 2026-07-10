@@ -253,7 +253,12 @@ impl ComponentSchemaRegistry {
     pub fn validate_property(&self, component: &str, property: &str) -> bool {
         self.schemas
             .get(component)
-            .map(|schema| schema.properties.iter().any(|p| p.name == property && p.writable))
+            .map(|schema| {
+                schema
+                    .properties
+                    .iter()
+                    .any(|p| p.name == property && p.writable)
+            })
             .unwrap_or(false)
     }
 }

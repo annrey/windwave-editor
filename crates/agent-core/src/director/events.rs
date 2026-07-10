@@ -1,7 +1,7 @@
 //! Event management methods for DirectorRuntime.
 
+use super::types::{DirectorRuntime, DirectorTraceEntry, EditorEvent};
 use crate::event::EventBus;
-use super::types::{DirectorRuntime, EditorEvent, DirectorTraceEntry};
 
 impl DirectorRuntime {
     #[allow(dead_code)] // Capacity limits reserved for future event/trace management
@@ -66,7 +66,8 @@ impl DirectorRuntime {
     pub(crate) fn add_trace_entry(&mut self, entry: DirectorTraceEntry) {
         self.trace_entries.push(entry);
         if self.trace_entries.len() > Self::MAX_TRACE_ENTRIES {
-            self.trace_entries.drain(0..self.trace_entries.len() - Self::MAX_TRACE_ENTRIES);
+            self.trace_entries
+                .drain(0..self.trace_entries.len() - Self::MAX_TRACE_ENTRIES);
         }
     }
 }

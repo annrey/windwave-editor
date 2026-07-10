@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// 符号类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -64,20 +64,32 @@ impl CodeIndex {
     }
 
     pub fn find_by_name(&self, name: &str) -> Option<&Symbol> {
-        self.name_index.get(name).and_then(|&idx| self.symbols.get(idx))
+        self.name_index
+            .get(name)
+            .and_then(|&idx| self.symbols.get(idx))
     }
 
     pub fn find_by_file(&self, file_path: &str) -> Vec<&Symbol> {
         self.file_index
             .get(file_path)
-            .map(|indices| indices.iter().filter_map(|&i| self.symbols.get(i)).collect())
+            .map(|indices| {
+                indices
+                    .iter()
+                    .filter_map(|&i| self.symbols.get(i))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     pub fn find_by_kind(&self, kind: SymbolKind) -> Vec<&Symbol> {
         self.kind_index
             .get(&kind)
-            .map(|indices| indices.iter().filter_map(|&i| self.symbols.get(i)).collect())
+            .map(|indices| {
+                indices
+                    .iter()
+                    .filter_map(|&i| self.symbols.get(i))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -124,6 +136,9 @@ mod tests {
             visibility: Visibility::Pub,
         });
         assert!(index.find_by_name("Player").is_some());
-        assert_eq!(index.find_by_name("Player").unwrap().kind, SymbolKind::Component);
+        assert_eq!(
+            index.find_by_name("Player").unwrap().kind,
+            SymbolKind::Component
+        );
     }
 }

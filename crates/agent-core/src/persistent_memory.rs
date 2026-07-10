@@ -4,8 +4,8 @@
 //! New code should use `crate::memory::*` instead.
 
 use crate::types::EntityId;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Confirmation Level
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
@@ -72,12 +72,18 @@ impl PersistentMemory {
 #[derive(Component, Debug, Clone)]
 pub struct {name} {
     pub value: f32,
-}"#.into(),
+}"#
+                .into(),
             },
             LearnedPattern {
                 name: "player_movement_2d".into(),
                 description: "WASD-style 2D player movement system".into(),
-                trigger_keywords: vec!["move".into(), "player".into(), "wasd".into(), "input".into()],
+                trigger_keywords: vec![
+                    "move".into(),
+                    "player".into(),
+                    "wasd".into(),
+                    "input".into(),
+                ],
                 template: r#"use bevy::prelude::*;
 
 const PLAYER_SPEED: f32 = 300.0;
@@ -98,7 +104,8 @@ pub fn player_movement(
             transform.translation += direction * PLAYER_SPEED * time.delta_secs();
         }
     }
-}"#.into(),
+}"#
+                .into(),
             },
         ];
         self.learned_patterns = patterns;
@@ -114,19 +121,28 @@ pub fn player_movement(
     }
 
     pub fn find_pattern(&self, keywords: &[&str]) -> Option<&LearnedPattern> {
-        self.learned_patterns.iter()
-            .find(|pattern| {
-                keywords.iter().any(|kw| pattern.trigger_keywords.iter().any(|tk| tk.contains(*kw)))
-            })
+        self.learned_patterns.iter().find(|pattern| {
+            keywords
+                .iter()
+                .any(|kw| pattern.trigger_keywords.iter().any(|tk| tk.contains(*kw)))
+        })
     }
 
-    pub fn add_entity_knowledge(&mut self, entity_id: EntityId, common_ops: Vec<String>, notes: &str) {
-        self.entity_knowledge.insert(entity_id, EntityKnowledge {
+    pub fn add_entity_knowledge(
+        &mut self,
+        entity_id: EntityId,
+        common_ops: Vec<String>,
+        notes: &str,
+    ) {
+        self.entity_knowledge.insert(
             entity_id,
-            common_operations: common_ops,
-            related_entities: vec![],
-            notes: notes.into(),
-        });
+            EntityKnowledge {
+                entity_id,
+                common_operations: common_ops,
+                related_entities: vec![],
+                notes: notes.into(),
+            },
+        );
     }
 
     pub fn get_entity_knowledge(&self, entity_id: EntityId) -> Option<&EntityKnowledge> {

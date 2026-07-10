@@ -7,8 +7,8 @@
 
 use crate::registry::CapabilityKind;
 use crate::skill::{
-    SkillDefinition, SkillId, SkillNode, SkillEdge, SkillInput, SkillInputType,
-    RetryPolicy, SkillEdgeCondition, SkillRegistry,
+    RetryPolicy, SkillDefinition, SkillEdge, SkillEdgeCondition, SkillId, SkillInput,
+    SkillInputType, SkillNode, SkillRegistry,
 };
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,10 @@ pub fn create_entity_skill() -> SkillDefinition {
                     "entity_type": "${entity_type}",
                     "entity_name": "${entity_type}_${counter}"
                 }),
-                retry: RetryPolicy { max_retries: 3, ..RetryPolicy::default() },
+                retry: RetryPolicy {
+                    max_retries: 3,
+                    ..RetryPolicy::default()
+                },
                 rollback: Some("delete_entity".to_string()),
             },
             SkillNode {
@@ -65,7 +68,10 @@ pub fn create_entity_skill() -> SkillDefinition {
                 required_capability: CapabilityKind::RuleCheck,
                 tool_name: None,
                 input_mapping: serde_json::json!({}),
-                retry: RetryPolicy { max_retries: 1, ..RetryPolicy::default() },
+                retry: RetryPolicy {
+                    max_retries: 1,
+                    ..RetryPolicy::default()
+                },
                 rollback: None,
             },
         ],
@@ -125,7 +131,10 @@ pub fn modify_entity_transform_skill() -> SkillDefinition {
                     "component": "Transform",
                     "properties": { "position": "${new_position}" }
                 }),
-                retry: RetryPolicy { max_retries: 2, ..RetryPolicy::default() },
+                retry: RetryPolicy {
+                    max_retries: 2,
+                    ..RetryPolicy::default()
+                },
                 rollback: Some("update_component".to_string()),
             },
             SkillNode {
@@ -136,7 +145,10 @@ pub fn modify_entity_transform_skill() -> SkillDefinition {
                 input_mapping: serde_json::json!({
                     "expected_position": "${new_position}"
                 }),
-                retry: RetryPolicy { max_retries: 1, ..RetryPolicy::default() },
+                retry: RetryPolicy {
+                    max_retries: 1,
+                    ..RetryPolicy::default()
+                },
                 rollback: None,
             },
         ],
@@ -161,26 +173,22 @@ pub fn query_scene_skill() -> SkillDefinition {
         id: SkillId(3),
         name: "query_scene".to_string(),
         description: "List all entities in the current scene".to_string(),
-        inputs: vec![
-            SkillInput {
-                name: "filter".to_string(),
-                description: "Optional name filter".to_string(),
-                input_type: SkillInputType::String,
-                required: false,
-                default: None,
-            },
-        ],
-        nodes: vec![
-            SkillNode {
-                id: "list_entities".to_string(),
-                title: "List all scene entities".to_string(),
-                required_capability: CapabilityKind::SceneRead,
-                tool_name: Some("query_entities".to_string()),
-                input_mapping: serde_json::json!({ "entity_type": "${filter}" }),
-                retry: RetryPolicy::default(),
-                rollback: None,
-            },
-        ],
+        inputs: vec![SkillInput {
+            name: "filter".to_string(),
+            description: "Optional name filter".to_string(),
+            input_type: SkillInputType::String,
+            required: false,
+            default: None,
+        }],
+        nodes: vec![SkillNode {
+            id: "list_entities".to_string(),
+            title: "List all scene entities".to_string(),
+            required_capability: CapabilityKind::SceneRead,
+            tool_name: Some("query_entities".to_string()),
+            input_mapping: serde_json::json!({ "entity_type": "${filter}" }),
+            retry: RetryPolicy::default(),
+            rollback: None,
+        }],
         edges: vec![],
     }
 }
@@ -191,15 +199,13 @@ pub fn import_asset_skill() -> SkillDefinition {
         id: SkillId(4),
         name: "import_asset".to_string(),
         description: "Import a texture, model, or audio file into the project".to_string(),
-        inputs: vec![
-            SkillInput {
-                name: "file_path".to_string(),
-                description: "Path to the asset file".to_string(),
-                input_type: SkillInputType::String,
-                required: true,
-                default: None,
-            },
-        ],
+        inputs: vec![SkillInput {
+            name: "file_path".to_string(),
+            description: "Path to the asset file".to_string(),
+            input_type: SkillInputType::String,
+            required: true,
+            default: None,
+        }],
         nodes: vec![
             SkillNode {
                 id: "locate_file".to_string(),
@@ -216,7 +222,10 @@ pub fn import_asset_skill() -> SkillDefinition {
                 required_capability: CapabilityKind::AssetManage,
                 tool_name: None,
                 input_mapping: serde_json::json!({ "path": "${file_path}" }),
-                retry: RetryPolicy { max_retries: 1, ..RetryPolicy::default() },
+                retry: RetryPolicy {
+                    max_retries: 1,
+                    ..RetryPolicy::default()
+                },
                 rollback: None,
             },
             SkillNode {
@@ -305,10 +314,17 @@ mod tests {
         let skill = create_entity_skill();
         let executor = SkillExecutor::new();
         let order = executor.build_execution_order(&skill).unwrap();
-        assert!(order.iter().position(|n| n == "query_scene").unwrap()
-            < order.iter().position(|n| n == "create_entity").unwrap());
-        assert!(order.iter().position(|n| n == "create_entity").unwrap()
-            < order.iter().position(|n| n == "verify_entity_exists").unwrap());
+        assert!(
+            order.iter().position(|n| n == "query_scene").unwrap()
+                < order.iter().position(|n| n == "create_entity").unwrap()
+        );
+        assert!(
+            order.iter().position(|n| n == "create_entity").unwrap()
+                < order
+                    .iter()
+                    .position(|n| n == "verify_entity_exists")
+                    .unwrap()
+        );
     }
 
     #[test]

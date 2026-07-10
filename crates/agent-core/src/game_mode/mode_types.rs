@@ -311,7 +311,7 @@ impl AgentConfig {
             role: role.clone(),
             enabled: true,
             provider: "openai".to_string(),
-            model: "gpt-4o-mini".to_string(),
+            model: crate::planner::get_default_model(),
             temperature: 0.7,
             max_tokens: 1000,
             system_prompt: role.default_system_prompt(),

@@ -4,10 +4,12 @@
 //! `EditPlan`s, and falls back to a `Box<dyn Planner>` when the LLM is
 //! unavailable or returns invalid output.
 
+use super::{
+    get_default_model, llm_runtime, ComplexityLevel, Planner, PlannerContext, RuleBasedPlanner,
+};
 use crate::permission::OperationRisk;
-use crate::plan::{EditPlan, EditPlanStep, EditPlanStatus, ExecutionMode, TargetModule};
-use crate::prompt::{PromptSystem, PromptContext, PromptType};
-use super::{ComplexityLevel, PlannerContext, Planner, RuleBasedPlanner, get_default_model, llm_runtime};
+use crate::plan::{EditPlan, EditPlanStatus, EditPlanStep, ExecutionMode, TargetModule};
+use crate::prompt::{PromptContext, PromptSystem, PromptType};
 
 /// LLM CoT 驱动的智能规划器
 ///
@@ -42,7 +44,11 @@ impl LlmPlanner {
     }
 
     /// Build a Chain-of-Thought prompt for the LLM.
-    fn build_cot_prompt(&self, request: &str, context: &PlannerContext) -> Vec<crate::llm::LlmMessage> {
+    fn build_cot_prompt(
+        &self,
+        request: &str,
+        context: &PlannerContext,
+    ) -> Vec<crate::llm::LlmMessage> {
         let mut prompt_ctx = PromptContext {
             engine_name: "Bevy".into(),
             project_name: "AgentEdit".into(),
@@ -55,7 +61,9 @@ impl LlmPlanner {
             prompt_ctx.layered_context = Some(layered);
         }
 
-        let sys = self.prompt_system.build_prompt(PromptType::TaskPlanning, &prompt_ctx);
+        let sys = self
+            .prompt_system
+            .build_prompt(PromptType::TaskPlanning, &prompt_ctx);
 
         let cot_instruction = format!(
             "User request: \"{request}\"\n\
@@ -89,7 +97,10 @@ impl LlmPlanner {
     fn parse_cot_response(&self, raw: &str, task_id: u64, request_text: &str) -> Option<EditPlan> {
         let json_str = if let Some(start) = raw.find("```json") {
             let after_start = &raw[start + 7..];
-            after_start.find("```").map(|end| after_start[..end].trim()).unwrap_or(after_start.trim())
+            after_start
+                .find("```")
+                .map(|end| after_start[..end].trim())
+                .unwrap_or(after_start.trim())
         } else if let Some(start) = raw.find('{') {
             &raw[start..]
         } else {
@@ -142,7 +153,7 @@ impl LlmPlanner {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string(),
-                            risk: risk_level.clone(),
+                            risk: risk_level,
                             validation_requirements: Vec::new(),
                         }
                     })
@@ -170,32 +181,29 @@ impl LlmPlanner {
 }
 
 impl Planner for LlmPlanner {
-    fn create_plan(
-        &self,
-        request_text: &str,
-        task_id: u64,
-        context: PlannerContext,
-    ) -> EditPlan {
-        let llm_ready = self.llm_client.as_ref().map(|c| c.is_ready()).unwrap_or(false);
+    fn create_plan(&self, request_text: &str, task_id: u64, context: PlannerContext) -> EditPlan {
+        let llm_ready = self
+            .llm_client
+            .as_ref()
+            .map(|c| c.is_ready())
+            .unwrap_or(false);
 
         if llm_ready {
             let messages = self.build_cot_prompt(request_text, &context);
             let model = get_default_model();
             let request = crate::llm::build_chat_request(model, messages);
 
-            let result = llm_runtime().block_on(async {
-                self.llm_client.as_ref().unwrap().chat(request).await
-            });
+            let result = llm_runtime()
+                .block_on(async { self.llm_client.as_ref().unwrap().chat(request).await });
 
-            match result {
-                Ok(response) => {
-                    if let Some(plan) = self.parse_cot_response(&response.content, task_id, request_text) {
-                        if !plan.steps.is_empty() {
-                            return plan;
-                        }
+            if let Ok(response) = result {
+                if let Some(plan) =
+                    self.parse_cot_response(&response.content, task_id, request_text)
+                {
+                    if !plan.steps.is_empty() {
+                        return plan;
                     }
                 }
-                Err(_) => {}
             }
         }
 

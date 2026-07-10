@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use crate::types::current_timestamp;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// 观察到的模式
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,10 @@ impl PatternLearner {
 
         let mut matched = false;
         for pattern in &mut self.patterns {
-            if keywords.iter().any(|k| pattern.trigger_keywords.iter().any(|pk| pk == k)) {
+            if keywords
+                .iter()
+                .any(|k| pattern.trigger_keywords.iter().any(|pk| pk == k))
+            {
                 pattern.observation_count += 1;
                 pattern.last_observed = current_timestamp();
                 if success {
@@ -64,14 +67,17 @@ impl PatternLearner {
 
         if !matched {
             let key = keywords.join("_");
-            let candidate = self.candidates.entry(key.clone()).or_insert(CandidatePattern {
-                trigger_keywords: keywords.clone(),
-                template: operation.to_string(),
-                context: context.to_string(),
-                observation_count: 0,
-                successes: 0,
-                failures: 0,
-            });
+            let candidate = self
+                .candidates
+                .entry(key.clone())
+                .or_insert(CandidatePattern {
+                    trigger_keywords: keywords.clone(),
+                    template: operation.to_string(),
+                    context: context.to_string(),
+                    observation_count: 0,
+                    successes: 0,
+                    failures: 0,
+                });
             candidate.observation_count += 1;
             if success {
                 candidate.successes += 1;
@@ -106,7 +112,8 @@ impl PatternLearner {
             .filter(|p| p.trigger_keywords.iter().any(|k| input_lower.contains(k)))
             .collect();
         matches.sort_by(|a, b| {
-            b.success_rate.partial_cmp(&a.success_rate)
+            b.success_rate
+                .partial_cmp(&a.success_rate)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| b.observation_count.cmp(&a.observation_count))
         });
@@ -121,7 +128,15 @@ impl PatternLearner {
         suggestions
             .iter()
             .take(3)
-            .map(|p| format!("- {}: {} (成功率: {:.0}%, 观察 {} 次)", p.name, p.template, p.success_rate * 100.0, p.observation_count))
+            .map(|p| {
+                format!(
+                    "- {}: {} (成功率: {:.0}%, 观察 {} 次)",
+                    p.name,
+                    p.template,
+                    p.success_rate * 100.0,
+                    p.observation_count
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }

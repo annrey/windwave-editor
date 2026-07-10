@@ -123,7 +123,7 @@ impl EditOp for CreateEntityOp {
         }
         let id = bridge
             .create_entity(&self.entity_name, self.position, &self.components)
-            .map_err(|e| EditOpError::Bridge(e))?;
+            .map_err(EditOpError::Bridge)?;
         self.created_id = Some(id);
         self.performed = true;
         Ok(())
@@ -131,9 +131,7 @@ impl EditOp for CreateEntityOp {
 
     fn undo_op(&mut self, bridge: &mut dyn SceneBridge) -> Result<(), EditOpError> {
         let id = self.created_id.ok_or(EditOpError::NotYetPerformed)?;
-        bridge
-            .delete_entity(id)
-            .map_err(|e| EditOpError::Bridge(e))?;
+        bridge.delete_entity(id).map_err(EditOpError::Bridge)?;
         self.created_id = None;
         self.performed = false;
         Ok(())
@@ -227,7 +225,7 @@ impl EditOp for DeleteEntityOp {
 
         bridge
             .delete_entity(self.entity_id)
-            .map_err(|e| EditOpError::Bridge(e))?;
+            .map_err(EditOpError::Bridge)?;
         self.performed = true;
         Ok(())
     }
@@ -251,13 +249,17 @@ impl EditOp for DeleteEntityOp {
 
         let new_id = bridge
             .create_entity(&snap.name, snap.position, &components)
-            .map_err(|e| EditOpError::Bridge(e))?;
+            .map_err(EditOpError::Bridge)?;
 
         if let Some(visible) = snap.visible {
             let mut props = HashMap::new();
             props.insert("visible".to_string(), serde_json::json!(visible));
             if let Err(e) = bridge.update_component(new_id, "Visibility", props) {
-                log::warn!("Failed to restore visibility for entity {}: {:?}", new_id, e);
+                log::warn!(
+                    "Failed to restore visibility for entity {}: {:?}",
+                    new_id,
+                    e
+                );
             }
         }
 
@@ -320,7 +322,7 @@ impl EditOp for SetTransformOp {
             props.insert("y".into(), serde_json::json!(trans[1]));
             bridge
                 .update_component(self.entity_id, "Transform", props)
-                .map_err(|e| EditOpError::Bridge(e))?;
+                .map_err(EditOpError::Bridge)?;
         }
 
         self.performed = true;
@@ -334,7 +336,7 @@ impl EditOp for SetTransformOp {
             props.insert("y".into(), serde_json::json!(old_trans[1]));
             bridge
                 .update_component(self.entity_id, "Transform", props)
-                .map_err(|e| EditOpError::Bridge(e))?;
+                .map_err(EditOpError::Bridge)?;
         }
         self.old_translation = None;
         self.performed = false;
@@ -398,7 +400,7 @@ impl EditOp for SetColorOp {
         );
         bridge
             .update_component(self.entity_id, "Sprite", props)
-            .map_err(|e| EditOpError::Bridge(e))?;
+            .map_err(EditOpError::Bridge)?;
 
         self.performed = true;
         Ok(())
@@ -407,10 +409,13 @@ impl EditOp for SetColorOp {
     fn undo_op(&mut self, bridge: &mut dyn SceneBridge) -> Result<(), EditOpError> {
         if let Some(old) = self.old_rgba {
             let mut props = HashMap::new();
-            props.insert("color".into(), serde_json::json!([old[0], old[1], old[2], old[3]]));
+            props.insert(
+                "color".into(),
+                serde_json::json!([old[0], old[1], old[2], old[3]]),
+            );
             bridge
                 .update_component(self.entity_id, "Sprite", props)
-                .map_err(|e| EditOpError::Bridge(e))?;
+                .map_err(EditOpError::Bridge)?;
         }
         self.old_rgba = None;
         self.performed = false;
@@ -459,7 +464,7 @@ impl EditOp for SetVisibilityOp {
         props.insert("visible".into(), serde_json::json!(self.visible));
         bridge
             .update_component(self.entity_id, "Visibility", props)
-            .map_err(|e| EditOpError::Bridge(e))?;
+            .map_err(EditOpError::Bridge)?;
 
         self.performed = true;
         Ok(())
@@ -471,7 +476,7 @@ impl EditOp for SetVisibilityOp {
             props.insert("visible".into(), serde_json::json!(old));
             bridge
                 .update_component(self.entity_id, "Visibility", props)
-                .map_err(|e| EditOpError::Bridge(e))?;
+                .map_err(EditOpError::Bridge)?;
         }
         self.old_visible = None;
         self.performed = false;
@@ -500,9 +505,18 @@ impl std::fmt::Debug for MultiOp {
     }
 }
 
+impl Default for MultiOp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MultiOp {
     pub fn new() -> Self {
-        Self { ops: Vec::new(), next_index: 0 }
+        Self {
+            ops: Vec::new(),
+            next_index: 0,
+        }
     }
 
     pub fn push(&mut self, op: Box<dyn EditOp>) {
@@ -600,7 +614,10 @@ mod tests {
         op.undo_op(&mut bridge).unwrap();
         // After undo, it restores old color in the entity
         let entity = bridge.get_entity(id).unwrap();
-        let color = entity.get("sprite_color").and_then(|v| v.as_array()).unwrap();
+        let color = entity
+            .get("sprite_color")
+            .and_then(|v| v.as_array())
+            .unwrap();
         assert_eq!(color[0].as_f64().unwrap() as f32, 1.0);
     }
 

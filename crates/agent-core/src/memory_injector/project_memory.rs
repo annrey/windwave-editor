@@ -1,9 +1,9 @@
-use crate::types::{EntityId, current_timestamp};
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::fs;
 use crate::memory_injector::MemoryError;
+use crate::types::{current_timestamp, EntityId};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 
 /// 项目元数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,7 +164,8 @@ impl ProjectMemory {
     }
 
     pub fn add_entity(&mut self, knowledge: EntityKnowledge) {
-        self.entity_knowledge.insert(knowledge.name.clone(), knowledge);
+        self.entity_knowledge
+            .insert(knowledge.name.clone(), knowledge);
         self.manifest.last_modified = current_timestamp();
     }
 
@@ -176,7 +177,12 @@ impl ProjectMemory {
         self.entity_knowledge.get_mut(name)
     }
 
-    pub fn record_change(&mut self, description: String, entity: Option<String>, change_type: ChangeType) {
+    pub fn record_change(
+        &mut self,
+        description: String,
+        entity: Option<String>,
+        change_type: ChangeType,
+    ) {
         self.change_log.push(ProjectChange {
             timestamp: current_timestamp(),
             description,
@@ -190,7 +196,8 @@ impl ProjectMemory {
     }
 
     pub fn set_preference(&mut self, key: &str, value: &str) {
-        self.user_preferences.insert(key.to_string(), value.to_string());
+        self.user_preferences
+            .insert(key.to_string(), value.to_string());
     }
 
     pub fn get_preference(&self, key: &str) -> Option<&String> {
@@ -208,8 +215,7 @@ impl ProjectMemory {
         if !path.exists() {
             return Ok(Self::new(ProjectManifest::default()));
         }
-        let json = fs::read_to_string(path)
-            .map_err(|e| MemoryError::Io(e.to_string()))?;
+        let json = fs::read_to_string(path).map_err(|e| MemoryError::Io(e.to_string()))?;
         serde_json::from_str(&json).map_err(|e| MemoryError::Serialization(e.to_string()))
     }
 

@@ -20,12 +20,12 @@ pub struct ProjectTemplate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TemplateCategory {
-    Empty,          // 空项目
-    Platformer2D,   // 2D平台跳跃
-    RPG,            // RPG
-    Puzzle,         // 解谜
-    Narrative,      // 叙事/视觉小说
-    Strategy,       // 策略
+    Empty,        // 空项目
+    Platformer2D, // 2D平台跳跃
+    RPG,          // RPG
+    Puzzle,       // 解谜
+    Narrative,    // 叙事/视觉小说
+    Strategy,     // 策略
 }
 
 impl TemplateCategory {
@@ -128,7 +128,12 @@ impl ProjectManager {
     }
 
     /// 按模板创建项目元数据
-    pub fn create_from_template(&self, name: &str, path: PathBuf, template_id: &str) -> Option<ProjectMeta> {
+    pub fn create_from_template(
+        &self,
+        name: &str,
+        path: PathBuf,
+        template_id: &str,
+    ) -> Option<ProjectMeta> {
         let template = self.templates.iter().find(|t| t.id == template_id)?;
         Some(ProjectMeta {
             id: format!("proj_{}", chrono::Utc::now().timestamp_millis()),
@@ -146,9 +151,13 @@ impl ProjectManager {
     /// 搜索项目
     pub fn search(&self, query: &str) -> Vec<&ProjectMeta> {
         let q = query.to_lowercase();
-        self.recent_projects.iter().filter(|p| {
-            p.name.to_lowercase().contains(&q) || p.tags.iter().any(|t| t.to_lowercase().contains(&q))
-        }).collect()
+        self.recent_projects
+            .iter()
+            .filter(|p| {
+                p.name.to_lowercase().contains(&q)
+                    || p.tags.iter().any(|t| t.to_lowercase().contains(&q))
+            })
+            .collect()
     }
 
     /// 获取所有模板
@@ -170,16 +179,16 @@ impl Default for ProjectManager {
 /// 资源类型
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AssetType {
-    Texture,    // 纹理/图片
-    Model,      // 3D模型
-    Audio,      // 音频
-    Font,       // 字体
-    Script,     // 脚本
-    Prefab,     // 预制体
-    Scene,      // 场景
-    Shader,     // Shader
-    Animation,  // 动画
-    Other,      // 其他
+    Texture,   // 纹理/图片
+    Model,     // 3D模型
+    Audio,     // 音频
+    Font,      // 字体
+    Script,    // 脚本
+    Prefab,    // 预制体
+    Scene,     // 场景
+    Shader,    // Shader
+    Animation, // 动画
+    Other,     // 其他
 }
 
 impl AssetType {
@@ -208,8 +217,8 @@ pub struct AssetEntry {
     pub asset_type: AssetType,
     pub tags: Vec<String>,
     pub size_bytes: u64,
-    pub referenced_by: Vec<String>,  // 被哪些资源引用
-    pub references: Vec<String>,     // 引用了哪些资源
+    pub referenced_by: Vec<String>, // 被哪些资源引用
+    pub references: Vec<String>,    // 引用了哪些资源
     pub last_modified: u64,
 }
 
@@ -217,12 +226,15 @@ pub struct AssetEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetManager {
     assets: HashMap<String, AssetEntry>,
-    tags: HashMap<String, Vec<String>>,  // tag → asset_ids
+    tags: HashMap<String, Vec<String>>, // tag → asset_ids
 }
 
 impl AssetManager {
     pub fn new() -> Self {
-        Self { assets: HashMap::new(), tags: HashMap::new() }
+        Self {
+            assets: HashMap::new(),
+            tags: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, asset: AssetEntry) {
@@ -238,18 +250,25 @@ impl AssetManager {
     }
 
     pub fn search_by_tag(&self, tag: &str) -> Vec<&AssetEntry> {
-        self.tags.get(tag)
+        self.tags
+            .get(tag)
             .map(|ids| ids.iter().filter_map(|id| self.assets.get(id)).collect())
             .unwrap_or_default()
     }
 
     pub fn search_by_name(&self, query: &str) -> Vec<&AssetEntry> {
         let q = query.to_lowercase();
-        self.assets.values().filter(|a| a.name.to_lowercase().contains(&q)).collect()
+        self.assets
+            .values()
+            .filter(|a| a.name.to_lowercase().contains(&q))
+            .collect()
     }
 
     pub fn search_by_type(&self, asset_type: AssetType) -> Vec<&AssetEntry> {
-        self.assets.values().filter(|a| a.asset_type == asset_type).collect()
+        self.assets
+            .values()
+            .filter(|a| a.asset_type == asset_type)
+            .collect()
     }
 
     pub fn all(&self) -> Vec<&AssetEntry> {
@@ -319,12 +338,18 @@ pub struct LogEntry {
 
 #[derive(Debug, Clone)]
 pub enum LogLevel {
-    Debug, Info, Warn, Error,
+    Debug,
+    Info,
+    Warn,
+    Error,
 }
 
 impl PerformanceMonitor {
     pub fn new(max_history: usize) -> Self {
-        Self { history: Vec::new(), max_history }
+        Self {
+            history: Vec::new(),
+            max_history,
+        }
     }
 
     pub fn record(&mut self, metrics: PerformanceMetrics) {
@@ -335,12 +360,17 @@ impl PerformanceMonitor {
     }
 
     pub fn avg_fps(&self) -> f32 {
-        if self.history.is_empty() { return 0.0; }
+        if self.history.is_empty() {
+            return 0.0;
+        }
         self.history.iter().map(|m| m.fps).sum::<f32>() / self.history.len() as f32
     }
 
     pub fn min_fps(&self) -> f32 {
-        self.history.iter().map(|m| m.fps).fold(f32::MAX, |a, b| a.min(b))
+        self.history
+            .iter()
+            .map(|m| m.fps)
+            .fold(f32::MAX, |a, b| a.min(b))
     }
 }
 
@@ -399,8 +429,11 @@ mod tests {
     fn test_performance_monitor() {
         let mut pm = PerformanceMonitor::new(100);
         pm.record(PerformanceMetrics {
-            fps: 60.0, frame_time_ms: 16.6, entity_count: 100,
-            system_count: 20, memory_mb: 256.0,
+            fps: 60.0,
+            frame_time_ms: 16.6,
+            entity_count: 100,
+            system_count: 20,
+            memory_mb: 256.0,
         });
         assert!((pm.avg_fps() - 60.0).abs() < 0.1);
     }
@@ -409,9 +442,15 @@ mod tests {
     fn test_search_by_type() {
         let mut am = AssetManager::new();
         am.register(AssetEntry {
-            id: "s_1".into(), name: "test.scene".into(), path: PathBuf::from("test.scene"),
-            asset_type: AssetType::Scene, tags: vec![], size_bytes: 0,
-            referenced_by: vec![], references: vec![], last_modified: 0,
+            id: "s_1".into(),
+            name: "test.scene".into(),
+            path: PathBuf::from("test.scene"),
+            asset_type: AssetType::Scene,
+            tags: vec![],
+            size_bytes: 0,
+            referenced_by: vec![],
+            references: vec![],
+            last_modified: 0,
         });
         assert_eq!(am.search_by_type(AssetType::Scene).len(), 1);
         assert_eq!(am.search_by_type(AssetType::Audio).len(), 0);

@@ -1,0 +1,11 @@
+{
+  "expected_event_types": [
+    "DirectExecutionStarted",
+    "StepCompleted",
+    "DirectExecutionCompleted"
+  ],
+  "llm_responses": [
+    "Thought: I need to create a red enemy first.\nFinal Answer: 红色敌人已创建"
+  ],
+  "request": "创建一个红色敌人"
+}

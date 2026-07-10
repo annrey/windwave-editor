@@ -88,8 +88,10 @@ fn handle_viewport_click(
         let min = entity_pos - sprite_size * 0.5;
         let max = entity_pos + sprite_size * 0.5;
 
-        if click_point.x >= min.x && click_point.x <= max.x
-            && click_point.y >= min.y && click_point.y <= max.y
+        if click_point.x >= min.x
+            && click_point.x <= max.x
+            && click_point.y >= min.y
+            && click_point.y <= max.y
         {
             let z = transform.translation().z;
             if z > best_z {

@@ -6,8 +6,8 @@
 //! - Computed values and intermediate results
 //! - Active tool calls and their states
 
-use crate::types::{Message, EntityId};
 use crate::memory::MemoryMetadata;
+use crate::types::{EntityId, Message};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -117,7 +117,7 @@ impl WorkingMemoryEntry {
 /// - Fast O(1) access by type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingMemory {
-    entries: Vec<WorkingMemoryEntry>,
+    pub(crate) entries: Vec<WorkingMemoryEntry>,
     max_entries: usize,
     next_id: u64,
     /// Pinned entry IDs that should not be evicted
@@ -197,8 +197,13 @@ impl WorkingMemory {
     /// Get recent conversation messages
     pub fn recent_messages(&mut self, n: usize) -> Vec<&Message> {
         self.cleanup_expired();
-        let indices = self.type_index.get(&EntryType::ConversationTurn).cloned().unwrap_or_default();
-        indices.iter()
+        let indices = self
+            .type_index
+            .get(&EntryType::ConversationTurn)
+            .cloned()
+            .unwrap_or_default();
+        indices
+            .iter()
             .rev()
             .take(n)
             .filter_map(|&idx| self.entries.get(idx))
@@ -212,8 +217,13 @@ impl WorkingMemory {
     /// Get all conversation messages as context string
     pub fn conversation_context(&mut self) -> String {
         self.cleanup_expired();
-        let indices = self.type_index.get(&EntryType::ConversationTurn).cloned().unwrap_or_default();
-        indices.iter()
+        let indices = self
+            .type_index
+            .get(&EntryType::ConversationTurn)
+            .cloned()
+            .unwrap_or_default();
+        indices
+            .iter()
             .filter_map(|&idx| self.entries.get(idx))
             .filter_map(|e| e.source_message.as_ref())
             .map(|m| format!("[{:?}] {}", m.message_type, m.content))
@@ -224,8 +234,13 @@ impl WorkingMemory {
     /// Lookup entity by name
     pub fn lookup_entity(&mut self, name: &str) -> Option<EntityId> {
         self.cleanup_expired();
-        let indices = self.type_index.get(&EntryType::EntityReference).cloned().unwrap_or_default();
-        indices.iter()
+        let indices = self
+            .type_index
+            .get(&EntryType::EntityReference)
+            .cloned()
+            .unwrap_or_default();
+        indices
+            .iter()
             .rev()
             .filter_map(|&idx| self.entries.get(idx))
             .find(|e| e.content == name)
@@ -235,8 +250,13 @@ impl WorkingMemory {
     /// Get computed value
     pub fn get_value(&mut self, key: &str) -> Option<&serde_json::Value> {
         self.cleanup_expired();
-        let indices = self.type_index.get(&EntryType::ComputedValue).cloned().unwrap_or_default();
-        indices.iter()
+        let indices = self
+            .type_index
+            .get(&EntryType::ComputedValue)
+            .cloned()
+            .unwrap_or_default();
+        indices
+            .iter()
             .rev()
             .filter_map(|&idx| self.entries.get(idx))
             .find(|e| e.content == key)
@@ -246,8 +266,13 @@ impl WorkingMemory {
     /// Get current user intent
     pub fn current_intent(&mut self) -> Option<String> {
         self.cleanup_expired();
-        let indices = self.type_index.get(&EntryType::UserIntent).cloned().unwrap_or_default();
-        indices.iter()
+        let indices = self
+            .type_index
+            .get(&EntryType::UserIntent)
+            .cloned()
+            .unwrap_or_default();
+        indices
+            .iter()
             .rev()
             .filter_map(|&idx| self.entries.get(idx))
             .next()
@@ -257,8 +282,13 @@ impl WorkingMemory {
     /// Get all context hints
     pub fn context_hints(&mut self) -> Vec<String> {
         self.cleanup_expired();
-        let indices = self.type_index.get(&EntryType::ContextHint).cloned().unwrap_or_default();
-        indices.iter()
+        let indices = self
+            .type_index
+            .get(&EntryType::ContextHint)
+            .cloned()
+            .unwrap_or_default();
+        indices
+            .iter()
             .filter_map(|&idx| self.entries.get(idx))
             .map(|e| e.content.clone())
             .collect()
@@ -292,6 +322,34 @@ impl WorkingMemory {
         self.entries.is_empty()
     }
 
+    /// Get the raw entry at an index (crate-internal for compression).
+    pub(crate) fn get_entry_by_index(&self, idx: usize) -> Option<&WorkingMemoryEntry> {
+        self.entries.get(idx)
+    }
+
+    /// Get indices of all conversation turn entries (crate-internal).
+    pub(crate) fn conversation_indices(&self) -> Vec<usize> {
+        self.type_index
+            .get(&EntryType::ConversationTurn)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Remove entries by their IDs. Returns count removed.
+    pub(crate) fn remove_by_ids(&mut self, ids: &[u64]) -> usize {
+        let before = self.entries.len();
+        self.entries.retain(|e| !ids.contains(&e.metadata.id.0));
+        // Rebuild type_index after removal
+        self.type_index.clear();
+        for (pos, entry) in self.entries.iter().enumerate() {
+            self.type_index
+                .entry(entry.entry_type.clone())
+                .or_default()
+                .push(pos);
+        }
+        before - self.entries.len()
+    }
+
     /// Get all entries for inspection
     pub fn all_entries(&self) -> &[WorkingMemoryEntry] {
         &self.entries
@@ -315,18 +373,34 @@ impl WorkingMemory {
         }
 
         // Entity references
-        let entity_indices = self.type_index.get(&EntryType::EntityReference).cloned().unwrap_or_default();
-        let entities: Vec<String> = entity_indices.iter()
+        let entity_indices = self
+            .type_index
+            .get(&EntryType::EntityReference)
+            .cloned()
+            .unwrap_or_default();
+        let entities: Vec<String> = entity_indices
+            .iter()
             .filter_map(|&idx| self.entries.get(idx))
-            .map(|e| format!("{}({:?})", e.content, e.entity_id.unwrap_or(crate::types::EntityId(0))))
+            .map(|e| {
+                format!(
+                    "{}({:?})",
+                    e.content,
+                    e.entity_id.unwrap_or(crate::types::EntityId(0))
+                )
+            })
             .collect();
         if !entities.is_empty() {
             parts.push(format!("Active Entities: {}", entities.join(", ")));
         }
 
         // Recent conversation (last 3 turns)
-        let msg_indices = self.type_index.get(&EntryType::ConversationTurn).cloned().unwrap_or_default();
-        let recent_msgs: Vec<String> = msg_indices.iter()
+        let msg_indices = self
+            .type_index
+            .get(&EntryType::ConversationTurn)
+            .cloned()
+            .unwrap_or_default();
+        let recent_msgs: Vec<String> = msg_indices
+            .iter()
             .rev()
             .take(6) // 3 turns = 6 messages (user + agent)
             .filter_map(|&idx| self.entries.get(idx))
@@ -372,10 +446,8 @@ impl WorkingMemory {
         // Find oldest non-pinned entry
         let mut oldest_idx = None;
         for (idx, entry) in self.entries.iter().enumerate() {
-            if !self.pinned_ids.contains(&entry.metadata.id.0) {
-                if oldest_idx.is_none() {
-                    oldest_idx = Some(idx);
-                }
+            if !self.pinned_ids.contains(&entry.metadata.id.0) && oldest_idx.is_none() {
+                oldest_idx = Some(idx);
             }
         }
 
@@ -388,7 +460,10 @@ impl WorkingMemory {
     fn rebuild_index(&mut self) {
         self.type_index.clear();
         for (idx, entry) in self.entries.iter().enumerate() {
-            self.type_index.entry(entry.entry_type.clone()).or_default().push(idx);
+            self.type_index
+                .entry(entry.entry_type.clone())
+                .or_default()
+                .push(idx);
         }
     }
 
@@ -398,7 +473,8 @@ impl WorkingMemory {
 
     /// Get all entries as JSON values for serialization
     pub fn get_entries_for_persistence(&self) -> Vec<serde_json::Value> {
-        self.entries.iter()
+        self.entries
+            .iter()
             .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
             .collect()
     }

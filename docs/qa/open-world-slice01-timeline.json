@@ -1,0 +1,265 @@
+{
+  "plan_id": "open_world_slice01",
+  "scenario_id": "playtest_open_world_slice01_main_path",
+  "ticks": [
+    {
+      "tick": 0,
+      "runtime_events": [
+        "runtime state initialized from open_world_slice01"
+      ],
+      "world_state": {
+        "actor_zones": {},
+        "puzzle_states": {},
+        "loot_states": {},
+        "enemy_states": {},
+        "combat_health": {},
+        "quest_objectives": {},
+        "quest_states": {},
+        "inventory": {}
+      }
+    },
+    {
+      "tick": 2,
+      "runtime_events": [
+        "player is in puzzle_zone",
+        "objective reach_puzzle_zone completed",
+        "puzzle_switch awaiting interaction"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "puzzle_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "AwaitingInteraction"
+        },
+        "loot_states": {},
+        "enemy_states": {},
+        "combat_health": {},
+        "quest_objectives": {
+          "reach_puzzle_zone": "Completed"
+        },
+        "quest_states": {},
+        "inventory": {}
+      }
+    },
+    {
+      "tick": 3,
+      "runtime_events": [
+        "puzzle_switch solved",
+        "objective solve_puzzle_switch completed",
+        "main_quest advanced to PuzzleSolved",
+        "reward_chest unlocked"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "puzzle_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "Solved"
+        },
+        "loot_states": {
+          "reward_chest": "Unlocked"
+        },
+        "enemy_states": {},
+        "combat_health": {},
+        "quest_objectives": {
+          "reach_puzzle_zone": "Completed",
+          "solve_puzzle_switch": "Completed"
+        },
+        "quest_states": {
+          "main_quest": "PuzzleSolved"
+        },
+        "inventory": {}
+      }
+    },
+    {
+      "tick": 6,
+      "runtime_events": [
+        "player is in camp_zone"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "camp_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "Solved"
+        },
+        "loot_states": {
+          "reward_chest": "Unlocked"
+        },
+        "enemy_states": {},
+        "combat_health": {},
+        "quest_objectives": {
+          "reach_puzzle_zone": "Completed",
+          "solve_puzzle_switch": "Completed"
+        },
+        "quest_states": {
+          "main_quest": "PuzzleSolved"
+        },
+        "inventory": {}
+      }
+    },
+    {
+      "tick": 7,
+      "runtime_events": [
+        "player aggroed camp_enemy_01"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "camp_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "Solved"
+        },
+        "loot_states": {
+          "reward_chest": "Unlocked"
+        },
+        "enemy_states": {
+          "camp_enemy_01": "Aggro"
+        },
+        "combat_health": {},
+        "quest_objectives": {
+          "reach_puzzle_zone": "Completed",
+          "solve_puzzle_switch": "Completed"
+        },
+        "quest_states": {
+          "main_quest": "PuzzleSolved"
+        },
+        "inventory": {}
+      }
+    },
+    {
+      "tick": 8,
+      "runtime_events": [
+        "player hit camp_enemy_01 for 10 damage, 20 hp remaining",
+        "player hit camp_enemy_01 for 10 damage, 10 hp remaining",
+        "player hit camp_enemy_01 for 10 damage, 0 hp remaining",
+        "player defeated camp_enemy_01",
+        "objective defeat_camp_enemy completed",
+        "main_quest advanced to EnemyDefeated"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "camp_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "Solved"
+        },
+        "loot_states": {
+          "reward_chest": "Unlocked"
+        },
+        "enemy_states": {
+          "camp_enemy_01": "Dead"
+        },
+        "combat_health": {
+          "camp_enemy_01": 0
+        },
+        "quest_objectives": {
+          "defeat_camp_enemy": "Completed",
+          "reach_puzzle_zone": "Completed",
+          "solve_puzzle_switch": "Completed"
+        },
+        "quest_states": {
+          "main_quest": "EnemyDefeated"
+        },
+        "inventory": {}
+      }
+    },
+    {
+      "tick": 10,
+      "runtime_events": [
+        "player opened reward_chest"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "camp_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "Solved"
+        },
+        "loot_states": {
+          "reward_chest": "Opened"
+        },
+        "enemy_states": {
+          "camp_enemy_01": "Dead"
+        },
+        "combat_health": {
+          "camp_enemy_01": 0
+        },
+        "quest_objectives": {
+          "defeat_camp_enemy": "Completed",
+          "reach_puzzle_zone": "Completed",
+          "solve_puzzle_switch": "Completed"
+        },
+        "quest_states": {
+          "main_quest": "EnemyDefeated"
+        },
+        "inventory": {
+          "player": []
+        }
+      }
+    },
+    {
+      "tick": 11,
+      "runtime_events": [
+        "player collected reward_item",
+        "objective collect_reward_item completed",
+        "main_quest advanced to RewardCollected",
+        "main_quest advanced to Completed"
+      ],
+      "world_state": {
+        "actor_zones": {
+          "player": "camp_zone"
+        },
+        "puzzle_states": {
+          "puzzle_switch": "Solved"
+        },
+        "loot_states": {
+          "reward_chest": "Opened"
+        },
+        "enemy_states": {
+          "camp_enemy_01": "Dead"
+        },
+        "combat_health": {
+          "camp_enemy_01": 0
+        },
+        "quest_objectives": {
+          "collect_reward_item": "Completed",
+          "defeat_camp_enemy": "Completed",
+          "reach_puzzle_zone": "Completed",
+          "solve_puzzle_switch": "Completed"
+        },
+        "quest_states": {
+          "main_quest": "Completed"
+        },
+        "inventory": {
+          "player": [
+            "reward_item"
+          ]
+        }
+      }
+    }
+  ],
+  "time_evidence": [
+    "wall_time=2026-07-05T12:00:00+00:00 sim_time_ms=0 tick=13 clock_mode=Frozen"
+  ],
+  "schedule_decisions": [
+    "merchant_01 active window=shop_hours allowed=quote_price,restock_low_risk_item"
+  ],
+  "performance_evidence": [
+    "plan_objects=10",
+    "runtime_objects=10",
+    "runtime_events=21",
+    "scene_index_observations=24",
+    "verification_goals=5",
+    "scenario_steps=13",
+    "verification_duration_us=14",
+    "scene_index_observation_duration_us=0"
+  ],
+  "screenshot_paths": [
+    "docs/qa/open-world-slice01-visual.png"
+  ],
+  "visual_check_evidence": [
+    "visual_check=scene_index_proxy visible_targets=4/4 targets=[player,puzzle_switch,reward_chest,camp_enemy_01] screenshot_capture=scene_index_proxy_png path=docs/qa/open-world-slice01-visual.png"
+  ]
+}

@@ -88,8 +88,8 @@ impl SceneChangeTracker {
     /// Check if we should poll for changes based on strategy
     pub fn should_check(&self) -> bool {
         match self.strategy {
-            ChangeDetectionStrategy::Polling { interval_ms } |
-            ChangeDetectionStrategy::Hybrid { interval_ms } => {
+            ChangeDetectionStrategy::Polling { interval_ms }
+            | ChangeDetectionStrategy::Hybrid { interval_ms } => {
                 self.last_check_time.elapsed().as_millis() as u64 >= interval_ms
             }
             ChangeDetectionStrategy::EventDriven => false,
@@ -107,8 +107,10 @@ impl SceneChangeTracker {
         old_entities: &HashMap<crate::EntityId, crate::EntityInfo>,
         new_entities: &HashMap<crate::EntityId, crate::EntityInfo>,
     ) -> SceneChangeSummary {
-        let mut summary = SceneChangeSummary::default();
-        summary.timestamp = self.last_check_time.elapsed().as_secs_f64();
+        let mut summary = SceneChangeSummary {
+            timestamp: self.last_check_time.elapsed().as_secs_f64(),
+            ..Default::default()
+        };
 
         // Find created entities
         for (id, info) in new_entities {
@@ -269,21 +271,25 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn create_test_entity(id: u64, components: Vec<(&str, &str)>) -> (crate::EntityId, crate::EntityInfo) {
+    fn create_test_entity(
+        id: u64,
+        components: Vec<(&str, &str)>,
+    ) -> (crate::EntityId, crate::EntityInfo) {
         let entity_id = crate::EntityId(id);
         let mut comp_vec = Vec::new();
-        
+
         for (name, value) in components {
             let mut props = HashMap::new();
-            props.insert("value".to_string(), crate::PropertyValue::String(value.to_string()));
-            comp_vec.push(
-                crate::ComponentInfo {
-                    name: name.to_string(),
-                    properties: props,
-                },
+            props.insert(
+                "value".to_string(),
+                crate::PropertyValue::String(value.to_string()),
             );
+            comp_vec.push(crate::ComponentInfo {
+                name: name.to_string(),
+                properties: props,
+            });
         }
-        
+
         let info = crate::EntityInfo {
             id: entity_id,
             name: format!("Entity_{}", id),
@@ -291,21 +297,22 @@ mod tests {
             components: comp_vec,
             children: Vec::new(),
         };
-        
+
         (entity_id, info)
     }
 
     #[test]
     fn test_detect_created_entity() {
-        let mut tracker = SceneChangeTracker::new(ChangeDetectionStrategy::Polling { interval_ms: 100 });
-        
+        let mut tracker =
+            SceneChangeTracker::new(ChangeDetectionStrategy::Polling { interval_ms: 100 });
+
         let old = HashMap::new();
         let mut new = HashMap::new();
         let (id, info) = create_test_entity(1, vec![("Transform", "pos:0,0,0")]);
         new.insert(id, info);
-        
+
         let changes = tracker.detect_changes(&old, &new);
-        
+
         assert_eq!(changes.entities_created.len(), 1);
         assert_eq!(changes.entities_deleted.len(), 0);
         assert_eq!(changes.entities_modified.len(), 0);
@@ -313,15 +320,16 @@ mod tests {
 
     #[test]
     fn test_detect_deleted_entity() {
-        let mut tracker = SceneChangeTracker::new(ChangeDetectionStrategy::Polling { interval_ms: 100 });
-        
+        let mut tracker =
+            SceneChangeTracker::new(ChangeDetectionStrategy::Polling { interval_ms: 100 });
+
         let mut old = HashMap::new();
         let new = HashMap::new();
         let (id, info) = create_test_entity(1, vec![("Transform", "pos:0,0,0")]);
         old.insert(id, info);
-        
+
         let changes = tracker.detect_changes(&old, &new);
-        
+
         assert_eq!(changes.entities_created.len(), 0);
         assert_eq!(changes.entities_deleted.len(), 1);
         assert_eq!(changes.entities_modified.len(), 0);

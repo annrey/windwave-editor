@@ -22,6 +22,7 @@ pub enum EpisodeType {
     Observation,
     Reflection,
     Summary,
+    UserPreference,
 }
 
 /// A single episode (event) in the agent's history
@@ -76,12 +77,7 @@ impl Episode {
 
     /// Full text for indexing
     pub fn full_text(&self) -> String {
-        format!(
-            "{} {} {}",
-            self.summary,
-            self.details.to_string(),
-            format!("{:?}", self.episode_type)
-        )
+        format!("{} {} {:?}", self.summary, self.details, self.episode_type)
     }
 }
 
@@ -116,7 +112,7 @@ pub struct EpisodeSearchResult {
 /// - Entity-based filtering
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpisodicMemory {
-    episodes: Vec<Episode>,
+    pub(crate) episodes: Vec<Episode>,
     next_id: u64,
     params: Bm25Params,
     /// BM25 document frequency cache
@@ -149,7 +145,11 @@ impl EpisodicMemory {
     }
 
     /// Convenience: record a user request episode
-    pub fn record_user_request(&mut self, request: &str, context: Option<serde_json::Value>) -> MemoryEntryId {
+    pub fn record_user_request(
+        &mut self,
+        request: &str,
+        context: Option<serde_json::Value>,
+    ) -> MemoryEntryId {
         let id = self.next_id();
         let details = context.unwrap_or_else(|| serde_json::json!({"request": request}));
         let episode = Episode::new(id.0, EpisodeType::UserRequest, request, details);
@@ -172,17 +172,21 @@ impl EpisodicMemory {
             "result": result,
             "success": success,
         });
-        let episode = Episode::new(id.0, EpisodeType::ToolCalled, summary, details)
-            .with_success(success);
+        let episode =
+            Episode::new(id.0, EpisodeType::ToolCalled, summary, details).with_success(success);
         self.record(episode)
     }
 
     /// Convenience: record an error episode
-    pub fn record_error(&mut self, error: &str, context: Option<serde_json::Value>) -> MemoryEntryId {
+    pub fn record_error(
+        &mut self,
+        error: &str,
+        context: Option<serde_json::Value>,
+    ) -> MemoryEntryId {
         let id = self.next_id();
         let details = context.unwrap_or_else(|| serde_json::json!({"error": error}));
-        let episode = Episode::new(id.0, EpisodeType::ErrorOccurred, error, details)
-            .with_success(false);
+        let episode =
+            Episode::new(id.0, EpisodeType::ErrorOccurred, error, details).with_success(false);
         self.record(episode)
     }
 
@@ -207,7 +211,11 @@ impl EpisodicMemory {
         duration_ms: u64,
     ) -> MemoryEntryId {
         let id = self.next_id();
-        let summary = format!("Step '{}' {}", step_title, if success { "succeeded" } else { "failed" });
+        let summary = format!(
+            "Step '{}' {}",
+            step_title,
+            if success { "succeeded" } else { "failed" }
+        );
         let details = serde_json::json!({
             "step": step_title,
             "result": result,
@@ -229,7 +237,9 @@ impl EpisodicMemory {
         let query_tokens = tokenize(query);
         let now = crate::types::current_timestamp() as f32;
 
-        let mut scored: Vec<EpisodeSearchResult> = self.episodes.iter()
+        let mut scored: Vec<EpisodeSearchResult> = self
+            .episodes
+            .iter()
             .map(|ep| {
                 let bm25 = self.bm25_score(&query_tokens, ep);
                 let recency = self.recency_score(ep, now);
@@ -246,14 +256,18 @@ impl EpisodicMemory {
             .collect();
 
         scored.sort_by(|a, b| {
-            b.combined_score.partial_cmp(&a.combined_score)
+            b.combined_score
+                .partial_cmp(&a.combined_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Mark accessed
         for result in scored.iter_mut().take(top_k) {
-            if let Some(ep) = self.episodes.iter_mut()
-                .find(|e| e.metadata.id == result.episode.metadata.id) {
+            if let Some(ep) = self
+                .episodes
+                .iter_mut()
+                .find(|e| e.metadata.id == result.episode.metadata.id)
+            {
                 ep.metadata.touch();
             }
         }
@@ -263,7 +277,8 @@ impl EpisodicMemory {
 
     /// Search by episode type
     pub fn search_by_type(&self, episode_type: &EpisodeType, limit: usize) -> Vec<&Episode> {
-        self.episodes.iter()
+        self.episodes
+            .iter()
             .rev()
             .filter(|ep| &ep.episode_type == episode_type)
             .take(limit)
@@ -272,11 +287,77 @@ impl EpisodicMemory {
 
     /// Search by entity association
     pub fn search_by_entity(&self, entity_id: u64, limit: usize) -> Vec<&Episode> {
-        self.episodes.iter()
+        self.episodes
+            .iter()
             .rev()
             .filter(|ep| ep.entity_ids.contains(&entity_id))
             .take(limit)
             .collect()
+    }
+
+    /// Search by fingerprint: match episodes that share entity IDs and/or
+    /// episode type patterns.
+    ///
+    /// A fingerprint is a (entity_ids, episode_types) tuple. Episodes are
+    /// scored by how many fingerprint elements they match.
+    pub fn search_by_fingerprint(
+        &self,
+        entity_ids: &[u64],
+        episode_types: &[EpisodeType],
+        limit: usize,
+    ) -> Vec<EpisodeSearchResult> {
+        let mut scored: Vec<EpisodeSearchResult> = self
+            .episodes
+            .iter()
+            .map(|ep| {
+                let mut fingerprint_score = 0.0f32;
+
+                for &eid in entity_ids {
+                    if ep.entity_ids.contains(&eid) {
+                        fingerprint_score += 2.0;
+                    }
+                }
+
+                for etype in episode_types {
+                    if std::mem::discriminant(&ep.episode_type) == std::mem::discriminant(etype) {
+                        fingerprint_score += 1.0;
+                    }
+                }
+
+                let recency = 1.0
+                    / (1.0
+                        + (crate::types::current_timestamp() - ep.metadata.created_at) as f32
+                            / 3600.0);
+                let importance = ep.metadata.importance;
+                let combined = fingerprint_score * (0.5 + 0.5 * recency * importance);
+
+                EpisodeSearchResult {
+                    episode: ep.clone(),
+                    bm25_score: fingerprint_score,
+                    recency_score: recency,
+                    combined_score: combined,
+                }
+            })
+            .filter(|r| r.combined_score > 0.0)
+            .collect();
+
+        scored.sort_by(|a, b| b.combined_score.partial_cmp(&a.combined_score).unwrap());
+        scored.truncate(limit);
+        scored
+    }
+
+    /// Recall episodes similar to a given episode fingerprint.
+    ///
+    /// Uses the entity IDs and episode type of the reference episode
+    /// to find historically similar events.
+    pub fn recall_similar_events(
+        &self,
+        reference: &Episode,
+        limit: usize,
+    ) -> Vec<EpisodeSearchResult> {
+        let entity_ids: Vec<u64> = reference.entity_ids.clone();
+        let episode_types = vec![reference.episode_type.clone()];
+        self.search_by_fingerprint(&entity_ids, &episode_types, limit)
     }
 
     /// Get recent episodes
@@ -372,6 +453,81 @@ impl EpisodicMemory {
             ));
         }
 
+        parts.join("\n")
+    }
+
+    // ------------------------------------------------------------------
+    // User Preference Recording (B3 - Episodic/情境记忆)
+    // ------------------------------------------------------------------
+
+    /// Record a user preference (e.g., "用户上次喜欢红色" → key="color", value="red").
+    pub fn record_user_preference(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        source: impl Into<String>,
+    ) -> MemoryEntryId {
+        let key = key.into();
+        let value = value.into();
+        let source = source.into();
+        let id = self.next_id();
+        let details = serde_json::json!({
+            "preference_key": key,
+            "preference_value": value,
+            "source": source,
+            "recorded_at": chrono::Utc::now().timestamp_millis(),
+        });
+        let episode = Episode {
+            metadata: MemoryMetadata::new(id.0, MemoryTier::Episodic),
+            episode_type: EpisodeType::UserPreference,
+            summary: format!("Preference: {} = {}", key, value),
+            details,
+            entity_ids: Vec::new(),
+            success: None,
+            duration_ms: None,
+        };
+        self.record(episode)
+    }
+
+    /// Retrieve all recorded preferences, newest first (deduplicated by key).
+    pub fn query_preferences(&self) -> Vec<(&str, &str)> {
+        let mut seen = std::collections::HashSet::new();
+        let prefs: Vec<(&str, &str)> = self
+            .episodes
+            .iter()
+            .rev()
+            .filter(|ep| ep.episode_type == EpisodeType::UserPreference)
+            .filter_map(|ep| {
+                let key = ep.details.get("preference_key")?.as_str()?;
+                let val = ep.details.get("preference_value")?.as_str()?;
+                Some((key, val))
+            })
+            .filter(|(key, _)| seen.insert(key.to_string()))
+            .collect();
+        prefs
+    }
+
+    /// Get the latest preference for a specific key.
+    pub fn get_preference(&self, key: &str) -> Option<&str> {
+        self.episodes
+            .iter()
+            .rev()
+            .filter(|ep| ep.episode_type == EpisodeType::UserPreference)
+            .find(|ep| ep.details.get("preference_key").and_then(|v| v.as_str()) == Some(key))
+            .and_then(|ep| ep.details.get("preference_value"))
+            .and_then(|v| v.as_str())
+    }
+
+    /// Build a preference summary string for LLM context injection.
+    pub fn build_preference_summary(&self) -> String {
+        let prefs = self.query_preferences();
+        if prefs.is_empty() {
+            return String::new();
+        }
+        let mut parts = vec!["## User Preferences".to_string()];
+        for (key, val) in &prefs {
+            parts.push(format!("- {}: {}", key, val));
+        }
         parts.join("\n")
     }
 
@@ -472,10 +628,4 @@ impl Default for EpisodicMemory {
 // Helpers
 // ------------------------------------------------------------------
 
-fn tokenize(text: &str) -> Vec<String> {
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| s.len() > 1)
-        .map(|s| s.to_string())
-        .collect()
-}
+use super::tokenize;

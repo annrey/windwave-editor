@@ -10,12 +10,14 @@
 //!   - EditorAgent    (§2.6) — wraps DirectorRuntime (master controller)
 //!   - PlannerAgent   (§2.7) — wraps RuleBasedPlanner from planner.rs
 
-use crate::agent::{BaseAgent, AgentInstanceId, AgentState};
+use crate::agent::{AgentInstanceId, AgentState, BaseAgent};
 use crate::director::DirectorRuntime;
-use crate::planner::{RuleBasedPlanner, PlannerContext};
-use crate::registry::{Agent, AgentId, AgentRequest, AgentResponse, AgentResultKind, AgentError, CapabilityKind};
+use crate::planner::{PlannerContext, RuleBasedPlanner};
+use crate::registry::{
+    Agent, AgentError, AgentId, AgentRequest, AgentResponse, AgentResultKind, CapabilityKind,
+};
 use crate::review::Reviewer;
-use crate::tool::{ToolRegistry, ToolCall};
+use crate::tool::{ToolCall, ToolRegistry};
 use crate::types::UserRequest;
 
 // ============================================================================
@@ -55,8 +57,12 @@ impl CodeAgent {
         }
     }
 
-    pub fn base(&self) -> &BaseAgent { &self.base }
-    pub fn base_mut(&mut self) -> &mut BaseAgent { &mut self.base }
+    pub fn base(&self) -> &BaseAgent {
+        &self.base
+    }
+    pub fn base_mut(&mut self) -> &mut BaseAgent {
+        &mut self.base
+    }
 }
 
 #[async_trait::async_trait]
@@ -81,107 +87,24 @@ impl Agent for CodeAgent {
         let instruction = request.instruction.clone();
 
         self.base.transition_to(AgentState::AnalyzingRequest {
-            request: UserRequest { content: instruction.clone(), entity_refs: vec![], estimated_steps: 0 },
+            request: UserRequest {
+                content: instruction.clone(),
+                entity_refs: vec![],
+                estimated_steps: 0,
+            },
             start_time: chrono::Utc::now(),
         });
 
         let mut results: Vec<serde_json::Value> = Vec::new();
         let mut events = Vec::new();
 
-        if instruction.contains("生成") || instruction.contains("generate") || instruction.contains("创建") {
-            self.base.transition_to(AgentState::SelectingTools {
-                available: vec!["generate_code".into()],
-                selected: vec!["generate_code".into()],
-            });
-
-            let call = ToolCall {
-                call_id: format!("cg_{}", self.id.0),
-                tool_name: "generate_code".to_string(),
-                parameters: {
-                    let mut p = std::collections::HashMap::new();
-                    p.insert("prompt".to_string(), serde_json::json!(instruction));
-                    p
-                },
-            };
-
-            self.base.transition_to(AgentState::ExecutingTools {
-                completed: 0,
-                in_progress: 1,
-                total: 1,
-            });
-
-            match self.tool_registry.execute(&call) {
-                Ok(result) => {
-                    results.push(serde_json::json!({
-                        "tool": "generate_code",
-                        "status": "ok",
-                        "data": result.data,
-                    }));
-                    events.push(crate::event::EventBusEvent::EngineCommandApplied {
-                        transaction_id: request.task_id.unwrap_or_default(),
-                        success: true,
-                        message: "Code generated".into(),
-                    });
-                }
-                Err(e) => {
-                    self.base.transition_to(AgentState::Error {
-                        error: format!("code generation failed: {}", e),
-                        recoverable: false,
-                    });
-                    return Ok(AgentResponse {
-                        agent_id: self.id,
-                        agent_name: self.name.clone(),
-                        result: AgentResultKind::Failed {
-                            reason: format!("code generation failed: {}", e),
-                        },
-                        events,
-                    });
-                }
+        if crate::keyword_matcher::KeywordMatcher::is_code_generation_request(&instruction) {
+            if let Err(e) = self.execute_generate_code(&instruction, &mut results, &mut events) {
+                return Ok(e);
             }
         } else {
-            self.base.transition_to(AgentState::SelectingTools {
-                available: vec!["analyze_code".into()],
-                selected: vec!["analyze_code".into()],
-            });
-
-            let call = ToolCall {
-                call_id: format!("ca_{}", self.id.0),
-                tool_name: "analyze_code".to_string(),
-                parameters: {
-                    let mut p = std::collections::HashMap::new();
-                    p.insert("code".to_string(), serde_json::json!(instruction));
-                    p
-                },
-            };
-
-            self.base.transition_to(AgentState::ExecutingTools {
-                completed: 0,
-                in_progress: 1,
-                total: 1,
-            });
-
-            match self.tool_registry.execute(&call) {
-                Ok(result) => {
-                    results.push(serde_json::json!({
-                        "tool": "analyze_code",
-                        "status": "ok",
-                        "data": result.data,
-                    }));
-                }
-                Err(e) => {
-                    self.base.transition_to(AgentState::Error {
-                        error: format!("code analysis failed: {}", e),
-                        recoverable: false,
-                    });
-                    return Ok(AgentResponse {
-                        agent_id: self.id,
-                        agent_name: self.name.clone(),
-                        result: AgentResultKind::Failed {
-                            reason: format!("code analysis failed: {}", e),
-                        },
-                        events,
-                    });
-                }
+            if let Err(e) = self.execute_analyze_code(&instruction, &mut results, &mut events) {
+                return Ok(e);
             }
         }
 
@@ -203,6 +126,157 @@ impl Agent for CodeAgent {
                 output: serde_json::json!({ "results": results }),
             },
             events,
+        })
+    }
+}
+
+impl CodeAgent {
+    fn execute_generate_code(
+        &mut self,
+        instruction: &str,
+        results: &mut Vec<serde_json::Value>,
+        events: &mut Vec<crate::event::EventBusEvent>,
+    ) -> Result<(), AgentResponse> {
+        self.base.transition_to(AgentState::SelectingTools {
+            available: vec!["generate_code".into()],
+            selected: vec!["generate_code".into()],
+        });
+
+        let call = ToolCall {
+            call_id: format!("cg_{}", self.id.0),
+            tool_name: "generate_code".to_string(),
+            parameters: {
+                let mut p = std::collections::HashMap::new();
+                p.insert("prompt".to_string(), serde_json::json!(instruction));
+                p
+            },
+        };
+
+        self.base.transition_to(AgentState::ExecutingTools {
+            completed: 0,
+            in_progress: 1,
+            total: 1,
+        });
+
+        let max_retries = 3;
+        let mut last_error = String::new();
+
+        for attempt in 0..max_retries {
+            match self.tool_registry.execute(&call) {
+                Ok(result) => {
+                    results.push(serde_json::json!({
+                        "tool": "generate_code",
+                        "status": "ok",
+                        "attempts": attempt + 1,
+                        "data": result.data,
+                    }));
+                    events.push(crate::event::EventBusEvent::EngineCommandApplied {
+                        transaction_id: String::new(),
+                        success: true,
+                        message: "Code generated".into(),
+                    });
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                    if attempt < max_retries - 1 {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            100 * (attempt + 1) as u64,
+                        ));
+                    }
+                }
+            }
+        }
+
+        self.base.transition_to(AgentState::Error {
+            error: format!(
+                "code generation failed after {} retries: {}",
+                max_retries, last_error
+            ),
+            recoverable: false,
+        });
+        Err(AgentResponse {
+            agent_id: self.id,
+            agent_name: self.name.clone(),
+            result: AgentResultKind::Failed {
+                reason: format!(
+                    "code generation failed after {} retries: {}",
+                    max_retries, last_error
+                ),
+            },
+            events: events.clone(),
+        })
+    }
+
+    fn execute_analyze_code(
+        &mut self,
+        instruction: &str,
+        results: &mut Vec<serde_json::Value>,
+        events: &mut Vec<crate::event::EventBusEvent>,
+    ) -> Result<(), AgentResponse> {
+        self.base.transition_to(AgentState::SelectingTools {
+            available: vec!["analyze_code".into()],
+            selected: vec!["analyze_code".into()],
+        });
+
+        let call = ToolCall {
+            call_id: format!("ca_{}", self.id.0),
+            tool_name: "analyze_code".to_string(),
+            parameters: {
+                let mut p = std::collections::HashMap::new();
+                p.insert("code".to_string(), serde_json::json!(instruction));
+                p
+            },
+        };
+
+        self.base.transition_to(AgentState::ExecutingTools {
+            completed: 0,
+            in_progress: 1,
+            total: 1,
+        });
+
+        let max_retries = 3;
+        let mut last_error = String::new();
+
+        for attempt in 0..max_retries {
+            match self.tool_registry.execute(&call) {
+                Ok(result) => {
+                    results.push(serde_json::json!({
+                        "tool": "analyze_code",
+                        "status": "ok",
+                        "attempts": attempt + 1,
+                        "data": result.data,
+                    }));
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                    if attempt < max_retries - 1 {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            100 * (attempt + 1) as u64,
+                        ));
+                    }
+                }
+            }
+        }
+
+        self.base.transition_to(AgentState::Error {
+            error: format!(
+                "code analysis failed after {} retries: {}",
+                max_retries, last_error
+            ),
+            recoverable: false,
+        });
+        Err(AgentResponse {
+            agent_id: self.id,
+            agent_name: self.name.clone(),
+            result: AgentResultKind::Failed {
+                reason: format!(
+                    "code analysis failed after {} retries: {}",
+                    max_retries, last_error
+                ),
+            },
+            events: events.clone(),
         })
     }
 }
@@ -238,8 +312,12 @@ impl ReviewAgent {
         }
     }
 
-    pub fn base(&self) -> &BaseAgent { &self.base }
-    pub fn base_mut(&mut self) -> &mut BaseAgent { &mut self.base }
+    pub fn base(&self) -> &BaseAgent {
+        &self.base
+    }
+    pub fn base_mut(&mut self) -> &mut BaseAgent {
+        &mut self.base
+    }
 }
 
 #[async_trait::async_trait]
@@ -262,7 +340,11 @@ impl Agent for ReviewAgent {
 
     async fn handle(&mut self, request: AgentRequest) -> Result<AgentResponse, AgentError> {
         self.base.transition_to(AgentState::AnalyzingRequest {
-            request: UserRequest { content: request.instruction.clone(), entity_refs: vec![], estimated_steps: 0 },
+            request: UserRequest {
+                content: request.instruction.clone(),
+                entity_refs: vec![],
+                estimated_steps: 0,
+            },
             start_time: chrono::Utc::now(),
         });
 
@@ -271,12 +353,7 @@ impl Agent for ReviewAgent {
         let task_id: u64 = context
             .get("task_id")
             .and_then(|v| v.as_u64())
-            .or_else(|| {
-                request
-                    .task_id
-                    .as_deref()
-                    .and_then(|s| s.parse().ok())
-            })
+            .or_else(|| request.task_id.as_deref().and_then(|s| s.parse().ok()))
             .unwrap_or(0);
 
         let all_met = context
@@ -349,8 +426,12 @@ impl EditorAgent {
         }
     }
 
-    pub fn base(&self) -> &BaseAgent { &self.base }
-    pub fn base_mut(&mut self) -> &mut BaseAgent { &mut self.base }
+    pub fn base(&self) -> &BaseAgent {
+        &self.base
+    }
+    pub fn base_mut(&mut self) -> &mut BaseAgent {
+        &mut self.base
+    }
 }
 
 #[async_trait::async_trait]
@@ -382,7 +463,11 @@ impl Agent for EditorAgent {
     async fn handle(&mut self, request: AgentRequest) -> Result<AgentResponse, AgentError> {
         let instruction = request.instruction.clone();
         self.base.transition_to(AgentState::AnalyzingRequest {
-            request: UserRequest { content: instruction.clone(), entity_refs: vec![], estimated_steps: 0 },
+            request: UserRequest {
+                content: instruction.clone(),
+                entity_refs: vec![],
+                estimated_steps: 0,
+            },
             start_time: chrono::Utc::now(),
         });
 
@@ -401,18 +486,27 @@ impl Agent for EditorAgent {
         self.base.transition_to(AgentState::Finished {
             result: crate::agent::AgentResult {
                 success: true,
-                message: format!("Director handled request, produced {} event(s)", event_count),
+                message: format!(
+                    "Director handled request, produced {} event(s)",
+                    event_count
+                ),
                 steps_executed: 1,
                 actions_performed: Vec::new(),
             },
-            final_message: format!("Director handled request, produced {} event(s)", event_count),
+            final_message: format!(
+                "Director handled request, produced {} event(s)",
+                event_count
+            ),
         });
 
         Ok(AgentResponse {
             agent_id: self.id,
             agent_name: self.name.clone(),
             result: AgentResultKind::Success {
-                summary: format!("Director handled request, produced {} event(s)", event_count),
+                summary: format!(
+                    "Director handled request, produced {} event(s)",
+                    event_count
+                ),
                 output: serde_json::json!({
                     "event_count": event_count,
                 }),
@@ -453,8 +547,12 @@ impl PlannerAgent {
         }
     }
 
-    pub fn base(&self) -> &BaseAgent { &self.base }
-    pub fn base_mut(&mut self) -> &mut BaseAgent { &mut self.base }
+    pub fn base(&self) -> &BaseAgent {
+        &self.base
+    }
+    pub fn base_mut(&mut self) -> &mut BaseAgent {
+        &mut self.base
+    }
 }
 
 #[async_trait::async_trait]
@@ -479,7 +577,11 @@ impl Agent for PlannerAgent {
         let instruction = request.instruction.clone();
 
         self.base.transition_to(AgentState::AnalyzingRequest {
-            request: UserRequest { content: instruction.clone(), entity_refs: vec![], estimated_steps: 0 },
+            request: UserRequest {
+                content: instruction.clone(),
+                entity_refs: vec![],
+                estimated_steps: 0,
+            },
             start_time: chrono::Utc::now(),
         });
 
@@ -488,12 +590,7 @@ impl Agent for PlannerAgent {
         let task_id: u64 = context_data
             .get("task_id")
             .and_then(|v| v.as_u64())
-            .or_else(|| {
-                request
-                    .task_id
-                    .as_deref()
-                    .and_then(|s| s.parse().ok())
-            })
+            .or_else(|| request.task_id.as_deref().and_then(|s| s.parse().ok()))
             .unwrap_or(0);
 
         let available_tools: Vec<String> = context_data
@@ -535,11 +632,21 @@ impl Agent for PlannerAgent {
         self.base.transition_to(AgentState::Finished {
             result: crate::agent::AgentResult {
                 success: true,
-                message: format!("Plan '{}': {} step(s), mode: {:?}", plan.title, plan.steps.len(), plan.mode),
+                message: format!(
+                    "Plan '{}': {} step(s), mode: {:?}",
+                    plan.title,
+                    plan.steps.len(),
+                    plan.mode
+                ),
                 steps_executed: 1,
                 actions_performed: Vec::new(),
             },
-            final_message: format!("Plan '{}': {} step(s), mode: {:?}", plan.title, plan.steps.len(), plan.mode),
+            final_message: format!(
+                "Plan '{}': {} step(s), mode: {:?}",
+                plan.title,
+                plan.steps.len(),
+                plan.mode
+            ),
         });
 
         Ok(AgentResponse {
@@ -572,7 +679,11 @@ impl Agent for PlannerAgent {
             events: vec![crate::event::EventBusEvent::EngineCommandApplied {
                 transaction_id: request.task_id.unwrap_or_default(),
                 success: true,
-                message: format!("Plan '{}' generated: {} steps", plan.title, plan.steps.len()),
+                message: format!(
+                    "Plan '{}' generated: {} steps",
+                    plan.title,
+                    plan.steps.len()
+                ),
             }],
         })
     }

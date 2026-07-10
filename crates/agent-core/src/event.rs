@@ -72,10 +72,7 @@ pub enum EventBusEvent {
     },
 
     /// The Reviewer has completed its review cycle.
-    ReviewCompleted {
-        decision: String,
-        summary: String,
-    },
+    ReviewCompleted { decision: String, summary: String },
 }
 
 /// Who (or what) emitted the event. Useful for filtering and audit trails.

@@ -104,63 +104,48 @@ impl GoalChecker {
     }
 
     /// 检查单个目标需求是否满足
-    fn check_requirement(
-        &self,
-        req: &GoalRequirementKind,
-        scene: &[SceneEntityInfo],
-    ) -> bool {
+    fn check_requirement(&self, req: &GoalRequirementKind, scene: &[SceneEntityInfo]) -> bool {
         match req {
-            GoalRequirementKind::EntityExists { name } => {
-                scene.iter().any(|e| e.name == *name)
-            }
+            GoalRequirementKind::EntityExists { name } => scene.iter().any(|e| e.name == *name),
 
             GoalRequirementKind::HasComponent {
                 entity_name,
                 component,
-            } => {
-                scene.iter().any(|e| {
-                    e.name == *entity_name
-                        && e.components
-                            .iter()
-                            .any(|c| c.to_lowercase().contains(&component.to_lowercase()))
-                })
-            }
+            } => scene.iter().any(|e| {
+                e.name == *entity_name
+                    && e.components
+                        .iter()
+                        .any(|c| c.to_lowercase().contains(&component.to_lowercase()))
+            }),
 
             GoalRequirementKind::TransformNear {
                 entity_name,
                 translation,
                 tolerance,
-            } => {
-                scene.iter().any(|e| {
-                    if e.name == *entity_name {
-                        if let Some(t) = e.translation {
-                            let dist = ((t[0] - translation[0]).powi(2)
-                                + (t[1] - translation[1]).powi(2)
-                                + (t[2] - translation[2]).powi(2))
-                            .sqrt();
-                            return dist <= *tolerance;
-                        }
+            } => scene.iter().any(|e| {
+                if e.name == *entity_name {
+                    if let Some(t) = e.translation {
+                        let dist = ((t[0] - translation[0]).powi(2)
+                            + (t[1] - translation[1]).powi(2)
+                            + (t[2] - translation[2]).powi(2))
+                        .sqrt();
+                        return dist <= *tolerance;
                     }
-                    false
-                })
-            }
+                }
+                false
+            }),
 
-            GoalRequirementKind::SpriteColorIs {
-                entity_name,
-                rgba,
-            } => {
-                scene.iter().any(|e| {
-                    if e.name == *entity_name {
-                        if let Some(c) = e.sprite_color {
-                            return (c[0] - rgba[0]).abs() < 0.01
-                                && (c[1] - rgba[1]).abs() < 0.01
-                                && (c[2] - rgba[2]).abs() < 0.01
-                                && (c[3] - rgba[3]).abs() < 0.01;
-                        }
+            GoalRequirementKind::SpriteColorIs { entity_name, rgba } => scene.iter().any(|e| {
+                if e.name == *entity_name {
+                    if let Some(c) = e.sprite_color {
+                        return (c[0] - rgba[0]).abs() < 0.01
+                            && (c[1] - rgba[1]).abs() < 0.01
+                            && (c[2] - rgba[2]).abs() < 0.01
+                            && (c[3] - rgba[3]).abs() < 0.01;
                     }
-                    false
-                })
-            }
+                }
+                false
+            }),
         }
     }
 
@@ -186,10 +171,7 @@ impl GoalChecker {
                     entity_name, translation[0], translation[1], translation[2], tolerance
                 )
             }
-            GoalRequirementKind::SpriteColorIs {
-                entity_name,
-                rgba,
-            } => {
+            GoalRequirementKind::SpriteColorIs { entity_name, rgba } => {
                 format!(
                     "实体 \"{}\" 的 Sprite 颜色为 RGBA({:.2}, {:.2}, {:.2}, {:.2})",
                     entity_name, rgba[0], rgba[1], rgba[2], rgba[3]
@@ -250,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_default_checker() {
-        let checker = GoalChecker::default();
+        let checker = GoalChecker;
         let _ = checker;
     }
 

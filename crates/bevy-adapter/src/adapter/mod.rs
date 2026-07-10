@@ -4,15 +4,17 @@
 //! and the EngineAdapter trait implementation.
 
 pub mod commands;
-pub mod scene_build;
 pub mod rollback;
+pub mod scene_build;
 
-pub use commands::{EngineCommand, AssetType, AssetReference, ComponentPatch, EngineCommandResult};
-pub use rollback::{RollbackOperation, EntitySnapshot};
+pub use commands::{AssetReference, AssetType, ComponentPatch, EngineCommand, EngineCommandResult};
+pub use rollback::{EntitySnapshot, RollbackOperation};
 
-use agent_core::{EntityId, EntityInfo, ComponentInfo, PropertyValue, AgentAction, ActionResult, AdapterError};
-use bevy::prelude::*;
 use crate::scene_index::SceneIndex;
+use agent_core::{
+    ActionResult, AdapterError, AgentAction, ComponentInfo, EntityId, EntityInfo, PropertyValue,
+};
+use bevy::prelude::*;
 use std::collections::HashMap;
 
 pub struct BevyAdapterPlugin;
@@ -20,8 +22,8 @@ pub struct BevyAdapterPlugin;
 impl Plugin for BevyAdapterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BevyAdapter>()
-           .add_message::<AgentActionEvent>()
-           .add_systems(Update, (process_agent_actions, sync_entities_to_adapter));
+            .add_message::<AgentActionEvent>()
+            .add_systems(Update, (process_agent_actions, sync_entities_to_adapter));
     }
 }
 
@@ -113,10 +115,12 @@ impl BevyAdapter {
         id: EntityId,
         world: &World,
     ) -> Result<EntityInfo, AdapterError> {
-        let bevy_entity = self.get_bevy_entity(id)
+        let bevy_entity = self
+            .get_bevy_entity(id)
             .ok_or(AdapterError::EntityNotFound(id))?;
 
-        let entity_ref = world.get_entity(bevy_entity)
+        let entity_ref = world
+            .get_entity(bevy_entity)
             .map_err(|_| AdapterError::EntityNotFound(id))?;
 
         let mut info = EntityInfo {
@@ -133,22 +137,31 @@ impl BevyAdapter {
 
         if let Some(transform) = entity_ref.get::<Transform>() {
             let mut props = HashMap::new();
-            props.insert("position".to_string(), PropertyValue::Vec3 {
-                x: transform.translation.x,
-                y: transform.translation.y,
-                z: transform.translation.z,
-            });
+            props.insert(
+                "position".to_string(),
+                PropertyValue::Vec3 {
+                    x: transform.translation.x,
+                    y: transform.translation.y,
+                    z: transform.translation.z,
+                },
+            );
             let (roll, pitch, yaw) = transform.rotation.to_euler(EulerRot::XYZ);
-            props.insert("rotation".to_string(), PropertyValue::Vec3 {
-                x: roll,
-                y: pitch,
-                z: yaw,
-            });
-            props.insert("scale".to_string(), PropertyValue::Vec3 {
-                x: transform.scale.x,
-                y: transform.scale.y,
-                z: transform.scale.z,
-            });
+            props.insert(
+                "rotation".to_string(),
+                PropertyValue::Vec3 {
+                    x: roll,
+                    y: pitch,
+                    z: yaw,
+                },
+            );
+            props.insert(
+                "scale".to_string(),
+                PropertyValue::Vec3 {
+                    x: transform.scale.x,
+                    y: transform.scale.y,
+                    z: transform.scale.z,
+                },
+            );
 
             info.components.push(ComponentInfo {
                 name: "Transform".to_string(),
@@ -166,18 +179,22 @@ impl BevyAdapter {
         world: &mut World,
     ) -> Result<ActionResult, AdapterError> {
         match action {
-            AgentAction::UpdateComponent { entity_id, component_name, property, value } => {
-                self.update_component(entity_id, &component_name, &property, value, world)
-            }
-            AgentAction::CreateComponent { entity_id, component_type, properties } => {
-                self.create_component(entity_id, &component_type, properties, world)
-            }
-            AgentAction::DeleteComponent { entity_id, component_name } => {
-                self.delete_component(entity_id, &component_name, world)
-            }
-            _ => Err(AdapterError::ActionNotSupported(
-                format!("{:?}", action)
-            )),
+            AgentAction::UpdateComponent {
+                entity_id,
+                component_name,
+                property,
+                value,
+            } => self.update_component(entity_id, &component_name, &property, value, world),
+            AgentAction::CreateComponent {
+                entity_id,
+                component_type,
+                properties,
+            } => self.create_component(entity_id, &component_type, properties, world),
+            AgentAction::DeleteComponent {
+                entity_id,
+                component_name,
+            } => self.delete_component(entity_id, &component_name, world),
+            _ => Err(AdapterError::ActionNotSupported(format!("{:?}", action))),
         }
     }
 
@@ -189,12 +206,14 @@ impl BevyAdapter {
         value: PropertyValue,
         world: &mut World,
     ) -> Result<ActionResult, AdapterError> {
-        let bevy_entity = self.get_bevy_entity(entity_id)
+        let bevy_entity = self
+            .get_bevy_entity(entity_id)
             .ok_or(AdapterError::EntityNotFound(entity_id))?;
 
         match component_name {
             "Transform" => {
-                let mut entity_mut = world.get_entity_mut(bevy_entity)
+                let mut entity_mut = world
+                    .get_entity_mut(bevy_entity)
                     .map_err(|_| AdapterError::EntityNotFound(entity_id))?;
 
                 if let Some(mut transform) = entity_mut.get_mut::<Transform>() {
@@ -218,7 +237,10 @@ impl BevyAdapter {
 
         Ok(ActionResult {
             success: true,
-            message: format!("Updated {}.{} on entity {:?}", component_name, property, entity_id),
+            message: format!(
+                "Updated {}.{} on entity {:?}",
+                component_name, property, entity_id
+            ),
             data: None,
         })
     }
@@ -230,10 +252,12 @@ impl BevyAdapter {
         _properties: HashMap<String, PropertyValue>,
         world: &mut World,
     ) -> Result<ActionResult, AdapterError> {
-        let bevy_entity = self.get_bevy_entity(entity_id)
+        let bevy_entity = self
+            .get_bevy_entity(entity_id)
             .ok_or(AdapterError::EntityNotFound(entity_id))?;
 
-        let mut entity_mut = world.get_entity_mut(bevy_entity)
+        let mut entity_mut = world
+            .get_entity_mut(bevy_entity)
             .map_err(|_| AdapterError::EntityNotFound(entity_id))?;
 
         match component_type {
@@ -246,9 +270,12 @@ impl BevyAdapter {
                 entity_mut.insert(Sprite::default());
                 entity_mut.insert(Visibility::default());
             }
-            _ => return Err(AdapterError::ActionNotSupported(
-                format!("Create component: {}", component_type)
-            )),
+            _ => {
+                return Err(AdapterError::ActionNotSupported(format!(
+                    "Create component: {}",
+                    component_type
+                )))
+            }
         }
 
         Ok(ActionResult {
@@ -264,10 +291,12 @@ impl BevyAdapter {
         component_name: &str,
         world: &mut World,
     ) -> Result<ActionResult, AdapterError> {
-        let bevy_entity = self.get_bevy_entity(entity_id)
+        let bevy_entity = self
+            .get_bevy_entity(entity_id)
             .ok_or(AdapterError::EntityNotFound(entity_id))?;
 
-        let mut entity_mut = world.get_entity_mut(bevy_entity)
+        let mut entity_mut = world
+            .get_entity_mut(bevy_entity)
             .map_err(|_| AdapterError::EntityNotFound(entity_id))?;
 
         match component_name {
@@ -294,9 +323,10 @@ impl BevyAdapter {
 
 impl EngineAdapter for BevyAdapter {
     fn build_scene_index(&self) -> Result<SceneIndex, String> {
-        self.scene_index_cache
-            .clone()
-            .ok_or_else(|| "Scene index not built yet. Call BevyAdapter::build_scene_index(world) first.".to_string())
+        self.scene_index_cache.clone().ok_or_else(|| {
+            "Scene index not built yet. Call BevyAdapter::build_scene_index(world) first."
+                .to_string()
+        })
     }
 
     fn apply_command(&mut self, _command: EngineCommand) -> Result<EngineCommandResult, String> {
@@ -326,10 +356,7 @@ pub struct AgentActionEvent {
 /// Real-world integration should pass the action through a channel or
 /// use the apply_action method directly from the game loop.
 #[allow(unused_variables)]
-fn process_agent_actions(
-    _adapter: ResMut<BevyAdapter>,
-    _events: MessageReader<AgentActionEvent>,
-) {
+fn process_agent_actions(_adapter: ResMut<BevyAdapter>, _events: MessageReader<AgentActionEvent>) {
     // Bevy 0.17: MessageReader replaces EventReader
     // World access via system params requires architectural adaptation.
     // For MVP: actions flow through DirectorRuntime → BevyAdapter directly.

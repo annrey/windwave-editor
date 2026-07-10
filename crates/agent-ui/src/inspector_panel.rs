@@ -7,17 +7,17 @@
 //! - Edit Sprite (color, visibility)
 //! - Edit RuntimeAgentComponent properties
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use bevy_adapter::{RuntimeAgentComponent, RuntimeAgentStatus};
 use crate::layout::LayoutManager;
+use bevy::prelude::*;
+use bevy_adapter::{RuntimeAgentComponent, RuntimeAgentStatus};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 pub struct InspectorPanelPlugin;
 
 impl Plugin for InspectorPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InspectorState>()
-            .add_systems(Update, render_inspector_panel);
+            .add_systems(EguiPrimaryContextPass, render_inspector_panel);
     }
 }
 
@@ -49,7 +49,9 @@ fn render_inspector_panel(
 ) {
     state.inspected_entity = editor_selection.selected_entity;
 
-    if !layout_mgr.is_visible("inspector") { return; }
+    if !layout_mgr.is_visible("inspector") {
+        return;
+    }
 
     let ctx = contexts.ctx_mut();
     let Ok(ctx) = ctx else { return };
@@ -82,7 +84,11 @@ fn render_inspector_panel(
                 ui.selectable_value(&mut state.active_tab, InspectorTab::Transform, "Transform");
                 ui.selectable_value(&mut state.active_tab, InspectorTab::Sprite, "Sprite");
                 ui.selectable_value(&mut state.active_tab, InspectorTab::Agent, "Agent");
-                ui.selectable_value(&mut state.active_tab, InspectorTab::Components, "Components");
+                ui.selectable_value(
+                    &mut state.active_tab,
+                    InspectorTab::Components,
+                    "Components",
+                );
             });
 
             ui.separator();
@@ -188,12 +194,7 @@ fn render_sprite_editor(
     // Color
     ui.label("Color");
     let color = sprite.color.to_linear();
-    let mut rgba = [
-        color.red,
-        color.green,
-        color.blue,
-        color.alpha,
-    ];
+    let mut rgba = [color.red, color.green, color.blue, color.alpha];
 
     if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
         sprite.color = Color::linear_rgba(rgba[0], rgba[1], rgba[2], rgba[3]);
@@ -205,9 +206,17 @@ fn render_sprite_editor(
     let mut size = sprite.custom_size.unwrap_or(Vec2::splat(50.0));
     ui.horizontal(|ui| {
         ui.label("X:");
-        ui.add(egui::DragValue::new(&mut size.x).speed(1.0).range(0.0..=10000.0));
+        ui.add(
+            egui::DragValue::new(&mut size.x)
+                .speed(1.0)
+                .range(0.0..=10000.0),
+        );
         ui.label("Y:");
-        ui.add(egui::DragValue::new(&mut size.y).speed(1.0).range(0.0..=10000.0));
+        ui.add(
+            egui::DragValue::new(&mut size.y)
+                .speed(1.0)
+                .range(0.0..=10000.0),
+        );
     });
     sprite.custom_size = Some(size);
 

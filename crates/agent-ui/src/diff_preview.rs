@@ -4,10 +4,10 @@
 //! Integrates with DirectorDesk approval flow.
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::director_desk::{UserAction, DirectorDeskState};
-use crate::layout::{LayoutManager, LayoutCommand, PanelPosition};
+use crate::director_desk::{DirectorDeskState, UserAction};
+use crate::layout::{LayoutCommand, LayoutManager, PanelPosition};
 use crate::LayoutCommandQueue;
 
 pub struct DiffPreviewPlugin;
@@ -15,7 +15,7 @@ pub struct DiffPreviewPlugin;
 impl Plugin for DiffPreviewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DiffPreviewState>()
-            .add_systems(Update, render_diff_preview);
+            .add_systems(EguiPrimaryContextPass, render_diff_preview);
     }
 }
 
@@ -69,10 +69,26 @@ impl DiffPreviewState {
 
     /// Get summary text
     pub fn summary(&self) -> String {
-        let creates = self.changes.iter().filter(|c| c.change_kind == ChangeKind::Create).count();
-        let updates = self.changes.iter().filter(|c| c.change_kind == ChangeKind::Update).count();
-        let deletes = self.changes.iter().filter(|c| c.change_kind == ChangeKind::Delete).count();
-        let moves = self.changes.iter().filter(|c| c.change_kind == ChangeKind::Move).count();
+        let creates = self
+            .changes
+            .iter()
+            .filter(|c| c.change_kind == ChangeKind::Create)
+            .count();
+        let updates = self
+            .changes
+            .iter()
+            .filter(|c| c.change_kind == ChangeKind::Update)
+            .count();
+        let deletes = self
+            .changes
+            .iter()
+            .filter(|c| c.change_kind == ChangeKind::Delete)
+            .count();
+        let moves = self
+            .changes
+            .iter()
+            .filter(|c| c.change_kind == ChangeKind::Move)
+            .count();
 
         format!(
             "Changes: {} create, {} update, {} delete, {} move",
@@ -83,11 +99,7 @@ impl DiffPreviewState {
 
 impl ExpectedChange {
     /// Create a new change
-    pub fn new(
-        entity_name: Option<&str>,
-        kind: ChangeKind,
-        description: &str,
-    ) -> Self {
+    pub fn new(entity_name: Option<&str>, kind: ChangeKind, description: &str) -> Self {
         Self {
             entity_name: entity_name.map(|s| s.to_string()),
             change_kind: kind,
@@ -98,11 +110,7 @@ impl ExpectedChange {
     }
 
     /// Set before/after values for diff display
-    pub fn with_diff(
-        mut self,
-        before: serde_json::Value,
-        after: serde_json::Value,
-    ) -> Self {
+    pub fn with_diff(mut self, before: serde_json::Value, after: serde_json::Value) -> Self {
         self.before = Some(before);
         self.after = Some(after);
         self
@@ -121,10 +129,10 @@ impl ExpectedChange {
     /// Get color for change kind
     pub fn color(&self) -> egui::Color32 {
         match self.change_kind {
-            ChangeKind::Create => egui::Color32::from_rgb(16, 185, 129),   // Green
-            ChangeKind::Update => egui::Color32::from_rgb(59, 130, 246),   // Blue
-            ChangeKind::Delete => egui::Color32::from_rgb(239, 68, 68),    // Red
-            ChangeKind::Move => egui::Color32::from_rgb(245, 158, 11),     // Orange
+            ChangeKind::Create => egui::Color32::from_rgb(16, 185, 129), // Green
+            ChangeKind::Update => egui::Color32::from_rgb(59, 130, 246), // Blue
+            ChangeKind::Delete => egui::Color32::from_rgb(239, 68, 68),  // Red
+            ChangeKind::Move => egui::Color32::from_rgb(245, 158, 11),   // Orange
         }
     }
 }
@@ -179,15 +187,11 @@ fn render_diff_preview(
 
                             // Entity name
                             let name = change.entity_name.as_deref().unwrap_or("Unknown");
-                            ui.label(
-                                egui::RichText::new(name)
-                                    .strong()
-                                    .color(if is_selected {
-                                        egui::Color32::WHITE
-                                    } else {
-                                        egui::Color32::LIGHT_GRAY
-                                    }),
-                            );
+                            ui.label(egui::RichText::new(name).strong().color(if is_selected {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::LIGHT_GRAY
+                            }));
 
                             // Description
                             ui.label(&change.description);
@@ -210,11 +214,19 @@ fn render_diff_preview(
                                 if let Some((before, after)) = change_details {
                                     ui.colored_label(
                                         egui::Color32::from_rgb(239, 68, 68),
-                                        format!("- {}", serde_json::to_string_pretty(&before).unwrap_or_default()),
+                                        format!(
+                                            "- {}",
+                                            serde_json::to_string_pretty(&before)
+                                                .unwrap_or_default()
+                                        ),
                                     );
                                     ui.colored_label(
                                         egui::Color32::from_rgb(16, 185, 129),
-                                        format!("+ {}", serde_json::to_string_pretty(&after).unwrap_or_default()),
+                                        format!(
+                                            "+ {}",
+                                            serde_json::to_string_pretty(&after)
+                                                .unwrap_or_default()
+                                        ),
                                     );
                                 }
                             });
@@ -230,9 +242,13 @@ fn render_diff_preview(
             ui.horizontal(|ui| {
                 if ui.button("✅ Approve All").clicked() {
                     if let Some(plan_id) = state.pending_approval_id.take() {
-                        desk_state.pending_actions.push(UserAction::Approve { plan_id });
+                        desk_state
+                            .pending_actions
+                            .push(UserAction::Approve { plan_id });
                     }
-                    layout_queue.push(LayoutCommand::HidePanel { panel_id: "diff_preview".to_string() });
+                    layout_queue.push(LayoutCommand::HidePanel {
+                        panel_id: "diff_preview".to_string(),
+                    });
                 }
 
                 if ui.button("❌ Cancel").clicked() {
@@ -243,7 +259,9 @@ fn render_diff_preview(
                         });
                     }
                     state.clear();
-                    layout_queue.push(LayoutCommand::HidePanel { panel_id: "diff_preview".to_string() });
+                    layout_queue.push(LayoutCommand::HidePanel {
+                        panel_id: "diff_preview".to_string(),
+                    });
                 }
             });
         });

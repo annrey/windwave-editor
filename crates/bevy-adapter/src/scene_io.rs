@@ -3,9 +3,9 @@
 //! CocoIndex-inspired: hash-based incremental save detection, modular component handlers.
 //! Supports: Name, Transform, Sprite, Visibility round-trip.
 
+use agent_core::scene_serializer::{SceneEntityData, SceneFile, SceneResult, SerializedComponent};
 use bevy::prelude::*;
 use bevy::sprite::Sprite;
-use agent_core::scene_serializer::{SceneFile, SceneEntityData, SerializedComponent, SceneResult};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -27,18 +27,38 @@ pub fn scene_from_world(world: &mut World, name: impl Into<String>) -> SceneFile
     scene.created_at = now;
     scene.modified_at = now;
 
-    let mut query = world.query::<(Entity, Option<&Name>, Option<&Transform>, Option<&Sprite>, Option<&Visibility>, Option<&Children>)>();
+    let mut query = world.query::<(
+        Entity,
+        Option<&Name>,
+        Option<&Transform>,
+        Option<&Sprite>,
+        Option<&Visibility>,
+        Option<&Children>,
+    )>();
 
     let mut entity_map: HashMap<Entity, u64> = HashMap::new();
     let mut next_id: u64 = 1;
-    let root_entities: Vec<Entity>;
+
     let mut child_map: HashMap<Entity, Vec<Entity>> = HashMap::new();
-    let mut entities_with_parent: std::collections::HashSet<Entity> = std::collections::HashSet::new();
-    let mut all_data: Vec<(Entity, Option<String>, Option<Transform>, Option<Sprite>, Option<Visibility>)> = Vec::new();
+    let mut entities_with_parent: std::collections::HashSet<Entity> =
+        std::collections::HashSet::new();
+    let mut all_data: Vec<(
+        Entity,
+        Option<String>,
+        Option<Transform>,
+        Option<Sprite>,
+        Option<Visibility>,
+    )> = Vec::new();
 
     for (entity, name, transform, sprite, visibility, children) in query.iter(world) {
         let name_str = name.map(|n| n.to_string());
-        all_data.push((entity, name_str, transform.copied(), sprite.cloned(), visibility.cloned()));
+        all_data.push((
+            entity,
+            name_str,
+            transform.copied(),
+            sprite.cloned(),
+            visibility.cloned(),
+        ));
 
         if let Some(ch) = children {
             for child in ch.iter() {
@@ -48,15 +68,16 @@ pub fn scene_from_world(world: &mut World, name: impl Into<String>) -> SceneFile
         }
     }
 
-    root_entities = all_data.iter()
+    let root_entities: Vec<Entity> = all_data
+        .iter()
         .map(|(e, _, _, _, _)| *e)
         .filter(|e| !entities_with_parent.contains(e))
         .collect();
 
     for root in &root_entities {
-        if let Some(data) = build_entity_data(
-            *root, &all_data, &child_map, &mut entity_map, &mut next_id,
-        ) {
+        if let Some(data) =
+            build_entity_data(*root, &all_data, &child_map, &mut entity_map, &mut next_id)
+        {
             scene.add_entity(data);
         }
     }
@@ -66,7 +87,13 @@ pub fn scene_from_world(world: &mut World, name: impl Into<String>) -> SceneFile
 
 fn build_entity_data(
     entity: Entity,
-    all_data: &[(Entity, Option<String>, Option<Transform>, Option<Sprite>, Option<Visibility>)],
+    all_data: &[(
+        Entity,
+        Option<String>,
+        Option<Transform>,
+        Option<Sprite>,
+        Option<Visibility>,
+    )],
     child_map: &HashMap<Entity, Vec<Entity>>,
     entity_map: &mut HashMap<Entity, u64>,
     next_id: &mut u64,
@@ -83,24 +110,30 @@ fn build_entity_data(
 
     if let Some(t) = transform {
         let (rx, ry, rz) = t.rotation.to_euler(EulerRot::XYZ);
-        if let Ok(c) = SerializedComponent::new("Transform", serde_json::json!({
-            "translation": [t.translation.x, t.translation.y, t.translation.z],
-            "euler_rotation": [rx, ry, rz],
-            "rotation_q": [t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w],
-            "scale": [t.scale.x, t.scale.y, t.scale.z],
-        })) {
+        if let Ok(c) = SerializedComponent::new(
+            "Transform",
+            serde_json::json!({
+                "translation": [t.translation.x, t.translation.y, t.translation.z],
+                "euler_rotation": [rx, ry, rz],
+                "rotation_q": [t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w],
+                "scale": [t.scale.x, t.scale.y, t.scale.z],
+            }),
+        ) {
             components.push(c);
         }
     }
 
     if let Some(s) = sprite {
         let c = s.color.to_linear();
-        if let Ok(cmp) = SerializedComponent::new("Sprite", serde_json::json!({
-            "color_rgba": [c.red, c.green, c.blue, c.alpha],
-            "custom_size": s.custom_size.map(|sz| [sz.x, sz.y]),
-            "flip_x": s.flip_x,
-            "flip_y": s.flip_y,
-        })) {
+        if let Ok(cmp) = SerializedComponent::new(
+            "Sprite",
+            serde_json::json!({
+                "color_rgba": [c.red, c.green, c.blue, c.alpha],
+                "custom_size": s.custom_size.map(|sz| [sz.x, sz.y]),
+                "flip_x": s.flip_x,
+                "flip_y": s.flip_y,
+            }),
+        ) {
             components.push(cmp);
         }
     }
@@ -111,16 +144,22 @@ fn build_entity_data(
             Visibility::Hidden => "hidden",
             Visibility::Inherited => "inherited",
         };
-        if let Ok(cmp) = SerializedComponent::new("Visibility", serde_json::json!({ "state": vis_str })) {
+        if let Ok(cmp) =
+            SerializedComponent::new("Visibility", serde_json::json!({ "state": vis_str }))
+        {
             components.push(cmp);
         }
     }
 
-    let children: Vec<SceneEntityData> = child_map.get(&entity)
+    let children: Vec<SceneEntityData> = child_map
+        .get(&entity)
         .map(|children_list| {
-            children_list.iter().filter_map(|child| {
-                build_entity_data(*child, all_data, child_map, entity_map, next_id)
-            }).collect()
+            children_list
+                .iter()
+                .filter_map(|child| {
+                    build_entity_data(*child, all_data, child_map, entity_map, next_id)
+                })
+                .collect()
         })
         .unwrap_or_default();
 
@@ -155,7 +194,9 @@ fn apply_entity(world: &mut World, data: &SceneEntityData) -> SceneResult<usize>
 
     // Name
     if !data.name.is_empty() {
-        world.entity_mut(entity).insert(Name::new(data.name.clone()));
+        world
+            .entity_mut(entity)
+            .insert(Name::new(data.name.clone()));
     }
 
     // Components
@@ -181,31 +222,69 @@ fn apply_entity(world: &mut World, data: &SceneEntityData) -> SceneResult<usize>
     Ok(count)
 }
 
-fn apply_component(world: &mut World, entity: Entity, comp: &SerializedComponent) -> SceneResult<()> {
+fn apply_component(
+    world: &mut World,
+    entity: Entity,
+    comp: &SerializedComponent,
+) -> SceneResult<()> {
     match comp.type_name.as_str() {
         "Transform" => {
             let d = &comp.data;
-            let tx: f32 = d["translation"].as_array()
-                .and_then(|a| a.first()).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-            let ty: f32 = d["translation"].as_array()
-                .and_then(|a| a.get(1)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-            let tz: f32 = d["translation"].as_array()
-                .and_then(|a| a.get(2)).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+            let tx: f32 = d["translation"]
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32;
+            let ty: f32 = d["translation"]
+                .as_array()
+                .and_then(|a| a.get(1))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32;
+            let tz: f32 = d["translation"]
+                .as_array()
+                .and_then(|a| a.get(2))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32;
 
             let rotation = if let Some(q) = d["rotation_q"].as_array() {
-                let q: Vec<f32> = q.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
-                if q.len() == 4 { Quat::from_xyzw(q[0], q[1], q[2], q[3]) } else { Quat::IDENTITY }
+                let q: Vec<f32> = q
+                    .iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect();
+                if q.len() == 4 {
+                    Quat::from_xyzw(q[0], q[1], q[2], q[3])
+                } else {
+                    Quat::IDENTITY
+                }
             } else if let Some(e) = d["euler_rotation"].as_array() {
-                let e: Vec<f32> = e.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
-                if e.len() == 3 { Quat::from_euler(EulerRot::XYZ, e[0], e[1], e[2]) } else { Quat::IDENTITY }
-            } else { Quat::IDENTITY };
+                let e: Vec<f32> = e
+                    .iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect();
+                if e.len() == 3 {
+                    Quat::from_euler(EulerRot::XYZ, e[0], e[1], e[2])
+                } else {
+                    Quat::IDENTITY
+                }
+            } else {
+                Quat::IDENTITY
+            };
 
-            let sx: f32 = d["scale"].as_array()
-                .and_then(|a| a.first()).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-            let sy: f32 = d["scale"].as_array()
-                .and_then(|a| a.get(1)).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-            let sz: f32 = d["scale"].as_array()
-                .and_then(|a| a.get(2)).and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+            let sx: f32 = d["scale"]
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0) as f32;
+            let sy: f32 = d["scale"]
+                .as_array()
+                .and_then(|a| a.get(1))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0) as f32;
+            let sz: f32 = d["scale"]
+                .as_array()
+                .and_then(|a| a.get(2))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0) as f32;
 
             world.entity_mut(entity).insert(Transform {
                 translation: Vec3::new(tx, ty, tz),
@@ -215,8 +294,13 @@ fn apply_component(world: &mut World, entity: Entity, comp: &SerializedComponent
         }
         "Sprite" => {
             let d = &comp.data;
-            let rgba: Vec<f32> = d["color_rgba"].as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+            let rgba: Vec<f32> = d["color_rgba"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
+                })
                 .unwrap_or_else(|| vec![1.0, 1.0, 1.0, 1.0]);
             let color = Color::linear_rgba(
                 *rgba.first().unwrap_or(&1.0),
@@ -225,7 +309,10 @@ fn apply_component(world: &mut World, entity: Entity, comp: &SerializedComponent
                 *rgba.get(3).unwrap_or(&1.0),
             );
             let custom_size = d["custom_size"].as_array().map(|a| {
-                let v: Vec<f32> = a.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+                let v: Vec<f32> = a
+                    .iter()
+                    .filter_map(|x| x.as_f64().map(|f| f as f32))
+                    .collect();
                 Vec2::new(*v.first().unwrap_or(&50.0), *v.get(1).unwrap_or(&50.0))
             });
             world.entity_mut(entity).insert(Sprite {
@@ -274,20 +361,26 @@ pub fn scene_content_hash(scene: &SceneFile) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::*;
 
     fn make_test_world() -> World {
         let mut world = World::new();
         world.spawn((
             Name::new("Player"),
             Transform::from_xyz(10.0, 20.0, 0.0),
-            Sprite { color: Color::linear_rgb(1.0, 0.0, 0.0), custom_size: Some(Vec2::new(32.0, 32.0)), ..Default::default() },
+            Sprite {
+                color: Color::linear_rgb(1.0, 0.0, 0.0),
+                custom_size: Some(Vec2::new(32.0, 32.0)),
+                ..Default::default()
+            },
             Visibility::Visible,
         ));
         world.spawn((
             Name::new("Enemy"),
             Transform::from_xyz(100.0, 50.0, 0.0),
-            Sprite { color: Color::linear_rgb(0.0, 0.0, 1.0), ..Default::default() },
+            Sprite {
+                color: Color::linear_rgb(0.0, 0.0, 1.0),
+                ..Default::default()
+            },
         ));
         world
     }
@@ -305,7 +398,11 @@ mod tests {
         let count = scene_apply_to_world(&mut empty, &scene).unwrap();
         assert_eq!(count, 2);
 
-        let names: Vec<String> = empty.query::<&Name>().iter(&empty).map(|n| n.to_string()).collect();
+        let names: Vec<String> = empty
+            .query::<&Name>()
+            .iter(&empty)
+            .map(|n| n.to_string())
+            .collect();
         assert!(names.contains(&"Player".to_string()));
         assert!(names.contains(&"Enemy".to_string()));
     }
@@ -324,19 +421,23 @@ mod tests {
         assert_ne!(scene_content_hash(&scene1), scene_content_hash(&scene2));
 
         scene1.add_entity(SceneEntityData {
-            id: 1, name: "E".into(), components: vec![], children: vec![], parent: None,
+            id: 1,
+            name: "E".into(),
+            components: vec![],
+            children: vec![],
+            parent: None,
         });
         let scene1_copy = scene1.clone();
-        assert_eq!(scene_content_hash(&scene1), scene_content_hash(&scene1_copy));
+        assert_eq!(
+            scene_content_hash(&scene1),
+            scene_content_hash(&scene1_copy)
+        );
     }
 
     #[test]
     fn test_transform_roundtrip() {
         let mut world = World::new();
-        world.spawn((
-            Name::new("Test"),
-            Transform::from_xyz(1.5, 2.5, 3.5),
-        ));
+        world.spawn((Name::new("Test"), Transform::from_xyz(1.5, 2.5, 3.5)));
 
         let scene = scene_from_world(&mut world, "t");
         let mut empty = World::new();
@@ -353,9 +454,15 @@ mod tests {
     fn test_visibility_roundtrip() {
         let mut scene = SceneFile::new("v");
         scene.add_entity(SceneEntityData {
-            id: 1, name: "Hidden".into(),
-            components: vec![SerializedComponent::new("Visibility", serde_json::json!({"state": "hidden"})).unwrap()],
-            children: vec![], parent: None,
+            id: 1,
+            name: "Hidden".into(),
+            components: vec![SerializedComponent::new(
+                "Visibility",
+                serde_json::json!({"state": "hidden"}),
+            )
+            .unwrap()],
+            children: vec![],
+            parent: None,
         });
 
         let mut world = World::new();

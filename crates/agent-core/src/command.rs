@@ -28,10 +28,7 @@ pub enum EditorCommand {
     ExecutePlan { plan_id: String },
 
     /// Execute a single step within a plan.
-    ExecutePlanStep {
-        plan_id: String,
-        step_id: String,
-    },
+    ExecutePlanStep { plan_id: String, step_id: String },
 
     /// Apply a low-level engine command inside a tracked transaction.
     ApplyEngineCommand {
@@ -73,16 +70,10 @@ pub enum EngineCommand {
     },
 
     /// Set the Sprite color (RGBA) of an entity.
-    SetSpriteColor {
-        entity_id: u64,
-        rgba: [f32; 4],
-    },
+    SetSpriteColor { entity_id: u64, rgba: [f32; 4] },
 
     /// Set the visibility of an entity.
-    SetVisibility {
-        entity_id: u64,
-        visible: bool,
-    },
+    SetVisibility { entity_id: u64, visible: bool },
 }
 
 /// A patch that describes how to initialise or update a single component on an

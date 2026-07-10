@@ -5,14 +5,13 @@
 //! - `RuleBasedPlanner` — keyword-driven (always available)
 //! - `LlmPlanner` — LLM CoT-driven, with configurable fallback
 
-pub mod rule_based;
 pub mod llm_planner;
+pub mod rule_based;
 
-pub use rule_based::RuleBasedPlanner;
 pub use llm_planner::LlmPlanner;
+pub use rule_based::RuleBasedPlanner;
 
-use crate::permission::OperationRisk;
-use crate::plan::{EditPlan, EditPlanStep, EditPlanStatus, ExecutionMode, TargetModule};
+use crate::plan::EditPlan;
 use std::sync::OnceLock;
 
 /// Lazily-created Tokio runtime for synchronous LLM calls.
@@ -75,12 +74,7 @@ pub struct PlannerContext {
 /// - `LlmPlanner` — LLM CoT-driven (requires AI backend)
 pub trait Planner: Send + Sync {
     /// Create a structured `EditPlan` from a user request.
-    fn create_plan(
-        &self,
-        request_text: &str,
-        task_id: u64,
-        context: PlannerContext,
-    ) -> EditPlan;
+    fn create_plan(&self, request_text: &str, task_id: u64, context: PlannerContext) -> EditPlan;
 
     /// Estimate the complexity of a request (domain count).
     fn estimate_complexity(&self, text: &str) -> ComplexityLevel;

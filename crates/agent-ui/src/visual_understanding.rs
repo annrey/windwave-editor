@@ -1,7 +1,7 @@
 //! Visual Understanding UI - Display Agent's visual perception and analysis
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use serde::{Deserialize, Serialize};
 
 #[derive(Resource, Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +57,45 @@ impl VisualUnderstandingState {
         }
     }
 
+    /// D1: Import a VgrcCycleResult from agent-core and update state accordingly
+    pub fn import_vgrc_cycle(&mut self, result: &agent_core::visual_system::VgrcCycleResult) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+
+        self.screenshot_base64 = result.screenshot_base64.clone();
+        self.screenshot_dimensions = result.screenshot_dimensions;
+
+        if result.analysis.is_some() {
+            self.latest_analysis = Some(VisualAnalysis {
+                timestamp: now,
+                goal: result.goal.clone(),
+                observation_summary: result.summary.clone(),
+                detected_entities: Vec::new(),
+                confidence: if result.passed { 0.95 } else { 0.5 },
+                suggestions: Vec::new(),
+            });
+        }
+
+        self.add_goal_check(GoalCheckResult {
+            timestamp: now,
+            goal: result.goal.clone(),
+            passed: result.passed,
+            details: result.summary.clone(),
+            matches: Vec::new(),
+        });
+
+        self.add_vgrc_cycle(VgrcCycleSummary {
+            cycle_id: result.cycle_id,
+            goal: result.goal.clone(),
+            vision_count: 1,
+            realize_attempts: if result.passed { 1 } else { 2 },
+            check_passed: result.passed,
+            total_duration_ms: 0,
+        });
+    }
+
     pub fn clear(&mut self) {
         self.screenshot_base64 = None;
         self.screenshot_dimensions = None;
@@ -105,7 +144,7 @@ pub struct VisualUnderstandingPlugin;
 impl Plugin for VisualUnderstandingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VisualUnderstandingState>()
-            .add_systems(Update, render_visual_understanding_panel);
+            .add_systems(EguiPrimaryContextPass, render_visual_understanding_panel);
     }
 }
 
@@ -149,10 +188,20 @@ fn render_visual_understanding_panel(
                         16.0 / 9.0
                     };
                     let display_height = available_width / aspect_ratio;
-                    let (rect, _) = ui.allocate_at_least(egui::vec2(available_width, display_height), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 4.0, egui::Color32::from_gray(30));
+                    let (rect, _) = ui.allocate_at_least(
+                        egui::vec2(available_width, display_height),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter()
+                        .rect_filled(rect, 4.0, egui::Color32::from_gray(30));
                     let text_pos = rect.center() - egui::vec2(60.0, 10.0);
-                    ui.painter().text(text_pos, egui::Align2::LEFT_CENTER, "Screenshot Preview", egui::FontId::proportional(14.0), egui::Color32::from_gray(140));
+                    ui.painter().text(
+                        text_pos,
+                        egui::Align2::LEFT_CENTER,
+                        "Screenshot Preview",
+                        egui::FontId::proportional(14.0),
+                        egui::Color32::from_gray(140),
+                    );
                 } else {
                     ui.label("No screenshot captured");
                     ui.label("Agent will capture when VGRC cycle runs");
@@ -182,7 +231,13 @@ fn render_visual_understanding_panel(
                     } else {
                         egui::Color32::from_rgb(239, 68, 68)
                     };
-                    ui.label(egui::RichText::new(format!("Confidence: {:.0}%", analysis.confidence * 100.0)).color(confidence_color));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Confidence: {:.0}%",
+                            analysis.confidence * 100.0
+                        ))
+                        .color(confidence_color),
+                    );
                 } else {
                     ui.label("No analysis available");
                 }
@@ -201,7 +256,10 @@ fn render_visual_understanding_panel(
                             egui::Color32::from_rgb(239, 68, 68)
                         };
                         let status_icon = if result.passed { "[OK]" } else { "[FAIL]" };
-                        ui.label(egui::RichText::new(format!("{} {}", status_icon, result.goal)).color(status_color));
+                        ui.label(
+                            egui::RichText::new(format!("{} {}", status_icon, result.goal))
+                                .color(status_color),
+                        );
                         ui.label(format!("  {}", result.details));
                         ui.add_space(4.0);
                     }
@@ -215,8 +273,14 @@ fn render_visual_understanding_panel(
             } else {
                 for cycle in state.vgrc_cycle_history.iter().rev().take(5) {
                     let status_icon = if cycle.check_passed { "[OK]" } else { "[...]" };
-                    ui.label(format!("#{} {} - {}", cycle.cycle_id, status_icon, cycle.goal));
-                    ui.label(format!("  Vision:{} Realize:{} {}ms", cycle.vision_count, cycle.realize_attempts, cycle.total_duration_ms));
+                    ui.label(format!(
+                        "#{} {} - {}",
+                        cycle.cycle_id, status_icon, cycle.goal
+                    ));
+                    ui.label(format!(
+                        "  Vision:{} Realize:{} {}ms",
+                        cycle.vision_count, cycle.realize_attempts, cycle.total_duration_ms
+                    ));
                     ui.add_space(4.0);
                 }
             }

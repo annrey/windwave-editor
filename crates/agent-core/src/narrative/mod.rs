@@ -66,15 +66,12 @@ pub struct DialogueNode {
     pub speaker_side: SpeakerSide,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SpeakerSide {
+    #[default]
     Left,
     Right,
     Center,
-}
-
-impl Default for SpeakerSide {
-    fn default() -> Self { Self::Left }
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +92,12 @@ pub struct Choice {
 impl Choice {
     pub fn simple(id: impl Into<String>, text: impl Into<String>, next: impl Into<String>) -> Self {
         Self {
-            id: id.into(), text: text.into(), description: None,
-            enabled: true, conditions: vec![], effects: vec![],
+            id: id.into(),
+            text: text.into(),
+            description: None,
+            enabled: true,
+            conditions: vec![],
+            effects: vec![],
             next_node: Some(next.into()),
         }
     }
@@ -110,7 +111,7 @@ impl Choice {
 pub struct NodeCondition {
     pub condition_type: String,
     pub key: String,
-    pub operator: String,  // eq, neq, gt, lt, contains
+    pub operator: String, // eq, neq, gt, lt, contains
     #[serde(rename = "value")]
     pub val: serde_json::Value,
 }
@@ -129,7 +130,11 @@ pub struct MediaRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MediaType { Image, Audio, Video }
+pub enum MediaType {
+    Image,
+    Audio,
+    Video,
+}
 
 // ---------------------------------------------------------------------------
 // Graph operations
@@ -137,7 +142,10 @@ pub enum MediaType { Image, Audio, Video }
 
 impl StoryGraph {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), ..Default::default() }
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     pub fn add_node(&mut self, node: StoryNode) {
@@ -152,7 +160,8 @@ impl StoryGraph {
     }
 
     pub fn get_choices(&self, node_id: &str) -> Vec<&Choice> {
-        self.nodes.get(node_id)
+        self.nodes
+            .get(node_id)
             .map(|n| n.choices.iter().collect())
             .unwrap_or_default()
     }
@@ -178,7 +187,9 @@ impl StoryGraph {
         result
     }
 
-    pub fn node_count(&self) -> usize { self.nodes.len() }
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
 }
 
 // ============================================================================
@@ -212,7 +223,11 @@ pub struct NarratorAgent {
 }
 
 impl NarratorAgent {
-    pub fn new(llm: std::sync::Arc<dyn crate::llm::LlmClient>, name: String, style: String) -> Self {
+    pub fn new(
+        llm: std::sync::Arc<dyn crate::llm::LlmClient>,
+        name: String,
+        style: String,
+    ) -> Self {
         Self { llm, name, style }
     }
 
@@ -224,7 +239,7 @@ impl NarratorAgent {
         );
 
         let request = crate::llm::LlmRequest {
-            model: "gpt-4o-mini".to_string(),
+            model: crate::planner::get_default_model(),
             messages: vec![
                 crate::llm::LlmMessage {
                     role: crate::llm::Role::System,
@@ -243,7 +258,10 @@ impl NarratorAgent {
             temperature: Some(0.8),
         };
 
-        let response = self.llm.chat(request).await
+        let response = self
+            .llm
+            .chat(request)
+            .await
             .map_err(|e| format!("LLM error: {}", e))?;
         Ok(response.content)
     }
@@ -267,7 +285,10 @@ pub struct NPCDirectorAgent {
 
 impl NPCDirectorAgent {
     pub fn new(llm: std::sync::Arc<dyn crate::llm::LlmClient>) -> Self {
-        Self { llm, npc_profiles: HashMap::new() }
+        Self {
+            llm,
+            npc_profiles: HashMap::new(),
+        }
     }
 
     pub fn register_npc(&mut self, profile: NpcProfile) {
@@ -275,11 +296,13 @@ impl NPCDirectorAgent {
     }
 
     pub async fn respond(&self, npc_name: &str, player_input: &str) -> Result<String, String> {
-        let profile = self.npc_profiles.get(npc_name)
+        let profile = self
+            .npc_profiles
+            .get(npc_name)
             .ok_or_else(|| format!("NPC '{}' not found", npc_name))?;
 
         let request = crate::llm::LlmRequest {
-            model: "gpt-4o-mini".to_string(),
+            model: crate::planner::get_default_model(),
             messages: vec![
                 crate::llm::LlmMessage {
                     role: crate::llm::Role::System,
@@ -298,7 +321,10 @@ impl NPCDirectorAgent {
             temperature: Some(0.8),
         };
 
-        let response = self.llm.chat(request).await
+        let response = self
+            .llm
+            .chat(request)
+            .await
             .map_err(|e| format!("LLM error: {}", e))?;
         Ok(response.content)
     }
@@ -310,9 +336,18 @@ pub struct WorldKeeperAgent {
     known_facts: Vec<String>,
 }
 
+impl Default for WorldKeeperAgent {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorldKeeperAgent {
     pub fn new() -> Self {
-        Self { world_rules: Vec::new(), known_facts: Vec::new() }
+        Self {
+            world_rules: Vec::new(),
+            known_facts: Vec::new(),
+        }
     }
 
     pub fn add_rule(&mut self, rule: String) {
@@ -329,12 +364,19 @@ impl WorldKeeperAgent {
         for rule in &self.world_rules {
             let rule_lower = rule.to_lowercase();
             let narrative_lower = narrative.to_lowercase();
-            if rule_lower.starts_with("no ") || rule_lower.starts_with("禁止") || rule_lower.starts_with("不能") {
-                let forbidden = rule_lower.trim_start_matches("no ")
+            if rule_lower.starts_with("no ")
+                || rule_lower.starts_with("禁止")
+                || rule_lower.starts_with("不能")
+            {
+                let forbidden = rule_lower
+                    .trim_start_matches("no ")
                     .trim_start_matches("禁止")
                     .trim_start_matches("不能");
                 if narrative_lower.contains(forbidden) {
-                    violations.push(format!("规则冲突: {} (叙事包含禁止内容: {})", rule, forbidden));
+                    violations.push(format!(
+                        "规则冲突: {} (叙事包含禁止内容: {})",
+                        rule, forbidden
+                    ));
                 }
             }
         }
@@ -342,8 +384,16 @@ impl WorldKeeperAgent {
     }
 
     pub fn describe_world(&self) -> String {
-        let rules_str = if self.world_rules.is_empty() { "(无)".to_string() } else { self.world_rules.join(", ") };
-        let facts_str = if self.known_facts.is_empty() { "(无)".to_string() } else { self.known_facts.join(", ") };
+        let rules_str = if self.world_rules.is_empty() {
+            "(无)".to_string()
+        } else {
+            self.world_rules.join(", ")
+        };
+        let facts_str = if self.known_facts.is_empty() {
+            "(无)".to_string()
+        } else {
+            self.known_facts.join(", ")
+        };
         format!("## 世界状态\n规则: {}\n已知事实: {}", rules_str, facts_str)
     }
 }
@@ -388,24 +438,41 @@ mod tests {
     fn make_test_graph() -> StoryGraph {
         let mut graph = StoryGraph::new("Test");
         graph.add_node(StoryNode {
-            id: "start".into(), node_type: StoryNodeType::Dialogue, title: "Start".into(),
+            id: "start".into(),
+            node_type: StoryNodeType::Dialogue,
+            title: "Start".into(),
             content: NarrativeContent {
                 text: "Hello, adventurer!".into(),
                 dialogue: Some(DialogueNode {
-                    speaker: "Guard".into(), text: "Welcome!".into(),
-                    emotion: Some("neutral".into()), voice_line: None,
-                    portrait: None, speaker_side: SpeakerSide::Left,
+                    speaker: "Guard".into(),
+                    text: "Welcome!".into(),
+                    emotion: Some("neutral".into()),
+                    voice_line: None,
+                    portrait: None,
+                    speaker_side: SpeakerSide::Left,
                 }),
-                media: None, tone: None,
+                media: None,
+                tone: None,
             },
             choices: vec![Choice::simple("c1", "Enter the dungeon", "dungeon")],
-            conditions: vec![], effects: vec![],
+            conditions: vec![],
+            effects: vec![],
         });
         graph.add_node(StoryNode {
-            id: "dungeon".into(), node_type: StoryNodeType::Narrative, title: "Dungeon".into(),
-            content: NarrativeContent { text: "It's dark...".into(), dialogue: None, media: None, tone: Some("tense".into()) },
-            choices: vec![], conditions: vec![], effects: vec![StoryEffect {
-                effect_type: "set_flag".into(), target: "entered_dungeon".into(),
+            id: "dungeon".into(),
+            node_type: StoryNodeType::Narrative,
+            title: "Dungeon".into(),
+            content: NarrativeContent {
+                text: "It's dark...".into(),
+                dialogue: None,
+                media: None,
+                tone: Some("tense".into()),
+            },
+            choices: vec![],
+            conditions: vec![],
+            effects: vec![StoryEffect {
+                effect_type: "set_flag".into(),
+                target: "entered_dungeon".into(),
                 params: std::collections::HashMap::new(),
             }],
         });

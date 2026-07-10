@@ -7,17 +7,20 @@
 //! - Auto-scroll to latest messages
 //! - Search within logs
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
 use crate::layout::LayoutManager;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TIMESTAMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub struct ConsolePanelPlugin;
 
 impl Plugin for ConsolePanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ConsoleState>()
-            .add_systems(Update, render_console_panel);
+            .add_systems(EguiPrimaryContextPass, render_console_panel);
     }
 }
 
@@ -84,7 +87,9 @@ fn render_console_panel(
     mut state: ResMut<ConsoleState>,
     layout_mgr: Res<LayoutManager>,
 ) {
-    if !layout_mgr.is_visible("console") { return; }
+    if !layout_mgr.is_visible("console") {
+        return;
+    }
 
     let ctx = contexts.ctx_mut();
     let Ok(ctx) = ctx else { return };
@@ -148,7 +153,10 @@ fn render_console_panel(
                     let search_match = if state.search_query.is_empty() {
                         true
                     } else {
-                        entry.message.to_lowercase().contains(&state.search_query.to_lowercase())
+                        entry
+                            .message
+                            .to_lowercase()
+                            .contains(&state.search_query.to_lowercase())
                     };
 
                     level_match && search_match
@@ -175,14 +183,14 @@ fn render_log_entry(ui: &mut egui::Ui, entry: &ConsoleEntry) {
         ui.label(
             egui::RichText::new(&entry.timestamp)
                 .monospace()
-                .color(egui::Color32::GRAY)
+                .color(egui::Color32::GRAY),
         );
 
         // Source
         ui.label(
             egui::RichText::new(format!("[{}]", entry.source))
                 .monospace()
-                .color(egui::Color32::LIGHT_BLUE)
+                .color(egui::Color32::LIGHT_BLUE),
         );
 
         // Level indicator
@@ -198,19 +206,15 @@ fn render_log_entry(ui: &mut egui::Ui, entry: &ConsoleEntry) {
         ui.label(
             egui::RichText::new(&entry.message)
                 .monospace()
-                .color(entry.level.color())
+                .color(entry.level.color()),
         );
     });
 }
 
 /// Helper function to add a log entry from other systems
-pub fn log_console(
-    console: &mut ConsoleState,
-    level: LogLevel,
-    source: &str,
-    message: &str,
-) {
-    let timestamp = format!("{:.3}", bevy::time::Time::new_with(0.0).elapsed_secs());
+pub fn log_console(console: &mut ConsoleState, level: LogLevel, source: &str, message: &str) {
+    let elapsed = TIMESTAMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let timestamp = format!("{:.3}", elapsed as f64 / 1000.0);
 
     console.entries.push_back(ConsoleEntry {
         timestamp,

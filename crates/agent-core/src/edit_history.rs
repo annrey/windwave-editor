@@ -129,7 +129,7 @@ impl Drop for EditHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edit_ops::{CreateEntityOp, SetColorOp};
+    use crate::edit_ops::CreateEntityOp;
     use crate::scene_bridge::MockSceneBridge;
 
     #[test]

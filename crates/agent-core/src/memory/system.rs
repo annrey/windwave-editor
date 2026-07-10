@@ -4,120 +4,8 @@
 //! Provides hybrid retrieval, lifecycle management, and context building.
 
 use crate::memory::*;
-use crate::types::{Message, EntityId};
+use crate::types::{EntityId, Message};
 use serde::{Deserialize, Serialize};
-
-/// Configuration for the memory system
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryConfig {
-    pub working_capacity: usize,
-    pub max_retrieval_results: usize,
-    pub context_budget_chars: usize,
-    pub enable_decay: bool,
-    pub enable_hybrid_retrieval: bool,
-    pub decay_config: DecayConfig,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            working_capacity: 50,
-            max_retrieval_results: 15,
-            context_budget_chars: 4000,
-            enable_decay: true,
-            enable_hybrid_retrieval: true,
-            decay_config: DecayConfig::default(),
-        }
-    }
-}
-
-/// Query interface for the memory system
-#[derive(Debug, Clone)]
-pub struct MemoryQuery {
-    pub text: String,
-    pub max_results: usize,
-    pub include_working: bool,
-    pub include_episodic: bool,
-    pub include_semantic: bool,
-    pub include_procedural: bool,
-}
-
-impl MemoryQuery {
-    pub fn new(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            max_results: 10,
-            include_working: true,
-            include_episodic: true,
-            include_semantic: true,
-            include_procedural: true,
-        }
-    }
-
-    pub fn working_only(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            max_results: 10,
-            include_working: true,
-            include_episodic: false,
-            include_semantic: false,
-            include_procedural: false,
-        }
-    }
-
-    pub fn episodic_only(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            max_results: 10,
-            include_working: false,
-            include_episodic: true,
-            include_semantic: false,
-            include_procedural: false,
-        }
-    }
-}
-
-/// Context built from memory for LLM prompt injection
-#[derive(Debug, Clone)]
-pub struct MemoryContext {
-    pub working_context: String,
-    pub episodic_context: String,
-    pub semantic_context: String,
-    pub procedural_context: String,
-    pub total_chars: usize,
-}
-
-impl MemoryContext {
-    pub fn is_empty(&self) -> bool {
-        self.working_context.is_empty()
-            && self.episodic_context.is_empty()
-            && self.semantic_context.is_empty()
-            && self.procedural_context.is_empty()
-    }
-
-    pub fn to_prompt_section(&self) -> String {
-        let mut parts = Vec::new();
-
-        if !self.working_context.is_empty() {
-            parts.push(format!("### Working Context\n{}", self.working_context));
-        }
-        if !self.episodic_context.is_empty() {
-            parts.push(format!("### Past Events\n{}", self.episodic_context));
-        }
-        if !self.semantic_context.is_empty() {
-            parts.push(format!("### Related Knowledge\n{}", self.semantic_context));
-        }
-        if !self.procedural_context.is_empty() {
-            parts.push(format!("### Suggested Workflows\n{}", self.procedural_context));
-        }
-
-        parts.join("\n\n")
-    }
-
-    pub fn to_compact_string(&self) -> String {
-        self.to_prompt_section()
-    }
-}
 
 /// Unified Memory System
 ///
@@ -127,7 +15,7 @@ impl MemoryContext {
 /// - Lifecycle management (decay, cleanup)
 /// - Context building for LLM prompts
 /// - Token budget-aware truncation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemorySystem {
     pub working: WorkingMemory,
     pub episodic: EpisodicMemory,
@@ -190,7 +78,11 @@ impl MemorySystem {
         self.episodic.record(episode)
     }
 
-    pub fn record_user_request(&mut self, request: &str, context: Option<serde_json::Value>) -> MemoryEntryId {
+    pub fn record_user_request(
+        &mut self,
+        request: &str,
+        context: Option<serde_json::Value>,
+    ) -> MemoryEntryId {
         self.episodic.record_user_request(request, context)
     }
 
@@ -201,10 +93,15 @@ impl MemorySystem {
         result: Option<serde_json::Value>,
         success: bool,
     ) -> MemoryEntryId {
-        self.episodic.record_tool_call(tool_name, params, result, success)
+        self.episodic
+            .record_tool_call(tool_name, params, result, success)
     }
 
-    pub fn record_error(&mut self, error: &str, context: Option<serde_json::Value>) -> MemoryEntryId {
+    pub fn record_error(
+        &mut self,
+        error: &str,
+        context: Option<serde_json::Value>,
+    ) -> MemoryEntryId {
         self.episodic.record_error(error, context)
     }
 
@@ -219,7 +116,25 @@ impl MemorySystem {
         success: bool,
         duration_ms: u64,
     ) -> MemoryEntryId {
-        self.episodic.record_step(step_title, result, success, duration_ms)
+        self.episodic
+            .record_step(step_title, result, success, duration_ms)
+    }
+
+    pub fn record_user_preference(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        source: impl Into<String>,
+    ) -> MemoryEntryId {
+        self.episodic.record_user_preference(key, value, source)
+    }
+
+    pub fn get_preference(&self, key: &str) -> Option<&str> {
+        self.episodic.get_preference(key)
+    }
+
+    pub fn build_preference_summary(&self) -> String {
+        self.episodic.build_preference_summary()
     }
 
     // =================================================================
@@ -247,7 +162,8 @@ impl MemorySystem {
         strength: f32,
         description: impl Into<String>,
     ) {
-        self.semantic.add_relation(from_id, to_id, relation_type, strength, description);
+        self.semantic
+            .add_relation(from_id, to_id, relation_type, strength, description);
     }
 
     // =================================================================
@@ -278,7 +194,14 @@ impl MemorySystem {
         outcome: &str,
         success: bool,
     ) -> MemoryEntryId {
-        self.procedural.observe_decision(context, decision, outcome, success)
+        self.procedural
+            .observe_decision(context, decision, outcome, success)
+    }
+
+    /// Auto-learn: promote high-confidence decision patterns to workflows.
+    pub fn auto_learn(&mut self, min_confidence: f32, min_observations: u32) -> usize {
+        self.procedural
+            .auto_learn_workflows(min_confidence, min_observations)
     }
 
     // =================================================================
@@ -300,10 +223,7 @@ impl MemorySystem {
         if query.include_working {
             let summary = self.working.build_summary();
             if !summary.is_empty() {
-                working_entries.push((
-                    MemoryEntryId(0),
-                    format!("Working context: {}", summary),
-                ));
+                working_entries.push((MemoryEntryId(0), format!("Working context: {}", summary)));
             }
         }
 
@@ -335,24 +255,32 @@ impl MemorySystem {
 
         // Procedural memory: keyword matching
         if query.include_procedural {
-            let workflows = self.procedural.find_matching(&query.text, query.max_results);
+            let workflows = self
+                .procedural
+                .find_matching(&query.text, query.max_results);
             for wf in workflows {
-                procedural_results.push((
-                    wf.metadata.id,
-                    format!("{}: {}", wf.name, wf.trigger),
-                ));
+                procedural_results.push((wf.metadata.id, format!("{}: {}", wf.name, wf.trigger)));
             }
         }
 
-        // Build retrieval query
+        // Build retrieval query tiers based on enabled flags
+        let mut tiers = Vec::with_capacity(4);
+        if query.include_working {
+            tiers.push(MemoryTier::Working);
+        }
+        if query.include_episodic {
+            tiers.push(MemoryTier::Episodic);
+        }
+        if query.include_semantic {
+            tiers.push(MemoryTier::Semantic);
+        }
+        if query.include_procedural {
+            tiers.push(MemoryTier::Procedural);
+        }
+
         let retrieval_query = RetrievalQuery::new(&query.text)
             .with_max_results(query.max_results)
-            .with_tiers(vec![
-                if query.include_working { MemoryTier::Working } else { MemoryTier::Episodic },
-                if query.include_episodic { MemoryTier::Episodic } else { MemoryTier::Working },
-                if query.include_semantic { MemoryTier::Semantic } else { MemoryTier::Working },
-                if query.include_procedural { MemoryTier::Procedural } else { MemoryTier::Working },
-            ].into_iter().collect::<std::collections::HashSet<_>>().into_iter().collect());
+            .with_tiers(tiers);
 
         self.retriever.retrieve(
             &retrieval_query,
@@ -395,6 +323,12 @@ impl MemorySystem {
             working_parts.insert(0, working_summary);
         }
 
+        // Include user preferences in episodic context
+        let preference_summary = self.episodic.build_preference_summary();
+        if !preference_summary.is_empty() {
+            episodic_parts.insert(0, preference_summary);
+        }
+
         let working_context = working_parts.join("\n");
         let episodic_context = episodic_parts.join("\n");
         let semantic_context = semantic_parts.join("\n");
@@ -415,7 +349,11 @@ impl MemorySystem {
     }
 
     /// Build context within a character budget
-    pub fn build_context_with_budget(&mut self, query: &MemoryQuery, budget_chars: usize) -> MemoryContext {
+    pub fn build_context_with_budget(
+        &mut self,
+        query: &MemoryQuery,
+        budget_chars: usize,
+    ) -> MemoryContext {
         let mut context = self.build_context(query);
 
         if context.total_chars <= budget_chars {
@@ -441,6 +379,104 @@ impl MemorySystem {
         context
     }
 
+    /// Build a layered context with explicit L0-L3 tier labels.
+    ///
+    /// Formats the context with tier headers, priority ordering, and
+    /// compact summaries. Designed for LLM prompt injection.
+    ///
+    /// Layer order: L3 (highest priority, most recent) → L0 (foundational).
+    pub fn build_layered_context(&mut self, query: &MemoryQuery) -> String {
+        let ctx = self.build_context(query);
+
+        let mut parts: Vec<String> = Vec::new();
+
+        parts.push("[Memory Context]".to_string());
+
+        if !ctx.working_context.is_empty() {
+            parts.push(format!(
+                "[L3 - Working Memory (immediate)]\n{}",
+                ctx.working_context
+            ));
+        }
+
+        if !ctx.episodic_context.is_empty() {
+            parts.push(format!(
+                "[L2 - Episodic Memory (recent history)]\n{}",
+                ctx.episodic_context
+            ));
+        }
+
+        if !ctx.semantic_context.is_empty() {
+            parts.push(format!(
+                "[L1 - Semantic Memory (knowledge)]\n{}",
+                ctx.semantic_context
+            ));
+        }
+
+        if !ctx.procedural_context.is_empty() {
+            parts.push(format!(
+                "[L0 - Procedural Memory (patterns)]\n{}",
+                ctx.procedural_context
+            ));
+        }
+
+        if parts.len() == 1 {
+            "No relevant memory context found.".to_string()
+        } else {
+            parts.join("\n\n")
+        }
+    }
+
+    /// Build a layered context within a character budget.
+    ///
+    /// Truncates the full layered context to fit within the budget,
+    /// preserving L3 (working) context first, then L2, L1, L0.
+    pub fn build_layered_context_with_budget(
+        &mut self,
+        query: &MemoryQuery,
+        budget_chars: usize,
+    ) -> String {
+        let ctx = self.build_context_with_budget(query, budget_chars);
+
+        let mut parts: Vec<String> = Vec::new();
+
+        parts.push("[Memory Context]".to_string());
+
+        if !ctx.working_context.is_empty() {
+            parts.push(format!(
+                "[L3 - Working Memory (immediate)]\n{}",
+                ctx.working_context
+            ));
+        }
+
+        if !ctx.episodic_context.is_empty() {
+            parts.push(format!(
+                "[L2 - Episodic Memory (recent history)]\n{}",
+                ctx.episodic_context
+            ));
+        }
+
+        if !ctx.semantic_context.is_empty() {
+            parts.push(format!(
+                "[L1 - Semantic Memory (knowledge)]\n{}",
+                ctx.semantic_context
+            ));
+        }
+
+        if !ctx.procedural_context.is_empty() {
+            parts.push(format!(
+                "[L0 - Procedural Memory (patterns)]\n{}",
+                ctx.procedural_context
+            ));
+        }
+
+        if parts.len() == 1 {
+            "No relevant memory context found.".to_string()
+        } else {
+            parts.join("\n\n")
+        }
+    }
+
     // =================================================================
     // Lifecycle Management
     // =================================================================
@@ -455,19 +491,25 @@ impl MemorySystem {
         self.working.cleanup_expired();
 
         // Episodic memory: remove low-importance entries if over capacity
-        let excess = self.lifecycle.excess_count(MemoryTier::Episodic, self.episodic.len());
+        let excess = self
+            .lifecycle
+            .excess_count(MemoryTier::Episodic, self.episodic.len());
         if excess > 0 {
             self.cleanup_episodic_by_importance(excess);
         }
 
         // Semantic memory: remove least important nodes
-        let excess = self.lifecycle.excess_count(MemoryTier::Semantic, self.semantic.node_count());
+        let excess = self
+            .lifecycle
+            .excess_count(MemoryTier::Semantic, self.semantic.node_count());
         if excess > 0 {
             self.cleanup_semantic_by_importance(excess);
         }
 
         // Procedural memory: remove least used workflows
-        let excess = self.lifecycle.excess_count(MemoryTier::Procedural, self.procedural.workflow_count());
+        let excess = self
+            .lifecycle
+            .excess_count(MemoryTier::Procedural, self.procedural.workflow_count());
         if excess > 0 {
             self.cleanup_procedural_by_usage(excess);
         }
@@ -476,24 +518,29 @@ impl MemorySystem {
     /// Remove lowest-importance episodic entries
     fn cleanup_episodic_by_importance(&mut self, count: usize) {
         // Score each episode by: recency * importance * access_frequency
-        let mut scored: Vec<(usize, f32)> = self.episodic.iter()
+        let mut scored: Vec<(usize, f32)> = self
+            .episodic
+            .iter()
             .enumerate()
             .map(|(i, ep)| {
-                let age_factor = 1.0 / (1.0 + (crate::types::current_timestamp() - ep.metadata.created_at) as f32 / 3600.0); // Decay over hours
+                let age_factor = 1.0
+                    / (1.0
+                        + (crate::types::current_timestamp() - ep.metadata.created_at) as f32
+                            / 3600.0); // Decay over hours
                 let importance = ep.metadata.importance;
                 let access_factor = 1.0 + (ep.metadata.access_count as f32 * 0.1);
-                
+
                 (i, age_factor * importance * access_factor)
             })
             .collect();
-        
+
         // Sort by score ascending (lowest first)
         scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Remove lowest-scoring entries
         let to_remove: Vec<usize> = scored.into_iter().take(count).map(|(i, _)| i).collect();
         self.episodic.remove_by_indices(&to_remove);
-        
+
         log::debug!(
             "Cleaned up {} episodic entries (removed oldest/least important)",
             to_remove.len()
@@ -504,7 +551,8 @@ impl MemorySystem {
     fn cleanup_semantic_by_importance(&mut self, count: usize) {
         // Use existing semantic memory cleanup if available, otherwise skip
         // Semantic nodes are knowledge, be conservative
-        if self.semantic.node_count() > 1000 {  // Only clean if very large
+        if self.semantic.node_count() > 1000 {
+            // Only clean if very large
             self.semantic.prune_least_important(count);
             log::debug!("Pruned {} semantic nodes", count);
         }
@@ -531,427 +579,106 @@ impl MemorySystem {
     // Persistence Operations
     // =================================================================
 
-    /// Save memory state to disk (JSON format)
+    /// Compress long conversation history from working memory into episodic memory.
     ///
-    /// # Arguments
-    /// * `path` - File path to save to (e.g., "data/memory.json")
-    ///
-    /// # Returns
-    /// Result with statistics about saved data
-    pub fn save_to_file(&self, path: &str) -> Result<MemoryPersistenceInfo, String> {
-        let dir = std::path::Path::new(path).parent()
-            .unwrap_or(std::path::Path::new("."));
+    /// When conversation turns exceed the configured threshold, older turns
+    /// are summarized and moved to episodic memory, keeping only the most
+    /// recent turns in working memory for LLM context.
+    pub fn compress(&mut self) -> CompressionSummary {
+        let conv_indices = self.working.conversation_indices();
+        let before = conv_indices.len();
 
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
-
-        let data = MemoryPersistedData {
-            working_entries: self.working.get_entries_for_persistence(),
-            episodes: self.episodic.get_all_episodes().into_iter().filter(|e| {
-                matches!(e.episode_type, crate::memory::EpisodeType::UserRequest |
-                                       crate::memory::EpisodeType::ToolCalled |
-                                       crate::memory::EpisodeType::ErrorOccurred |
-                                       crate::memory::EpisodeType::Summary)
-            }).collect(),
-            semantic_nodes: self.semantic.export_nodes(),
-            procedural_workflows: self.procedural.export_workflows(),
-            config: self.config.clone(),
-            saved_at: chrono::Utc::now().to_rfc3339(),
-            version: "1.0".to_string(),
-        };
-
-        let json = serde_json::to_string_pretty(&data)
-            .map_err(|e| format!("Serialization failed: {}", e))?;
-
-        let total_bytes = json.len();
-
-        std::fs::write(path, &json)
-            .map_err(|e| format!("Failed to write to {}: {}", path, e))?;
-
-        Ok(MemoryPersistenceInfo {
-            file_path: path.to_string(),
-            total_bytes,
-            working_count: data.working_entries.len(),
-            episodic_count: data.episodes.len(),
-            semantic_count: data.semantic_nodes.len(),
-            procedural_count: data.procedural_workflows.len(),
-        })
-    }
-
-    /// Load memory state from disk
-    ///
-    /// # Arguments
-    /// * `path` - File path to load from
-    ///
-    /// # Returns
-    /// Result with loaded data statistics
-    pub fn load_from_file(&mut self, path: &str) -> Result<MemoryLoadResult, String> {
-        if !std::path::Path::new(path).exists() {
-            return Err(format!("File not found: {}", path));
-        }
-
-        let json = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read {}: {}", path, e))?;
-
-        let data: MemoryPersistedData = serde_json::from_str(&json)
-            .map_err(|e| format!("Deserialization failed: {}", e))?;
-
-        // Save counts before moving data
-        let working_count = data.working_entries.len();
-        let episodic_count = data.episodes.len();
-        let semantic_count = data.semantic_nodes.len();
-        let procedural_count = data.procedural_workflows.len();
-
-        // Restore working memory
-        for entry in data.working_entries {
-            self.working.restore_entry(entry);
-        }
-
-        // Restore episodic memory
-        for episode in data.episodes {
-            self.episodic.restore_episode(episode);
-        }
-
-        // Restore semantic memory
-        for node in data.semantic_nodes {
-            self.semantic.import_node(node);
-        }
-
-        // Restore procedural memory
-        for workflow in data.procedural_workflows {
-            self.procedural.import_workflow(workflow);
-        }
-
-        Ok(MemoryLoadResult {
-            file_path: path.to_string(),
-            working_restored: working_count,
-            episodic_restored: episodic_count,
-            semantic_restored: semantic_count,
-            procedural_restored: procedural_count,
-            saved_at: data.saved_at,
-        })
-    }
-
-    /// Auto-save with backup rotation
-    /// Keeps last N backups (default: 5)
-    pub fn auto_save(&self, base_path: &str, max_backups: usize) -> Result<Vec<String>, String> {
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let current_path = format!("{}_{}.json", base_path, timestamp);
-
-        self.save_to_file(&current_path)?;
-
-        // Create symlink to latest
-        let latest_path = format!("{}_latest.json", base_path);
-        let _ = std::fs::remove_file(&latest_path);  // Remove old symlink
-        #[cfg(unix)]
-        {
-            let _ = std::os::unix::fs::symlink(
-                std::path::Path::new(&current_path).file_name().unwrap(),
-                &latest_path,
-            );
-        }
-
-        // Cleanup old backups (keep only max_backups most recent)
-        Self::cleanup_old_backups(base_path, max_backups)?;
-
-        Ok(vec![current_path])
-    }
-
-    fn cleanup_old_backups(base_path: &str, keep: usize) -> Result<(), String> {
-        let pattern = format!("{}_*.json", base_path);
-
-        let mut files: Vec<std::path::PathBuf> = glob::glob(&pattern)
-            .map_err(|e| format!("Glob error: {}", e))?
-            .filter_map(Result::ok)
-            .collect();
-
-        files.sort();
-        files.reverse();  // Newest first
-
-        for old_file in files.into_iter().skip(keep) {
-            std::fs::remove_file(&old_file)
-                .map_err(|e| format!("Failed to remove old backup {:?}: {}", old_file, e))?;
-        }
-
-        Ok(())
-    }
-
-    /// Get memory statistics
-    pub fn stats(&self) -> MemoryStats {
-        MemoryStats {
-            working_entries: self.working.len(),
-            working_capacity: self.config.working_capacity,
-            episodic_entries: self.episodic.len(),
-            semantic_nodes: self.semantic.node_count(),
-            semantic_relations: self.semantic.relation_count(),
-            procedural_workflows: self.procedural.workflow_count(),
-            procedural_patterns: self.procedural.pattern_count(),
-        }
-    }
-
-    // =================================================================
-    // Memory Compression
-    // =================================================================
-
-    /// Compress episodic memory using LLM summarization
-    ///
-    /// When episodic memory exceeds threshold, use LLM to generate
-    /// a concise summary preserving key information.
-    ///
-    /// # Arguments
-    /// * `max_episodes` - Maximum number of episodes before triggering compression (default: 50)
-    /// * `llm_client` - Optional LLM client for summarization (None = rule-based compression)
-    ///
-    /// # Returns
-    /// Number of episodes compressed
-    pub async fn compress_episodic_memory(
-        &mut self,
-        max_episodes: usize,
-        llm_client: Option<&dyn crate::llm::LlmClient>,
-    ) -> usize {
-        if self.episodic.len() <= max_episodes {
-            return 0;
-        }
-
-        let episodes_to_compress = self.episodic.len() - max_episodes;
-
-        // Group episodes into chunks for batch processing
-        let old_episodes: Vec<Episode> = self.episodic.drain_old_episodes(episodes_to_compress);
-
-        if old_episodes.is_empty() {
-            return 0;
-        }
-
-        // If LLM available, use intelligent summarization
-        if let Some(client) = llm_client {
-            let summary = Self::generate_llm_summary(&old_episodes, client).await;
-
-            // Create compressed episode from summary
-            let compressed = Episode {
-                metadata: crate::memory::MemoryMetadata::new(
-                    self.episodic.next_id_counter(),
-                    crate::memory::MemoryTier::Episodic,
-                ),
-                episode_type: crate::memory::EpisodeType::Summary,
-                summary: format!("[Compressed {} episodes] {}", old_episodes.len(), summary),
-                details: serde_json::json!({
-                    "compressed_count": old_episodes.len(),
-                    "original_ids": old_episodes.iter().map(|e| e.metadata.id.0).collect::<Vec<_>>(),
-                }),
-                entity_ids: Vec::new(),
-                success: None,
-                duration_ms: None,
+        if before <= self.config.compress_threshold {
+            return CompressionSummary {
+                working_compressed: 0,
+                episodic_compressed: 0,
+                summary_snippet: String::new(),
+                conversation_turns_before: before,
+                conversation_turns_after: before,
             };
-            self.episodic.record_compressed(compressed);
-        } else {
-            // Rule-based compression: extract key information
-            let summary = Self::generate_rule_based_summary(&old_episodes);
-
-            let compressed = Episode {
-                metadata: crate::memory::MemoryMetadata::new(
-                    self.episodic.next_id_counter(),
-                    crate::memory::MemoryTier::Episodic,
-                ),
-                episode_type: crate::memory::EpisodeType::Summary,
-                summary: format!("[Auto-compressed {} episodes] {}", old_episodes.len(), summary),
-                details: serde_json::json!({
-                    "compressed_count": old_episodes.len(),
-                    "method": "rule_based",
-                }),
-                entity_ids: Vec::new(),
-                success: None,
-                duration_ms: None,
-            };
-            self.episodic.record_compressed(compressed);
         }
 
-        episodes_to_compress
-    }
+        let keep_count = self.config.compress_threshold / 2;
+        let compress_count = before - keep_count;
 
-    /// Generate summary using LLM
-    async fn generate_llm_summary(episodes: &[Episode], client: &dyn crate::llm::LlmClient) -> String {
-        let episodes_text: String = episodes
-            .iter()
-            .enumerate()
-            .map(|(i, ep)| format!("{}. [{}] {}", i + 1, format_episode_short(ep), ep.summary))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut compressed: Vec<WorkingMemoryEntry> = Vec::with_capacity(compress_count);
+        let mut ids_to_remove: Vec<u64> = Vec::with_capacity(compress_count);
 
-        let prompt = format!(
-            "Summarize the following conversation history into key points. \
-             Preserve important decisions, user preferences, and errors encountered.\n\n\
-             ---\n{}\n---\n\n\
-             Summary:",
-            episodes_text
-        );
-
-        match client.chat(crate::llm::LlmRequest {
-            model: "gpt-4o-mini".to_string(),
-            messages: vec![crate::llm::LlmMessage {
-                role: crate::llm::Role::User,
-                content: prompt,
-            }],
-            max_tokens: Some(500),
-            temperature: Some(0.3),
-            tools: None,
-        }).await {
-            Ok(response) => response.content,
-            Err(_) => Self::generate_rule_based_summary(episodes), // Fallback to rule-based
-        }
-    }
-
-    /// Generate summary using rules (no LLM needed)
-    fn generate_rule_based_summary(episodes: &[Episode]) -> String {
-        let mut key_points = Vec::new();
-        let mut user_requests = Vec::new();
-        let mut errors_encountered = Vec::new();
-
-        for ep in episodes {
-            match ep.episode_type {
-                crate::memory::EpisodeType::UserRequest => {
-                    user_requests.push(truncate_str(&ep.summary, 100));
-                }
-                crate::memory::EpisodeType::ErrorOccurred => {
-                    errors_encountered.push(truncate_str(&ep.summary, 80));
-                }
-                _ => {
-                    if key_points.len() < 5 {
-                        // Keep top 5 other events
-                        key_points.push(format!("• {}", truncate_str(&ep.summary, 80)));
-                    }
+        for (i, &idx) in conv_indices.iter().enumerate() {
+            if i < compress_count {
+                if let Some(entry) = self.working.get_entry_by_index(idx) {
+                    compressed.push(entry.clone());
+                    ids_to_remove.push(entry.metadata.id.0);
                 }
             }
         }
 
-        let mut parts = Vec::new();
+        let mut summary_parts: Vec<String> = Vec::new();
+        for entry in &compressed {
+            let content = &entry.content;
+            if content.len() > 200 {
+                summary_parts.push(format!(
+                    "{}...",
+                    content.chars().take(200).collect::<String>()
+                ));
+            } else {
+                summary_parts.push(content.clone());
+            }
+        }
 
-        if !user_requests.is_empty() {
-            parts.push(format!("User requests: {}", user_requests.join("; ")));
-        }
-        if !errors_encountered.is_empty() {
-            parts.push(format!("Issues: {}", errors_encountered.join("; ")));
-        }
-        if !key_points.is_empty() {
-            parts.push(format!("Key events: {}", key_points.join(" ")));
-        }
-
-        if parts.is_empty() {
-            "[No significant events]".to_string()
+        let summary = summary_parts.join("\n");
+        let summary_snippet = if summary.len() > 500 {
+            format!("{}...", summary.chars().take(500).collect::<String>())
         } else {
-            parts.join(" | ")
+            summary.clone()
+        };
+
+        let new_id = crate::types::current_timestamp();
+
+        let episode = Episode::new(
+            new_id,
+            EpisodeType::Summary,
+            format!("Compressed {} conversation turns", compress_count),
+            serde_json::json!({
+                "type": "conversation_compression",
+                "compressed_turns": compress_count,
+                "summary": summary_snippet,
+            }),
+        );
+        self.episodic.record(episode);
+        let removed = self.working.remove_by_ids(&ids_to_remove);
+
+        CompressionSummary {
+            working_compressed: removed,
+            episodic_compressed: 1,
+            summary_snippet,
+            conversation_turns_before: before,
+            conversation_turns_after: before - removed,
         }
     }
 
-    /// Seed with default knowledge
-    pub fn seed_defaults(&mut self) {
-        self.semantic.seed_with_defaults();
-        self.procedural.seed_with_defaults();
-    }
-}
-
-impl Default for MemorySystem {
-    fn default() -> Self {
-        let mut system = Self::new();
-        system.seed_defaults();
-        system
-    }
-}
-
-/// Memory statistics
-#[derive(Debug, Clone)]
-pub struct MemoryStats {
-    pub working_entries: usize,
-    pub working_capacity: usize,
-    pub episodic_entries: usize,
-    pub semantic_nodes: usize,
-    pub semantic_relations: usize,
-    pub procedural_workflows: usize,
-    pub procedural_patterns: usize,
-}
-
-impl MemoryStats {
-    pub fn total_entries(&self) -> usize {
-        self.working_entries + self.episodic_entries + self.semantic_nodes + self.procedural_workflows
-    }
-}
-
-// Helper: truncate string to max characters, preserving whole lines
-fn truncate_chars(s: &str, max_chars: usize) -> String {
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
-
-    let mut result = String::with_capacity(max_chars);
-    let mut chars = 0;
-
-    for line in s.lines() {
-        let line_len = line.len() + 1; // +1 for newline
-        if chars + line_len > max_chars {
-            result.push_str("\n... (truncated)");
-            break;
+    /// Check if compression is needed and compress if so.
+    pub fn compress_if_needed(&mut self) -> CompressionSummary {
+        let conv_count = self.working.conversation_indices().len();
+        if conv_count > self.config.compress_threshold {
+            self.compress()
+        } else {
+            CompressionSummary {
+                working_compressed: 0,
+                episodic_compressed: 0,
+                summary_snippet: String::new(),
+                conversation_turns_before: conv_count,
+                conversation_turns_after: conv_count,
+            }
         }
-        if !result.is_empty() {
-            result.push('\n');
-        }
-        result.push_str(line);
-        chars += line_len;
-    }
-
-    result
-}
-
-// Helper: format episode type as short tag
-fn format_episode_short(ep: &Episode) -> &'static str {
-    match ep.episode_type {
-        crate::memory::EpisodeType::UserRequest => "USER",
-        crate::memory::EpisodeType::ToolCalled => "TOOL",
-        crate::memory::EpisodeType::Observation => "OBS",
-        crate::memory::EpisodeType::ErrorOccurred => "ERR",
-        crate::memory::EpisodeType::Summary => "SUM",
-        _ => "???",
     }
 }
 
-// Helper: truncate string to max length with ellipsis
-fn truncate_str(s: &str, max_len: usize) -> String {
+/// Truncate a string to max_len characters, adding "..." if truncated
+fn truncate_chars(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
         format!("{}...", &s[..max_len.saturating_sub(3)])
     }
-}
-
-// ============================================================================
-// Persistence Data Structures
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MemoryPersistedData {
-    working_entries: Vec<serde_json::Value>,
-    episodes: Vec<crate::memory::Episode>,
-    semantic_nodes: Vec<crate::memory::SemanticNode>,
-    procedural_workflows: Vec<crate::memory::WorkflowTemplate>,
-    config: MemoryConfig,
-    saved_at: String,
-    version: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemoryPersistenceInfo {
-    pub file_path: String,
-    pub total_bytes: usize,
-    pub working_count: usize,
-    pub episodic_count: usize,
-    pub semantic_count: usize,
-    pub procedural_count: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemoryLoadResult {
-    pub file_path: String,
-    pub working_restored: usize,
-    pub episodic_restored: usize,
-    pub semantic_restored: usize,
-    pub procedural_restored: usize,
-    pub saved_at: String,
 }

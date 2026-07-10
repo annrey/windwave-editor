@@ -16,7 +16,12 @@ pub enum PanelPosition {
     Right,
     Bottom,
     Top,
-    Floating { x: f32, y: f32, width: f32, height: f32 },
+    Floating {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
 }
 
 impl PartialEq for PanelPosition {
@@ -87,7 +92,13 @@ impl Default for LayoutDefinition {
             panels: vec![
                 // ── Left panels ──
                 PanelConfig::new("hierarchy", "Hierarchy", PanelPosition::Left, 0, 250.0),
-                PanelConfig::new("director_desk", "Director Desk", PanelPosition::Left, 1, 280.0),
+                PanelConfig::new(
+                    "director_desk",
+                    "Director Desk",
+                    PanelPosition::Left,
+                    1,
+                    280.0,
+                ),
                 // ── Right panels ──
                 PanelConfig::new("chat", "Chat", PanelPosition::Right, 0, 380.0),
                 PanelConfig::new("inspector", "Inspector", PanelPosition::Right, 1, 300.0),
@@ -97,14 +108,114 @@ impl Default for LayoutDefinition {
                 // ── Top panels ──
                 PanelConfig::hidden("game_mode_bar", "Game Mode", PanelPosition::Top, 0, 24.0),
                 // ── Floating panels (hidden by default) ──
-                PanelConfig::hidden("runtime_agents", "Runtime Agents", PanelPosition::Floating { x: 100.0, y: 80.0, width: 450.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("debug", "Debug", PanelPosition::Floating { x: 150.0, y: 120.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("agent_config", "Agent Config", PanelPosition::Floating { x: 200.0, y: 160.0, width: 420.0, height: 380.0 }, 0, 0.0),
-                PanelConfig::hidden("prefab_browser", "Prefab Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("asset_browser", "Asset Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 550.0, height: 450.0 }, 0, 0.0),
-                PanelConfig::hidden("project", "Project", PanelPosition::Floating { x: 300.0, y: 100.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("diff_preview", "Diff Preview", PanelPosition::Floating { x: 300.0, y: 150.0, width: 480.0, height: 350.0 }, 0, 0.0),
-                PanelConfig::hidden("game_mode", "Game Mode", PanelPosition::Floating { x: 200.0, y: 200.0, width: 600.0, height: 500.0 }, 0, 0.0),
+                PanelConfig::hidden(
+                    "runtime_agents",
+                    "Runtime Agents",
+                    PanelPosition::Floating {
+                        x: 100.0,
+                        y: 80.0,
+                        width: 450.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "debug",
+                    "Debug",
+                    PanelPosition::Floating {
+                        x: 150.0,
+                        y: 120.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "agent_config",
+                    "Agent Config",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 160.0,
+                        width: 420.0,
+                        height: 380.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "prefab_browser",
+                    "Prefab Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "asset_browser",
+                    "Asset Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 550.0,
+                        height: 450.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "project",
+                    "Project",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 100.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "diff_preview",
+                    "Diff Preview",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 150.0,
+                        width: 480.0,
+                        height: 350.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "game_mode",
+                    "Game Mode",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 200.0,
+                        width: 600.0,
+                        height: 500.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "task",
+                    "Tasks",
+                    PanelPosition::Floating {
+                        x: 400.0,
+                        y: 100.0,
+                        width: 450.0,
+                        height: 650.0,
+                    },
+                    0,
+                    0.0,
+                ),
             ],
         }
     }
@@ -117,20 +228,126 @@ impl LayoutDefinition {
             version: 1,
             panels: vec![
                 PanelConfig::new("hierarchy", "Hierarchy", PanelPosition::Left, 0, 200.0),
-                PanelConfig::new("director_desk", "Director Desk", PanelPosition::Left, 1, 240.0),
+                PanelConfig::new(
+                    "director_desk",
+                    "Director Desk",
+                    PanelPosition::Left,
+                    1,
+                    240.0,
+                ),
                 PanelConfig::new("chat", "Chat", PanelPosition::Right, 0, 320.0),
                 PanelConfig::new("inspector", "Inspector", PanelPosition::Right, 1, 260.0),
                 PanelConfig::new("console", "Console", PanelPosition::Bottom, 0, 150.0),
                 PanelConfig::new("director_events", "Events", PanelPosition::Bottom, 1, 140.0),
                 PanelConfig::hidden("game_mode_bar", "Game Mode", PanelPosition::Top, 0, 24.0),
-                PanelConfig::hidden("runtime_agents", "Runtime Agents", PanelPosition::Floating { x: 100.0, y: 80.0, width: 450.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("debug", "Debug", PanelPosition::Floating { x: 150.0, y: 120.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("agent_config", "Agent Config", PanelPosition::Floating { x: 200.0, y: 160.0, width: 420.0, height: 380.0 }, 0, 0.0),
-                PanelConfig::hidden("prefab_browser", "Prefab Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("asset_browser", "Asset Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 550.0, height: 450.0 }, 0, 0.0),
-                PanelConfig::hidden("project", "Project", PanelPosition::Floating { x: 300.0, y: 100.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("diff_preview", "Diff Preview", PanelPosition::Floating { x: 300.0, y: 150.0, width: 480.0, height: 350.0 }, 0, 0.0),
-                PanelConfig::hidden("game_mode", "Game Mode", PanelPosition::Floating { x: 200.0, y: 200.0, width: 600.0, height: 500.0 }, 0, 0.0),
+                PanelConfig::hidden(
+                    "runtime_agents",
+                    "Runtime Agents",
+                    PanelPosition::Floating {
+                        x: 100.0,
+                        y: 80.0,
+                        width: 450.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "debug",
+                    "Debug",
+                    PanelPosition::Floating {
+                        x: 150.0,
+                        y: 120.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "agent_config",
+                    "Agent Config",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 160.0,
+                        width: 420.0,
+                        height: 380.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "prefab_browser",
+                    "Prefab Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "asset_browser",
+                    "Asset Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 550.0,
+                        height: 450.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "project",
+                    "Project",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 100.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "diff_preview",
+                    "Diff Preview",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 150.0,
+                        width: 480.0,
+                        height: 350.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "game_mode",
+                    "Game Mode",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 200.0,
+                        width: 600.0,
+                        height: 500.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "task",
+                    "Tasks",
+                    PanelPosition::Floating {
+                        x: 400.0,
+                        y: 100.0,
+                        width: 450.0,
+                        height: 650.0,
+                    },
+                    0,
+                    0.0,
+                ),
             ],
         }
     }
@@ -141,20 +358,126 @@ impl LayoutDefinition {
             version: 1,
             panels: vec![
                 PanelConfig::new("hierarchy", "Hierarchy", PanelPosition::Left, 0, 280.0),
-                PanelConfig::new("director_desk", "Director Desk", PanelPosition::Left, 1, 320.0),
+                PanelConfig::new(
+                    "director_desk",
+                    "Director Desk",
+                    PanelPosition::Left,
+                    1,
+                    320.0,
+                ),
                 PanelConfig::new("chat", "Chat", PanelPosition::Right, 0, 420.0),
                 PanelConfig::new("inspector", "Inspector", PanelPosition::Right, 1, 340.0),
                 PanelConfig::new("console", "Console", PanelPosition::Bottom, 0, 220.0),
                 PanelConfig::new("director_events", "Events", PanelPosition::Bottom, 1, 200.0),
                 PanelConfig::hidden("game_mode_bar", "Game Mode", PanelPosition::Top, 0, 24.0),
-                PanelConfig::hidden("runtime_agents", "Runtime Agents", PanelPosition::Floating { x: 100.0, y: 80.0, width: 450.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("debug", "Debug", PanelPosition::Floating { x: 150.0, y: 120.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("agent_config", "Agent Config", PanelPosition::Floating { x: 200.0, y: 160.0, width: 420.0, height: 380.0 }, 0, 0.0),
-                PanelConfig::hidden("prefab_browser", "Prefab Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("asset_browser", "Asset Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 550.0, height: 450.0 }, 0, 0.0),
-                PanelConfig::hidden("project", "Project", PanelPosition::Floating { x: 300.0, y: 100.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("diff_preview", "Diff Preview", PanelPosition::Floating { x: 300.0, y: 150.0, width: 480.0, height: 350.0 }, 0, 0.0),
-                PanelConfig::hidden("game_mode", "Game Mode", PanelPosition::Floating { x: 200.0, y: 200.0, width: 600.0, height: 500.0 }, 0, 0.0),
+                PanelConfig::hidden(
+                    "runtime_agents",
+                    "Runtime Agents",
+                    PanelPosition::Floating {
+                        x: 100.0,
+                        y: 80.0,
+                        width: 450.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "debug",
+                    "Debug",
+                    PanelPosition::Floating {
+                        x: 150.0,
+                        y: 120.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "agent_config",
+                    "Agent Config",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 160.0,
+                        width: 420.0,
+                        height: 380.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "prefab_browser",
+                    "Prefab Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "asset_browser",
+                    "Asset Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 550.0,
+                        height: 450.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "project",
+                    "Project",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 100.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "diff_preview",
+                    "Diff Preview",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 150.0,
+                        width: 480.0,
+                        height: 350.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "game_mode",
+                    "Game Mode",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 200.0,
+                        width: 600.0,
+                        height: 500.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "task",
+                    "Tasks",
+                    PanelPosition::Floating {
+                        x: 400.0,
+                        y: 100.0,
+                        width: 450.0,
+                        height: 650.0,
+                    },
+                    0,
+                    0.0,
+                ),
             ],
         }
     }
@@ -166,19 +489,125 @@ impl LayoutDefinition {
             panels: vec![
                 PanelConfig::new("chat", "Chat", PanelPosition::Right, 0, 380.0),
                 PanelConfig::hidden("hierarchy", "Hierarchy", PanelPosition::Left, 0, 250.0),
-                PanelConfig::hidden("director_desk", "Director Desk", PanelPosition::Left, 1, 280.0),
+                PanelConfig::hidden(
+                    "director_desk",
+                    "Director Desk",
+                    PanelPosition::Left,
+                    1,
+                    280.0,
+                ),
                 PanelConfig::hidden("inspector", "Inspector", PanelPosition::Right, 1, 300.0),
                 PanelConfig::hidden("console", "Console", PanelPosition::Bottom, 0, 200.0),
                 PanelConfig::hidden("director_events", "Events", PanelPosition::Bottom, 1, 180.0),
                 PanelConfig::hidden("game_mode_bar", "Game Mode", PanelPosition::Top, 0, 24.0),
-                PanelConfig::hidden("runtime_agents", "Runtime Agents", PanelPosition::Floating { x: 100.0, y: 80.0, width: 450.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("debug", "Debug", PanelPosition::Floating { x: 150.0, y: 120.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("agent_config", "Agent Config", PanelPosition::Floating { x: 200.0, y: 160.0, width: 420.0, height: 380.0 }, 0, 0.0),
-                PanelConfig::hidden("prefab_browser", "Prefab Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("asset_browser", "Asset Browser", PanelPosition::Floating { x: 250.0, y: 200.0, width: 550.0, height: 450.0 }, 0, 0.0),
-                PanelConfig::hidden("project", "Project", PanelPosition::Floating { x: 300.0, y: 100.0, width: 500.0, height: 400.0 }, 0, 0.0),
-                PanelConfig::hidden("diff_preview", "Diff Preview", PanelPosition::Floating { x: 300.0, y: 150.0, width: 480.0, height: 350.0 }, 0, 0.0),
-                PanelConfig::hidden("game_mode", "Game Mode", PanelPosition::Floating { x: 200.0, y: 200.0, width: 600.0, height: 500.0 }, 0, 0.0),
+                PanelConfig::hidden(
+                    "runtime_agents",
+                    "Runtime Agents",
+                    PanelPosition::Floating {
+                        x: 100.0,
+                        y: 80.0,
+                        width: 450.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "debug",
+                    "Debug",
+                    PanelPosition::Floating {
+                        x: 150.0,
+                        y: 120.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "agent_config",
+                    "Agent Config",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 160.0,
+                        width: 420.0,
+                        height: 380.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "prefab_browser",
+                    "Prefab Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "asset_browser",
+                    "Asset Browser",
+                    PanelPosition::Floating {
+                        x: 250.0,
+                        y: 200.0,
+                        width: 550.0,
+                        height: 450.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "project",
+                    "Project",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 100.0,
+                        width: 500.0,
+                        height: 400.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "diff_preview",
+                    "Diff Preview",
+                    PanelPosition::Floating {
+                        x: 300.0,
+                        y: 150.0,
+                        width: 480.0,
+                        height: 350.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "game_mode",
+                    "Game Mode",
+                    PanelPosition::Floating {
+                        x: 200.0,
+                        y: 200.0,
+                        width: 600.0,
+                        height: 500.0,
+                    },
+                    0,
+                    0.0,
+                ),
+                PanelConfig::hidden(
+                    "task",
+                    "Tasks",
+                    PanelPosition::Floating {
+                        x: 400.0,
+                        y: 100.0,
+                        width: 450.0,
+                        height: 650.0,
+                    },
+                    0,
+                    0.0,
+                ),
             ],
         }
     }
@@ -413,20 +842,40 @@ impl LayoutManager {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LayoutCommand {
-    ShowPanel { panel_id: String },
-    HidePanel { panel_id: String },
-    TogglePanel { panel_id: String },
-    MovePanel { panel_id: String, position: PanelPosition },
-    ResizePanel { panel_id: String, size: f32 },
-    ApplyPreset { name: String },
+    ShowPanel {
+        panel_id: String,
+    },
+    HidePanel {
+        panel_id: String,
+    },
+    TogglePanel {
+        panel_id: String,
+    },
+    MovePanel {
+        panel_id: String,
+        position: PanelPosition,
+    },
+    ResizePanel {
+        panel_id: String,
+        size: f32,
+    },
+    ApplyPreset {
+        name: String,
+    },
     ResetLayout,
     SwitchToCompact,
     SwitchToWide,
     SwitchToMinimal,
-    FocusPanel { panel_id: String },
-    ShowOnly { panel_ids: Vec<String> },
+    FocusPanel {
+        panel_id: String,
+    },
+    ShowOnly {
+        panel_ids: Vec<String>,
+    },
     /// Apply a full layout from JSON
-    ApplyLayoutFromJson { json: String },
+    ApplyLayoutFromJson {
+        json: String,
+    },
 }
 
 impl LayoutCommand {
@@ -449,10 +898,7 @@ impl LayoutCommand {
                     if visible { "visible" } else { "hidden" }
                 )
             }
-            Self::MovePanel {
-                panel_id,
-                position,
-            } => {
+            Self::MovePanel { panel_id, position } => {
                 let ok = mgr.move_panel(panel_id, *position);
                 format!(
                     "move panel '{}': {}",
@@ -504,13 +950,24 @@ impl LayoutCommand {
                 mgr.dirty = true;
                 format!("showing only panels: {:?}", panel_ids)
             }
-            Self::ApplyLayoutFromJson { json } => {
-                match mgr.apply_json(json) {
-                    Ok(()) => "layout applied from JSON".into(),
-                    Err(e) => format!("failed to apply layout: {}", e),
-                }
-            }
+            Self::ApplyLayoutFromJson { json } => match mgr.apply_json(json) {
+                Ok(()) => "layout applied from JSON".into(),
+                Err(e) => format!("failed to apply layout: {}", e),
+            },
         }
+    }
+}
+
+/// Queue of layout commands to be processed by the layout system.
+/// Wraps `Vec<LayoutCommand>` as a Bevy `Resource`.
+#[derive(Resource, Default)]
+pub struct LayoutCommandQueue {
+    pub commands: Vec<LayoutCommand>,
+}
+
+impl LayoutCommandQueue {
+    pub fn push(&mut self, cmd: LayoutCommand) {
+        self.commands.push(cmd);
     }
 }
 
@@ -534,7 +991,7 @@ mod tests {
 
     #[test]
     fn test_layout_manager_visibility() {
-        let mut mgr = LayoutManager::new(LayoutDefinition::default());
+        let mgr = LayoutManager::new(LayoutDefinition::default());
 
         assert!(mgr.is_visible("chat"));
         assert!(mgr.is_visible("hierarchy"));

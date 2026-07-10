@@ -1,13 +1,11 @@
-use std::path::{Path, PathBuf};
-use std::fs;
-use crate::types::EntityId;
-use crate::memory::preferences::{UserPreferences, PreferenceCategory};
+use crate::memory::preferences::{PreferenceCategory, UserPreferences};
 use crate::memory_injector::{
-    ProjectMemory, ProjectManifest, ProjectChange, ChangeType,
-    CodeIndex, PatternLearner, WorkingSet,
-    MemoryCompressor, ConversationSummary,
-    MemoryError,
+    ChangeType, CodeIndex, ConversationSummary, MemoryCompressor, MemoryError, PatternLearner,
+    ProjectChange, ProjectManifest, ProjectMemory, WorkingSet,
 };
+use crate::types::EntityId;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// 记忆上下文 - 注入到 LLM 的所有记忆信息
 #[derive(Debug, Clone)]
@@ -69,7 +67,8 @@ impl MemoryInjector {
     pub fn new(project_path: Option<&Path>) -> Self {
         let memory_path = project_path.map(|p| p.join("agentedit_memory.json"));
         let project_memory = if let Some(path) = &memory_path {
-            ProjectMemory::load(path).unwrap_or_else(|_| ProjectMemory::new(ProjectManifest::default()))
+            ProjectMemory::load(path)
+                .unwrap_or_else(|_| ProjectMemory::new(ProjectManifest::default()))
         } else {
             ProjectMemory::new(ProjectManifest::default())
         };
@@ -85,7 +84,13 @@ impl MemoryInjector {
         }
     }
 
-    pub fn record_user_preference(&mut self, key: &str, value: serde_json::Value, category: PreferenceCategory, source: &str) {
+    pub fn record_user_preference(
+        &mut self,
+        key: &str,
+        value: serde_json::Value,
+        category: PreferenceCategory,
+        source: &str,
+    ) {
         self.user_preferences.set(key, value, category, source);
     }
 
@@ -93,7 +98,10 @@ impl MemoryInjector {
         self.user_preferences.get(key)
     }
 
-    pub fn search_preferences(&self, query: &str) -> Vec<&crate::memory::preferences::UserPreference> {
+    pub fn search_preferences(
+        &self,
+        query: &str,
+    ) -> Vec<&crate::memory::preferences::UserPreference> {
         self.user_preferences.search(query)
     }
 
@@ -102,8 +110,10 @@ impl MemoryInjector {
     }
 
     pub fn add_conversation_turn(&mut self, user: &str, assistant: &str) {
-        self.memory_compressor.add_content(&format!("用户: {}", user));
-        self.memory_compressor.add_content(&format!("Agent: {}", assistant));
+        self.memory_compressor
+            .add_content(&format!("用户: {}", user));
+        self.memory_compressor
+            .add_content(&format!("Agent: {}", assistant));
     }
 
     pub fn compress_memory(&mut self) -> Result<ConversationSummary, MemoryError> {
@@ -138,37 +148,51 @@ impl MemoryInjector {
     fn extract_entity_mentions(&self, input: &str) -> Vec<String> {
         let mut entities = Vec::new();
         for word in input.split_whitespace() {
-            let cleaned: String = word.chars()
-                .filter(|c| c.is_alphanumeric())
-                .collect();
-            if cleaned.len() > 1 && cleaned.chars().next().unwrap_or(' ').is_uppercase() {
-                if self.project_memory.get_entity(&cleaned).is_some() {
-                    entities.push(cleaned);
-                }
+            let cleaned: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
+            if cleaned.len() > 1
+                && cleaned.chars().next().unwrap_or(' ').is_uppercase()
+                && self.project_memory.get_entity(&cleaned).is_some()
+            {
+                entities.push(cleaned);
             }
         }
         entities
     }
 
     fn describe_recent_changes(&self) -> String {
-        let recent: Vec<&ProjectChange> = self.project_memory.change_log.iter().rev().take(5).collect();
+        let recent: Vec<&ProjectChange> = self
+            .project_memory
+            .change_log
+            .iter()
+            .rev()
+            .take(5)
+            .collect();
         if recent.is_empty() {
             return "(no recent changes)".into();
         }
         recent
             .iter()
-            .map(|c| format!(
-                "- {}: {} ({})",
-                c.timestamp,
-                c.description,
-                c.change_type_as_string()
-            ))
+            .map(|c| {
+                format!(
+                    "- {}: {} ({})",
+                    c.timestamp,
+                    c.description,
+                    c.change_type_as_string()
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
 
-    pub fn update_entity(&mut self, name: &str, entity_id: EntityId, components: &[String], purpose: Option<&str>) {
-        let mut knowledge = crate::memory_injector::EntityKnowledge::new(name.to_string(), entity_id);
+    pub fn update_entity(
+        &mut self,
+        name: &str,
+        entity_id: EntityId,
+        components: &[String],
+        purpose: Option<&str>,
+    ) {
+        let mut knowledge =
+            crate::memory_injector::EntityKnowledge::new(name.to_string(), entity_id);
         let comps: Vec<String> = components.to_vec();
         knowledge.update(purpose, Some(&comps));
         self.project_memory.add_entity(knowledge);
@@ -185,8 +209,14 @@ impl MemoryInjector {
         self.persist();
     }
 
-    pub fn record_change(&mut self, description: String, entity: Option<String>, change_type: ChangeType) {
-        self.project_memory.record_change(description, entity, change_type);
+    pub fn record_change(
+        &mut self,
+        description: String,
+        entity: Option<String>,
+        change_type: ChangeType,
+    ) {
+        self.project_memory
+            .record_change(description, entity, change_type);
         self.persist();
     }
 
@@ -256,7 +286,10 @@ impl MemoryInjector {
     fn extract_struct_name(&self, line: &str) -> Option<String> {
         if let Some(start) = line.find("struct ") {
             let rest = &line[start + 7..];
-            let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if !name.is_empty() {
                 return Some(name);
             }
@@ -267,7 +300,10 @@ impl MemoryInjector {
     fn extract_fn_name(&self, line: &str) -> Option<String> {
         if let Some(start) = line.find("fn ") {
             let rest = &line[start + 3..];
-            let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if !name.is_empty() {
                 return Some(name);
             }
@@ -280,7 +316,9 @@ impl MemoryInjector {
         let _lower_val = value.to_lowercase();
 
         if lower_key.contains("entity") || lower_key.contains("实体") {
-            self.project_memory.entity_knowledge.entry(key.to_string())
+            self.project_memory
+                .entity_knowledge
+                .entry(key.to_string())
                 .or_insert_with(|| crate::memory_injector::EntityKnowledge {
                     name: key.to_string(),
                     entity_id: EntityId(0),
@@ -293,11 +331,15 @@ impl MemoryInjector {
                     notes: String::new(),
                 });
         } else if lower_key.contains("preference") || lower_key.contains("偏好") {
-            self.project_memory.user_preferences.insert(key.to_string(), value.to_string());
+            self.project_memory
+                .user_preferences
+                .insert(key.to_string(), value.to_string());
         } else if lower_key.contains("change") || lower_key.contains("变更") {
             self.record_change(value.to_string(), None, ChangeType::Modified);
         } else {
-            self.working_set.active_context.push(format!("{}: {}", key, value));
+            self.working_set
+                .active_context
+                .push(format!("{}: {}", key, value));
             if self.working_set.active_context.len() > 20 {
                 self.working_set.active_context.remove(0);
             }
@@ -320,22 +362,19 @@ mod integration_tests {
         let mut injector = MemoryInjector::new(None);
         for i in 0..5 {
             injector.add_conversation_turn(
-                &format!("这是第 {} 次请求", i+1),
-                &format!("这是第 {} 次响应", i+1)
+                &format!("这是第 {} 次请求", i + 1),
+                &format!("这是第 {} 次响应", i + 1),
             );
         }
         let ctx = injector.build_context("测试请求");
-        assert!(!ctx.conversation_summaries.is_empty() || true);
+        assert!(!ctx.conversation_summaries.is_empty());
     }
 
     #[test]
     fn test_compress_triggers_correctly() {
         let mut injector = MemoryInjector::new(None);
         for i in 0..55 {
-            injector.add_conversation_turn(
-                &format!("请求 {}", i+1),
-                &format!("响应 {}", i+1)
-            );
+            injector.add_conversation_turn(&format!("请求 {}", i + 1), &format!("响应 {}", i + 1));
         }
         let summary = injector.compress_memory();
         assert!(summary.is_ok());

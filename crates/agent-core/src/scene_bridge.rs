@@ -165,12 +165,17 @@ impl SceneBridge for MockSceneBridge {
     fn query_entities(
         &self,
         filter: Option<&str>,
-        _component_type: Option<&str>,
+        component_type: Option<&str>,
     ) -> Vec<EntityListItem> {
         self.entities
             .iter()
+            .filter(|(_, e)| filter.is_none_or(|f| e.name.contains(f) || f == "*"))
             .filter(|(_, e)| {
-                filter.is_none_or(|f| e.name.contains(f) || f == "*")
+                component_type.is_none_or(|component_type| {
+                    e.components
+                        .iter()
+                        .any(|component| component.type_name == component_type)
+                })
             })
             .map(|(id, e)| EntityListItem {
                 id: *id,
@@ -183,18 +188,24 @@ impl SceneBridge for MockSceneBridge {
     fn get_entity(&self, id: u64) -> Option<serde_json::Value> {
         self.entities.get(&id).map(|e| {
             // Extract sprite_color from components
-            let sprite_color = e.components.iter()
+            let sprite_color = e
+                .components
+                .iter()
                 .find(|c| c.type_name == "Sprite")
                 .and_then(|c| c.properties.get("color"))
                 .and_then(|v| v.as_array())
                 .map(|arr| {
-                    serde_json::json!([arr[0].as_f64().unwrap_or(1.0),
-                                       arr[1].as_f64().unwrap_or(1.0),
-                                       arr[2].as_f64().unwrap_or(1.0),
-                                       arr[3].as_f64().unwrap_or(1.0)])
+                    serde_json::json!([
+                        arr[0].as_f64().unwrap_or(1.0),
+                        arr[1].as_f64().unwrap_or(1.0),
+                        arr[2].as_f64().unwrap_or(1.0),
+                        arr[3].as_f64().unwrap_or(1.0)
+                    ])
                 });
 
-            let visible = e.components.iter()
+            let visible = e
+                .components
+                .iter()
                 .find(|c| c.type_name == "Visibility")
                 .and_then(|c| c.properties.get("visible"))
                 .and_then(|v| v.as_bool());
@@ -273,7 +284,11 @@ impl SceneBridge for MockSceneBridge {
     ) -> Result<(), String> {
         if let Some(entity) = self.entities.get_mut(&entity_id) {
             // Find or create the component patch
-            if let Some(c) = entity.components.iter_mut().find(|c| c.type_name == component) {
+            if let Some(c) = entity
+                .components
+                .iter_mut()
+                .find(|c| c.type_name == component)
+            {
                 c.properties.extend(properties);
             } else {
                 entity.components.push(ComponentPatch {
@@ -291,9 +306,8 @@ impl SceneBridge for MockSceneBridge {
         if self.entities.remove(&entity_id).is_none() {
             return Err(format!("Entity {} not found", entity_id));
         }
-        self.snapshot.retain(|e| {
-            self.entities.iter().any(|(_id, ent)| ent.name == e.name)
-        });
+        self.snapshot
+            .retain(|e| self.entities.iter().any(|(_id, ent)| ent.name == e.name));
         Ok(())
     }
 
@@ -313,7 +327,9 @@ mod tests {
     #[test]
     fn test_mock_create_and_query() {
         let mut bridge = MockSceneBridge::new();
-        let id = bridge.create_entity("TestEntity", Some([100.0, 200.0]), &[]).unwrap();
+        let id = bridge
+            .create_entity("TestEntity", Some([100.0, 200.0]), &[])
+            .unwrap();
         assert_eq!(id, 1);
 
         let results = bridge.query_entities(None, None);

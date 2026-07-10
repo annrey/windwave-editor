@@ -11,14 +11,14 @@ use std::collections::HashMap;
 /// Types of semantic relations
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RelationType {
-    IsA,           // Player IsA Entity
-    HasA,          // Player HasA Transform
-    PartOf,        // Wheel PartOf Car
-    RelatedTo,     // Player RelatedTo Enemy
-    UsedBy,        // MovementSystem UsedBy Player
-    DependsOn,     // Physics DependsOn Transform
-    CreatedBy,     // Enemy CreatedBy SpawnSystem
-    SimilarTo,     // Goblin SimilarTo Orc
+    IsA,       // Player IsA Entity
+    HasA,      // Player HasA Transform
+    PartOf,    // Wheel PartOf Car
+    RelatedTo, // Player RelatedTo Enemy
+    UsedBy,    // MovementSystem UsedBy Player
+    DependsOn, // Physics DependsOn Transform
+    CreatedBy, // Enemy CreatedBy SpawnSystem
+    SimilarTo, // Goblin SimilarTo Orc
 }
 
 /// A node in the semantic knowledge graph
@@ -35,7 +35,12 @@ pub struct SemanticNode {
 }
 
 impl SemanticNode {
-    pub fn new(id: u64, name: impl Into<String>, node_type: impl Into<String>, description: impl Into<String>) -> Self {
+    pub fn new(
+        id: u64,
+        name: impl Into<String>,
+        node_type: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
         Self {
             metadata: MemoryMetadata::new(id, MemoryTier::Semantic),
             name: name.into(),
@@ -52,11 +57,16 @@ impl SemanticNode {
     }
 
     pub fn full_text(&self) -> String {
-        let props_text = self.properties.iter()
+        let props_text = self
+            .properties
+            .iter()
             .map(|(k, v)| format!("{}: {}", k, v))
             .collect::<Vec<_>>()
             .join(" ");
-        format!("{} {} {} {}", self.name, self.node_type, self.description, props_text)
+        format!(
+            "{} {} {} {}",
+            self.name, self.node_type, self.description, props_text
+        )
     }
 }
 
@@ -79,8 +89,8 @@ pub struct SemanticRelation {
 /// - Graph traversal for related concept discovery
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticMemory {
-    nodes: Vec<SemanticNode>,
-    relations: Vec<SemanticRelation>,
+    pub(crate) nodes: Vec<SemanticNode>,
+    pub(crate) relations: Vec<SemanticRelation>,
     next_id: u64,
     /// Node name -> index for quick lookup
     name_index: HashMap<String, usize>,
@@ -150,13 +160,15 @@ impl SemanticMemory {
 
     /// Find node by name
     pub fn find_by_name(&self, name: &str) -> Option<&SemanticNode> {
-        self.name_index.get(name)
+        self.name_index
+            .get(name)
             .and_then(|&idx| self.nodes.get(idx))
     }
 
     /// Find node by ID
     pub fn find_by_id(&self, id: MemoryEntryId) -> Option<&SemanticNode> {
-        self.id_index.get(&id.0)
+        self.id_index
+            .get(&id.0)
             .and_then(|&idx| self.nodes.get(idx))
     }
 
@@ -189,7 +201,9 @@ impl SemanticMemory {
             return Vec::new();
         }
 
-        let mut scored: Vec<(usize, f32)> = self.nodes.iter()
+        let mut scored: Vec<(usize, f32)> = self
+            .nodes
+            .iter()
             .enumerate()
             .map(|(idx, node)| {
                 let similarity = cosine_similarity(&query_vector, &node.vector);
@@ -198,10 +212,7 @@ impl SemanticMemory {
             .filter(|(_, sim)| *sim > 0.0)
             .collect();
 
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Mark accessed
         for (idx, _) in scored.iter().take(top_k) {
@@ -210,14 +221,20 @@ impl SemanticMemory {
             }
         }
 
-        scored.into_iter()
+        scored
+            .into_iter()
             .take(top_k)
             .map(|(idx, score)| (self.nodes[idx].metadata.id, score))
             .collect()
     }
 
     /// Get related nodes via graph traversal
-    pub fn get_related(&self, node_id: MemoryEntryId, relation_type: Option<&RelationType>, max_depth: usize) -> Vec<&SemanticNode> {
+    pub fn get_related(
+        &self,
+        node_id: MemoryEntryId,
+        relation_type: Option<&RelationType>,
+        max_depth: usize,
+    ) -> Vec<&SemanticNode> {
         if max_depth == 0 {
             return Vec::new();
         }
@@ -254,7 +271,8 @@ impl SemanticMemory {
 
     /// Get nodes by type
     pub fn nodes_by_type(&self, node_type: &str) -> Vec<&SemanticNode> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter(|n| n.node_type == node_type)
             .collect()
     }
@@ -271,10 +289,7 @@ impl SemanticMemory {
             if let Some(node) = self.find_by_id(node_id) {
                 parts.push(format!(
                     "- {} ({}): {} [relevance: {:.2}]",
-                    node.name,
-                    node.node_type,
-                    node.description,
-                    score
+                    node.name, node.node_type, node.description, score
                 ));
             }
         }
@@ -309,10 +324,15 @@ impl SemanticMemory {
         }
 
         // Score nodes by importance and recency
-        let mut scored: Vec<(usize, f32)> = self.nodes.iter()
+        let mut scored: Vec<(usize, f32)> = self
+            .nodes
+            .iter()
             .enumerate()
             .map(|(i, node)| {
-                let age_factor = 1.0 / (1.0 + (crate::types::current_timestamp() - node.metadata.created_at) as f32 / 86400.0); // Decay over days
+                let age_factor = 1.0
+                    / (1.0
+                        + (crate::types::current_timestamp() - node.metadata.created_at) as f32
+                            / 86400.0); // Decay over days
                 let importance = node.metadata.importance;
                 let access_factor = 1.0 + (node.metadata.access_count as f32 * 0.05);
                 (i, age_factor * importance * access_factor)
@@ -323,14 +343,16 @@ impl SemanticMemory {
         scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Collect IDs of nodes to remove
-        let to_remove: std::collections::HashSet<u64> = scored.into_iter()
+        let to_remove: std::collections::HashSet<u64> = scored
+            .into_iter()
             .take(count)
             .map(|(i, _)| self.nodes[i].metadata.id.0)
             .collect();
 
         // Remove nodes and their relations
         self.nodes.retain(|n| !to_remove.contains(&n.metadata.id.0));
-        self.relations.retain(|r| !to_remove.contains(&r.from_id.0) && !to_remove.contains(&r.to_id.0));
+        self.relations
+            .retain(|r| !to_remove.contains(&r.from_id.0) && !to_remove.contains(&r.to_id.0));
 
         // Rebuild indices
         self.rebuild_indices();
@@ -338,23 +360,95 @@ impl SemanticMemory {
 
     /// Seed with common Bevy/game dev knowledge
     pub fn seed_with_defaults(&mut self) {
-        let entity = self.create_node("Entity", "concept", "A Bevy ECS entity - a unique ID that can have components");
-        let component = self.create_node("Component", "concept", "Data attached to entities in Bevy ECS");
-        let system = self.create_node("System", "concept", "A function that queries and updates entities each frame");
-        let transform = self.create_node("Transform", "component", "Position, rotation, and scale of an entity");
-        let sprite = self.create_node("Sprite", "component", "2D visual representation of an entity");
+        let entity = self.create_node(
+            "Entity",
+            "concept",
+            "A Bevy ECS entity - a unique ID that can have components",
+        );
+        let component = self.create_node(
+            "Component",
+            "concept",
+            "Data attached to entities in Bevy ECS",
+        );
+        let system = self.create_node(
+            "System",
+            "concept",
+            "A function that queries and updates entities each frame",
+        );
+        let transform = self.create_node(
+            "Transform",
+            "component",
+            "Position, rotation, and scale of an entity",
+        );
+        let sprite = self.create_node(
+            "Sprite",
+            "component",
+            "2D visual representation of an entity",
+        );
         let player = self.create_node("Player", "entity_type", "The player-controlled character");
-        let enemy = self.create_node("Enemy", "entity_type", "An antagonist that opposes the player");
+        let enemy = self.create_node(
+            "Enemy",
+            "entity_type",
+            "An antagonist that opposes the player",
+        );
 
-        self.add_relation(entity, component, RelationType::HasA, 1.0, "Entities have components");
-        self.add_relation(component, entity, RelationType::PartOf, 1.0, "Components are part of entities");
-        self.add_relation(system, entity, RelationType::UsedBy, 0.8, "Systems operate on entities");
-        self.add_relation(transform, entity, RelationType::PartOf, 1.0, "Transform is a component");
-        self.add_relation(sprite, entity, RelationType::PartOf, 1.0, "Sprite is a component");
-        self.add_relation(player, entity, RelationType::IsA, 1.0, "Player is an entity");
+        self.add_relation(
+            entity,
+            component,
+            RelationType::HasA,
+            1.0,
+            "Entities have components",
+        );
+        self.add_relation(
+            component,
+            entity,
+            RelationType::PartOf,
+            1.0,
+            "Components are part of entities",
+        );
+        self.add_relation(
+            system,
+            entity,
+            RelationType::UsedBy,
+            0.8,
+            "Systems operate on entities",
+        );
+        self.add_relation(
+            transform,
+            entity,
+            RelationType::PartOf,
+            1.0,
+            "Transform is a component",
+        );
+        self.add_relation(
+            sprite,
+            entity,
+            RelationType::PartOf,
+            1.0,
+            "Sprite is a component",
+        );
+        self.add_relation(
+            player,
+            entity,
+            RelationType::IsA,
+            1.0,
+            "Player is an entity",
+        );
         self.add_relation(enemy, entity, RelationType::IsA, 1.0, "Enemy is an entity");
-        self.add_relation(player, enemy, RelationType::RelatedTo, 0.6, "Player and Enemy are related");
-        self.add_relation(enemy, player, RelationType::RelatedTo, 0.6, "Enemy opposes Player");
+        self.add_relation(
+            player,
+            enemy,
+            RelationType::RelatedTo,
+            0.6,
+            "Player and Enemy are related",
+        );
+        self.add_relation(
+            enemy,
+            player,
+            RelationType::RelatedTo,
+            0.6,
+            "Enemy opposes Player",
+        );
     }
 
     // ------------------------------------------------------------------
@@ -384,7 +478,11 @@ impl SemanticMemory {
         }
 
         let n = self.nodes.len() as f32;
-        let avg_dl = if self.nodes.is_empty() { 1.0 } else { total_dl as f32 / n };
+        let avg_dl = if self.nodes.is_empty() {
+            1.0
+        } else {
+            total_dl as f32 / n
+        };
 
         // Compute TF-IDF vectors for each node
         for node in &mut self.nodes {
@@ -470,13 +568,7 @@ impl Default for SemanticMemory {
 // Helpers
 // ------------------------------------------------------------------
 
-fn tokenize(text: &str) -> Vec<String> {
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| s.len() > 1)
-        .map(|s| s.to_string())
-        .collect()
-}
+use super::tokenize;
 
 fn cosine_similarity(a: &HashMap<String, f32>, b: &HashMap<String, f32>) -> f32 {
     let mut dot = 0.0;
@@ -490,7 +582,7 @@ fn cosine_similarity(a: &HashMap<String, f32>, b: &HashMap<String, f32>) -> f32 
         }
     }
 
-    for (_, weight_b) in b {
+    for weight_b in b.values() {
         norm_b += weight_b * weight_b;
     }
 

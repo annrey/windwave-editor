@@ -114,8 +114,13 @@ impl SceneFile {
     }
 
     /// Set metadata value
-    pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Serialize) -> SceneResult<()> {
-        self.metadata.insert(key.into(), serde_json::to_value(value)?);
+    pub fn set_metadata(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Serialize,
+    ) -> SceneResult<()> {
+        self.metadata
+            .insert(key.into(), serde_json::to_value(value)?);
         self.modified_at = current_timestamp();
         Ok(())
     }

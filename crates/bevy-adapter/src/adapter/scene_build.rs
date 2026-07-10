@@ -3,10 +3,11 @@
 //! Walks the Bevy ECS World to produce a hierarchical `SceneIndex` that
 //! Agents can use for spatial reasoning about the scene graph.
 
+use crate::open_world_components;
+use crate::scene_index::{ComponentSummary, SceneEntityNode, SceneIndex};
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::prelude::*;
-use bevy::ecs::hierarchy::{Children, ChildOf};
 use bevy::sprite::Sprite;
-use crate::scene_index::{SceneIndex, SceneEntityNode, ComponentSummary};
 use std::collections::HashMap;
 
 use super::BevyAdapter;
@@ -37,11 +38,19 @@ impl BevyAdapter {
         let mut roots: Vec<Entity> = Vec::new();
         let mut child_map: HashMap<Entity, Vec<Entity>> = HashMap::new();
 
-        for (entity, name, transform, sprite, children_opt, parent_opt, visibility, view_visibility, _inherited_visibility) in query.iter(world) {
-            let agent_id = self
-                .get_agent_id(entity)
-                .map(|id| id.0)
-                .unwrap_or(0);
+        for (
+            entity,
+            name,
+            transform,
+            sprite,
+            children_opt,
+            parent_opt,
+            visibility,
+            view_visibility,
+            _inherited_visibility,
+        ) in query.iter(world)
+        {
+            let agent_id = self.get_agent_id(entity).map(|id| id.0).unwrap_or(0);
 
             let entity_name = name
                 .map(|n| n.to_string())
@@ -50,52 +59,11 @@ impl BevyAdapter {
             let mut components: Vec<ComponentSummary> = Vec::new();
 
             if let Some(t) = transform {
-                let mut props = HashMap::new();
-                props.insert(
-                    "translation".to_string(),
-                    serde_json::json!([t.translation.x, t.translation.y, t.translation.z]),
-                );
-                let (roll, pitch, yaw) = t.rotation.to_euler(EulerRot::XYZ);
-                props.insert(
-                    "rotation".to_string(),
-                    serde_json::json!([roll, pitch, yaw]),
-                );
-                props.insert(
-                    "scale".to_string(),
-                    serde_json::json!([t.scale.x, t.scale.y, t.scale.z]),
-                );
-                components.push(ComponentSummary {
-                    type_name: "Transform".to_string(),
-                    properties: props,
-                });
+                components.push(Self::extract_transform_component(t));
             }
 
             if let Some(s) = sprite {
-                let mut props = HashMap::new();
-                let col = s.color.to_linear();
-                props.insert(
-                    "color".to_string(),
-                    serde_json::json!([col.red, col.green, col.blue, col.alpha]),
-                );
-                // Phase 6: Extended Sprite properties
-                if let Some(custom_size) = s.custom_size {
-                    props.insert(
-                        "custom_size".to_string(),
-                        serde_json::json!([custom_size.x, custom_size.y]),
-                    );
-                }
-                props.insert(
-                    "flip_x".to_string(),
-                    serde_json::json!(s.flip_x),
-                );
-                props.insert(
-                    "flip_y".to_string(),
-                    serde_json::json!(s.flip_y),
-                );
-                components.push(ComponentSummary {
-                    type_name: "Sprite".to_string(),
-                    properties: props,
-                });
+                components.push(Self::extract_sprite_component(s));
             }
 
             // Phase 6: Visibility component
@@ -118,6 +86,8 @@ impl BevyAdapter {
                     properties: HashMap::new(),
                 });
             }
+
+            open_world_components::push_scene_index_summaries(world, entity, &mut components);
 
             let node = SceneEntityNode {
                 id: agent_id,
@@ -175,5 +145,51 @@ impl BevyAdapter {
 
         self.scene_index_cache = Some(index.clone());
         index
+    }
+
+    fn extract_transform_component(transform: &Transform) -> ComponentSummary {
+        let mut props = HashMap::new();
+        props.insert(
+            "translation".to_string(),
+            serde_json::json!([
+                transform.translation.x,
+                transform.translation.y,
+                transform.translation.z
+            ]),
+        );
+        let (roll, pitch, yaw) = transform.rotation.to_euler(EulerRot::XYZ);
+        props.insert(
+            "rotation".to_string(),
+            serde_json::json!([roll, pitch, yaw]),
+        );
+        props.insert(
+            "scale".to_string(),
+            serde_json::json!([transform.scale.x, transform.scale.y, transform.scale.z]),
+        );
+        ComponentSummary {
+            type_name: "Transform".to_string(),
+            properties: props,
+        }
+    }
+
+    fn extract_sprite_component(sprite: &Sprite) -> ComponentSummary {
+        let mut props = HashMap::new();
+        let col = sprite.color.to_linear();
+        props.insert(
+            "color".to_string(),
+            serde_json::json!([col.red, col.green, col.blue, col.alpha]),
+        );
+        if let Some(custom_size) = sprite.custom_size {
+            props.insert(
+                "custom_size".to_string(),
+                serde_json::json!([custom_size.x, custom_size.y]),
+            );
+        }
+        props.insert("flip_x".to_string(), serde_json::json!(sprite.flip_x));
+        props.insert("flip_y".to_string(), serde_json::json!(sprite.flip_y));
+        ComponentSummary {
+            type_name: "Sprite".to_string(),
+            properties: props,
+        }
     }
 }

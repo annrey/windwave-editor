@@ -47,7 +47,9 @@ impl TeamAgentContext {
 
     /// Bootstrap this agent's context from shared team knowledge.
     pub fn bootstrap(&mut self, hub: &CommunicationHub) {
-        if self.initialized { return; }
+        if self.initialized {
+            return;
+        }
 
         let project_info = hub.context.get("project:info");
         let team_roster = hub.context.get("team:roster");
@@ -90,7 +92,10 @@ pub struct TeamContextRegistry {
 
 impl TeamContextRegistry {
     pub fn new(max_messages: usize) -> Self {
-        Self { contexts: HashMap::new(), max_messages_per_agent: max_messages }
+        Self {
+            contexts: HashMap::new(),
+            max_messages_per_agent: max_messages,
+        }
     }
 
     /// Register a new agent's context.
@@ -150,40 +155,41 @@ impl Default for TeamContextRegistry {
 impl CommunicationHub {
     /// Publish shared team context that all agents can access.
     pub fn publish_team_context(&self, key: &str, value: serde_json::Value) {
-        let _ = self.share_context(
-            crate::registry::AgentId::default(),
-            key,
-            value,
-        );
+        let _ = self.share_context(crate::registry::AgentId::default(), key, value);
     }
 
     /// Initialize team knowledge in shared context.
-    pub fn init_team_knowledge(
-        &self,
-        project_name: &str,
-        project_path: &str,
-    ) {
-        self.publish_team_context("project:info", json!({
-            "name": project_name,
-            "path": project_path,
-            "language": "Rust",
-            "engine": "Bevy 0.17",
-        }));
+    pub fn init_team_knowledge(&self, project_name: &str, project_path: &str) {
+        self.publish_team_context(
+            "project:info",
+            json!({
+                "name": project_name,
+                "path": project_path,
+                "language": "Rust",
+                "engine": "Bevy 0.17",
+            }),
+        );
 
-        self.publish_team_context("team:roster", json!({
-            "agents": [],
-            "default_roles": ["director", "planner", "executor", "reviewer", "hr"],
-        }));
+        self.publish_team_context(
+            "team:roster",
+            json!({
+                "agents": [],
+                "default_roles": ["director", "planner", "executor", "reviewer", "hr"],
+            }),
+        );
 
-        self.publish_team_context("team:patterns", json!({
-            "common_operations": [
-                "create entity",
-                "delete entity",
-                "move entity",
-                "change color",
-                "modify component",
-            ],
-        }));
+        self.publish_team_context(
+            "team:patterns",
+            json!({
+                "common_operations": [
+                    "create entity",
+                    "delete entity",
+                    "move entity",
+                    "change color",
+                    "modify component",
+                ],
+            }),
+        );
     }
 }
 

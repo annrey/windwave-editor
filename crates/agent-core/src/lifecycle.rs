@@ -5,7 +5,7 @@
 //! and contradictory memories are flagged for review.
 
 use crate::memory::MemoryTier;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // MemoryEntry — universal memory record with lifecycle metadata
@@ -43,9 +43,9 @@ impl MemoryTier {
     /// Default TTL in seconds per tier.
     pub fn default_ttl(&self) -> u64 {
         match self {
-            MemoryTier::Working => 24 * 3600,       // 1 day
-            MemoryTier::Episodic => 7 * 24 * 3600,  // 7 days
-            MemoryTier::Semantic => 30 * 24 * 3600, // 30 days
+            MemoryTier::Working => 24 * 3600,         // 1 day
+            MemoryTier::Episodic => 7 * 24 * 3600,    // 7 days
+            MemoryTier::Semantic => 30 * 24 * 3600,   // 30 days
             MemoryTier::Procedural => 90 * 24 * 3600, // 90 days
         }
     }
@@ -127,45 +127,43 @@ impl MemoryLifecycleManager {
             by_tier.entry(e.tier).or_default().push(i);
         }
 
+        let mut all_to_remove: HashSet<usize> = HashSet::new();
+
         for (_, indices) in by_tier {
-            if indices.len() <= max_per_tier { continue; }
-            // Sort by retention score ascending (worst first)
+            if indices.len() <= max_per_tier {
+                continue;
+            }
             let mut scored: Vec<(usize, f32)> = indices
                 .iter()
                 .map(|&i| (i, self.retention_score(&entries[i], now)))
                 .collect();
             scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            // Mark lowest for removal
             let remove_count = indices.len() - max_per_tier;
-            let _to_remove: std::collections::HashSet<usize> = scored
-                .iter()
-                .take(remove_count)
-                .filter(|(_, score)| *score < self.importance_threshold)
-                .map(|(i, _)| *i)
-                .collect();
-
-            // Remove from original vec (reverse order to preserve indices)
-            let removed = 0;
-            entries.retain(|_| {
-                let keep = removed >= indices.len() || true; // placeholder
-                keep
-            });
+            for (i, score) in scored.iter().take(remove_count) {
+                if *score < self.importance_threshold {
+                    all_to_remove.insert(*i);
+                }
+            }
         }
+        entries = entries
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| !all_to_remove.contains(i))
+            .map(|(_, e)| e)
+            .collect();
 
-        // Actually filter
-        // For simplicity, just sort all by score and truncate
-        let mut scored: Vec<(usize, f32)> = entries.iter().enumerate()
+        let mut scored: Vec<(usize, f32)> = entries
+            .iter()
+            .enumerate()
             .map(|(i, e)| (i, self.retention_score(e, now)))
             .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Build a set of indices to keep
         let total = entries.len().min(max_per_tier * 4); // per-tier approximation
-        let keep: std::collections::HashSet<usize> = scored.iter()
-            .take(total)
-            .map(|(i, _)| *i)
-            .collect();
+        let keep: std::collections::HashSet<usize> =
+            scored.iter().take(total).map(|(i, _)| *i).collect();
 
         entries
             .into_iter()
@@ -185,10 +183,7 @@ impl MemoryLifecycleManager {
     /// This is a lightweight heuristic based on tag/keyword overlap and
     /// content distance. Full semantic contradiction detection requires
     /// an embedding model.
-    pub fn detect_contradictions(
-        &self,
-        entries: &[MemoryEntry],
-    ) -> Vec<Contradiction> {
+    pub fn detect_contradictions(&self, entries: &[MemoryEntry]) -> Vec<Contradiction> {
         let mut contradictions = Vec::new();
 
         for i in 0..entries.len() {
@@ -263,7 +258,9 @@ pub struct Contradiction {
 // ---------------------------------------------------------------------------
 
 fn tag_overlap(a: &[String], b: &[String]) -> f32 {
-    if a.is_empty() || b.is_empty() { return 0.0; }
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
     let common = a.iter().filter(|t| b.contains(t)).count();
     common as f32 / a.len().min(b.len()) as f32
 }
@@ -276,7 +273,13 @@ fn tag_overlap(a: &[String], b: &[String]) -> f32 {
 mod tests {
     use super::*;
 
-    fn make_entry(id: &str, tier: MemoryTier, created_at: u64, importance: f32, content: &str) -> MemoryEntry {
+    fn make_entry(
+        id: &str,
+        tier: MemoryTier,
+        created_at: u64,
+        importance: f32,
+        content: &str,
+    ) -> MemoryEntry {
         MemoryEntry {
             id: id.into(),
             content: content.into(),

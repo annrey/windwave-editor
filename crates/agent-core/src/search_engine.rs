@@ -84,11 +84,16 @@ impl TfIdfIndex {
         if self.documents.remove(id).is_some() {
             self.doc_lengths.remove(id);
             self.total_docs = self.total_docs.saturating_sub(1);
-            let to_clear: Vec<String> = self.term_index
+            let to_clear: Vec<String> = self
+                .term_index
                 .iter_mut()
                 .filter_map(|(term, docs)| {
                     docs.remove(id);
-                    if docs.is_empty() { Some(term.clone()) } else { None }
+                    if docs.is_empty() {
+                        Some(term.clone())
+                    } else {
+                        None
+                    }
                 })
                 .collect();
             for term in to_clear {
@@ -109,14 +114,20 @@ impl TfIdfIndex {
 
         for term in &query_terms {
             let df = self.term_index.get(term).map(|d| d.len()).unwrap_or(0);
-            if df == 0 { continue; }
+            if df == 0 {
+                continue;
+            }
             let idf = ((n - df as f32 + 0.5) / (df as f32 + 0.5) + 1.0).ln();
 
             if let Some(postings) = self.term_index.get(term) {
                 for (doc_id, tf) in postings {
                     let doc_len = self.doc_lengths.get(doc_id).copied().unwrap_or(1);
                     // BM25-like: tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))
-                    let avgdl = if self.total_docs > 0 { self.total_docs as f32 } else { 1.0 }; // approximation
+                    let avgdl = if self.total_docs > 0 {
+                        self.total_docs as f32
+                    } else {
+                        1.0
+                    }; // approximation
                     let k1 = 1.2_f32;
                     let b = 0.75_f32;
                     let tf_norm = (*tf as f32 * (k1 + 1.0))
@@ -156,7 +167,9 @@ pub struct VectorIndex {
 
 impl VectorIndex {
     pub fn new() -> Self {
-        Self { vectors: HashMap::new() }
+        Self {
+            vectors: HashMap::new(),
+        }
     }
 
     pub fn insert(&mut self, id: &str, embedding: Vec<f32>) {
@@ -169,7 +182,8 @@ impl VectorIndex {
 
     /// Search with cosine similarity. Query must be pre-computed embedding.
     pub fn search(&self, query_embedding: &[f32], top_k: usize) -> Vec<(String, f32)> {
-        let mut scores: Vec<(String, f32)> = self.vectors
+        let mut scores: Vec<(String, f32)> = self
+            .vectors
             .iter()
             .map(|(id, emb)| (id.clone(), cosine_similarity(query_embedding, emb)))
             .collect();
@@ -190,7 +204,8 @@ impl Default for VectorIndex {
 }
 
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let (dot, norm_a, norm_b) = a.iter()
+    let (dot, norm_a, norm_b) = a
+        .iter()
         .zip(b.iter().take(a.len().min(b.len())))
         .fold((0.0_f32, 0.0_f32, 0.0_f32), |(d, na, nb), (ai, bi)| {
             (d + ai * bi, na + ai * ai, nb + bi * bi)
@@ -213,7 +228,11 @@ pub struct HybridSearchEngine {
 
 impl HybridSearchEngine {
     pub fn new() -> Self {
-        Self { bm25: TfIdfIndex::new(), vector: None, rrf_k: 60.0 }
+        Self {
+            bm25: TfIdfIndex::new(),
+            vector: None,
+            rrf_k: 60.0,
+        }
     }
 
     pub fn with_vector(mut self, vi: VectorIndex) -> Self {
@@ -287,12 +306,16 @@ impl HybridSearchEngine {
         let mut session_counts: HashMap<String, usize> = HashMap::new();
         let mut final_results = Vec::new();
         for (id, score) in results {
-            if final_results.len() >= top_k { break; }
+            if final_results.len() >= top_k {
+                break;
+            }
 
             if let Some(doc) = self.bm25.get(&id) {
                 if let Some(ref sid) = doc.session_id {
                     let count = session_counts.entry(sid.clone()).or_insert(0);
-                    if *count >= 3 { continue; }
+                    if *count >= 3 {
+                        continue;
+                    }
                     *count += 1;
                 }
                 final_results.push(SearchResult {
@@ -352,9 +375,10 @@ fn tokenize(text: &str) -> Vec<String> {
     for ch in text.chars() {
         if ch.is_alphanumeric() {
             // Detect CJK
-            if ('\u{4E00}'..='\u{9FFF}').contains(&ch) ||
-               ('\u{3040}'..='\u{30FF}').contains(&ch) ||
-               ('\u{AC00}'..='\u{D7AF}').contains(&ch) {
+            if ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+                || ('\u{3040}'..='\u{30FF}').contains(&ch)
+                || ('\u{AC00}'..='\u{D7AF}').contains(&ch)
+            {
                 if !current.is_empty() {
                     tokens.push(current.to_lowercase());
                     current.clear();
@@ -449,7 +473,7 @@ mod tests {
             embedding: None,
             session_id: None,
         });
-        assert!(idx.search("test", 1).len() > 0);
+        assert!(!idx.search("test", 1).is_empty());
         idx.remove("X");
         assert!(idx.search("test", 1).is_empty());
     }

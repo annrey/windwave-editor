@@ -7,20 +7,21 @@
 //! - Expand/collapse tree nodes
 //! - Search/filter entities by name
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use bevy_adapter::{RuntimeAgentComponent};
 use crate::editor_selection::EditorSelection;
 use crate::layout::LayoutManager;
-use std::collections::HashSet;
+use bevy::prelude::*;
+use bevy_adapter::RuntimeAgentComponent;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use log::info;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub struct HierarchyPanelPlugin;
 
 impl Plugin for HierarchyPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HierarchyState>()
-            .add_systems(Update, render_hierarchy_panel);
+            .add_systems(EguiPrimaryContextPass, render_hierarchy_panel);
     }
 }
 
@@ -47,7 +48,9 @@ fn render_hierarchy_panel(
     agent_query: Query<(Entity, &RuntimeAgentComponent)>,
     layout_mgr: Res<LayoutManager>,
 ) {
-    if !layout_mgr.is_visible("hierarchy") { return; }
+    if !layout_mgr.is_visible("hierarchy") {
+        return;
+    }
 
     let ctx = contexts.ctx_mut();
     let Ok(ctx) = ctx else { return };
@@ -124,9 +127,13 @@ fn render_entity_node(
     children_map: &HashMap<Entity, Vec<Entity>>,
     depth: usize,
 ) {
-    let Ok((_, name_opt, _)) = query.get(entity) else { return };
+    let Ok((_, name_opt, _)) = query.get(entity) else {
+        return;
+    };
 
-    let name = name_opt.map(|n| n.as_str().to_string()).unwrap_or_else(|| "Unnamed".to_string());
+    let name = name_opt
+        .map(|n| n.as_str().to_string())
+        .unwrap_or_else(|| "Unnamed".to_string());
 
     // Filter by search query
     if !state.search_query.is_empty() {
@@ -199,4 +206,3 @@ fn render_entity_node(
         }
     }
 }
-

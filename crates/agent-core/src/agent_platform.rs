@@ -1,6 +1,16 @@
-use crate::permission::{OperationRisk, PermissionDecision, PermissionEngine, PermissionRequirement};
-use crate::registry::{AgentError, AgentId, AgentRegistry, AgentRequest, AgentResponse, CapabilityKind};
+#[cfg(feature = "ai-frameworks")]
+use crate::ai_frameworks::AIFrameworkManager;
+use crate::permission::{
+    OperationRisk, PermissionDecision, PermissionEngine, PermissionRequirement,
+};
+use crate::registry::{
+    AgentError, AgentId, AgentRegistry, AgentRequest, AgentResponse, CapabilityKind,
+};
 use crate::tool::{ToolCall, ToolError, ToolRegistry, ToolResult};
+#[cfg(feature = "ai-frameworks")]
+use ai_frameworks::types::{
+    AIConfig, AgentConfig as AIFrameworkAgentConfig, Document, FrameworkType, WorkflowStep,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -28,16 +38,57 @@ pub struct AgentPlatformMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentPlatformEvent {
-    SessionCreated { session_id: AgentSessionId },
-    RunStarted { run_id: AgentRunId, session_id: AgentSessionId, request: String },
-    AgentDispatched { run_id: AgentRunId, agent_id: AgentId, capability: Option<CapabilityKind> },
-    ToolPlanned { run_id: AgentRunId, call_id: String, tool_name: String, risk: OperationRisk },
-    PermissionRequired { run_id: AgentRunId, call_id: String, risk: OperationRisk, reason: String },
-    PermissionResolved { run_id: AgentRunId, call_id: String, decision: PermissionDecision },
-    ToolStarted { run_id: AgentRunId, call_id: String, tool_name: String },
-    ToolFinished { run_id: AgentRunId, call_id: String, tool_name: String, success: bool, message: String },
-    RunFinished { run_id: AgentRunId, success: bool, summary: String },
-    RunFailed { run_id: AgentRunId, error: String },
+    SessionCreated {
+        session_id: AgentSessionId,
+    },
+    RunStarted {
+        run_id: AgentRunId,
+        session_id: AgentSessionId,
+        request: String,
+    },
+    AgentDispatched {
+        run_id: AgentRunId,
+        agent_id: AgentId,
+        capability: Option<CapabilityKind>,
+    },
+    ToolPlanned {
+        run_id: AgentRunId,
+        call_id: String,
+        tool_name: String,
+        risk: OperationRisk,
+    },
+    PermissionRequired {
+        run_id: AgentRunId,
+        call_id: String,
+        risk: OperationRisk,
+        reason: String,
+    },
+    PermissionResolved {
+        run_id: AgentRunId,
+        call_id: String,
+        decision: PermissionDecision,
+    },
+    ToolStarted {
+        run_id: AgentRunId,
+        call_id: String,
+        tool_name: String,
+    },
+    ToolFinished {
+        run_id: AgentRunId,
+        call_id: String,
+        tool_name: String,
+        success: bool,
+        message: String,
+    },
+    RunFinished {
+        run_id: AgentRunId,
+        success: bool,
+        summary: String,
+    },
+    RunFailed {
+        run_id: AgentRunId,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +124,69 @@ impl Default for AgentPlatformConfig {
             run_timeout: Duration::from_secs(300),
             auto_dispatch_agents: true,
         }
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub async fn register_ai_agent(
+        &mut self,
+        agent: AIFrameworkAgentConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(ref mut manager) = self.ai_frameworks {
+            manager.register_agent(agent).await?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub async fn execute_ai_agent(
+        &self,
+        agent_name: &str,
+        input: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        if let Some(ref manager) = self.ai_frameworks {
+            let response = manager.execute_agent(agent_name, input).await?;
+            return Ok(response.content);
+        }
+        Err("AI frameworks not initialized".into())
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub async fn create_knowledge_base(
+        &mut self,
+        name: &str,
+        documents: Vec<Document>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        if let Some(ref mut manager) = self.ai_frameworks {
+            let index_id = manager.create_knowledge_base(name, documents).await?;
+            return Ok(index_id);
+        }
+        Err("AI frameworks not initialized".into())
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub async fn query_knowledge_base(
+        &self,
+        name: &str,
+        query: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        if let Some(ref manager) = self.ai_frameworks {
+            let result = manager.query_knowledge_base(name, query).await?;
+            Ok(result.documents.iter().map(|d| d.content.clone()).collect())
+        } else {
+            Err("AI frameworks not initialized".into())
+        }
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub async fn execute_workflow(
+        &self,
+        steps: Vec<WorkflowStep>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        if let Some(ref manager) = self.ai_frameworks {
+            let result = manager.execute_workflow(steps).await?;
+            return Ok(result.final_output);
+        }
+        Err("AI frameworks not initialized".into())
     }
 }
 
@@ -146,6 +260,8 @@ pub struct AgentPlatform {
     events: VecDeque<AgentPlatformEvent>,
     next_session_id: u64,
     next_run_id: u64,
+    #[cfg(feature = "ai-frameworks")]
+    pub ai_frameworks: Option<AIFrameworkManager>,
 }
 
 impl AgentPlatform {
@@ -161,7 +277,24 @@ impl AgentPlatform {
             events: VecDeque::new(),
             next_session_id: 1,
             next_run_id: 1,
+            #[cfg(feature = "ai-frameworks")]
+            ai_frameworks: None,
         }
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub fn with_ai_frameworks(mut self, config: AIConfig) -> Self {
+        self.ai_frameworks = Some(AIFrameworkManager::new().with_config(config));
+        self
+    }
+
+    #[cfg(feature = "ai-frameworks")]
+    pub async fn initialize_ai_frameworks(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(mut manager) = self.ai_frameworks.take() {
+            manager.initialize().await?;
+            self.ai_frameworks = Some(manager);
+        }
+        Ok(())
     }
 
     pub fn with_config(mut self, config: AgentPlatformConfig) -> Self {
@@ -218,7 +351,10 @@ impl AgentPlatform {
                     "available_tools": self.tools.list_tools(),
                 }),
             };
-            let response = self.agents.dispatch_by_capability(agent_request, capability.clone()).await?;
+            let response = self
+                .agents
+                .dispatch_by_capability(agent_request, capability)
+                .await?;
             self.emit(AgentPlatformEvent::AgentDispatched {
                 run_id,
                 agent_id: response.agent_id,
@@ -283,7 +419,12 @@ impl AgentPlatform {
 
         let summary = self.build_summary(&request, &tool_results, agent_response.as_ref());
         self.finish_run(run_id, true, summary.clone(), tool_results.clone());
-        self.add_message(session_id, AgentPlatformRole::Assistant, summary.clone(), serde_json::json!({}))?;
+        self.add_message(
+            session_id,
+            AgentPlatformRole::Assistant,
+            summary.clone(),
+            serde_json::json!({}),
+        )?;
 
         Ok(AgentPlatformRunResult {
             run_id,
@@ -296,14 +437,10 @@ impl AgentPlatform {
         })
     }
 
-    pub fn approve_tool_call(
-        &mut self,
-        call_id: &str,
-    ) -> Result<ToolResult, AgentPlatformError> {
-        let pending = self
-            .pending_approvals
-            .remove(call_id)
-            .ok_or_else(|| AgentPlatformError::Tool(format!("pending tool call not found: {}", call_id)))?;
+    pub fn approve_tool_call(&mut self, call_id: &str) -> Result<ToolResult, AgentPlatformError> {
+        let pending = self.pending_approvals.remove(call_id).ok_or_else(|| {
+            AgentPlatformError::Tool(format!("pending tool call not found: {}", call_id))
+        })?;
         self.emit(AgentPlatformEvent::PermissionResolved {
             run_id: pending.run_id,
             call_id: call_id.to_string(),
@@ -323,20 +460,25 @@ impl AgentPlatform {
         reason: impl Into<String>,
     ) -> Result<(), AgentPlatformError> {
         let reason = reason.into();
-        let pending = self
-            .pending_approvals
-            .remove(call_id)
-            .ok_or_else(|| AgentPlatformError::Tool(format!("pending tool call not found: {}", call_id)))?;
+        let pending = self.pending_approvals.remove(call_id).ok_or_else(|| {
+            AgentPlatformError::Tool(format!("pending tool call not found: {}", call_id))
+        })?;
         self.emit(AgentPlatformEvent::PermissionResolved {
             run_id: pending.run_id,
             call_id: call_id.to_string(),
-            decision: PermissionDecision::Denied { reason: reason.clone() },
+            decision: PermissionDecision::Denied {
+                reason: reason.clone(),
+            },
         });
         self.fail_run(pending.run_id, reason);
         Ok(())
     }
 
-    fn start_run(&mut self, session_id: AgentSessionId, request: String) -> Result<AgentRunId, AgentPlatformError> {
+    fn start_run(
+        &mut self,
+        session_id: AgentSessionId,
+        request: String,
+    ) -> Result<AgentRunId, AgentPlatformError> {
         if !self.sessions.contains_key(&session_id) {
             return Err(AgentPlatformError::SessionNotFound(session_id));
         }
@@ -361,7 +503,11 @@ impl AgentPlatform {
                 summary: None,
             },
         );
-        self.emit(AgentPlatformEvent::RunStarted { run_id, session_id, request });
+        self.emit(AgentPlatformEvent::RunStarted {
+            run_id,
+            session_id,
+            request,
+        });
         Ok(run_id)
     }
 
@@ -376,11 +522,19 @@ impl AgentPlatform {
             .sessions
             .get_mut(&session_id)
             .ok_or(AgentPlatformError::SessionNotFound(session_id))?;
-        session.messages.push(AgentPlatformMessage { role, content, metadata });
+        session.messages.push(AgentPlatformMessage {
+            role,
+            content,
+            metadata,
+        });
         Ok(())
     }
 
-    fn execute_tool(&mut self, run_id: AgentRunId, call: &ToolCall) -> Result<ToolResult, AgentPlatformError> {
+    fn execute_tool(
+        &mut self,
+        run_id: AgentRunId,
+        call: &ToolCall,
+    ) -> Result<ToolResult, AgentPlatformError> {
         self.emit(AgentPlatformEvent::ToolStarted {
             run_id,
             call_id: call.call_id.clone(),
@@ -401,13 +555,27 @@ impl AgentPlatform {
         Ok(result)
     }
 
-    fn finish_run(&mut self, run_id: AgentRunId, success: bool, summary: String, tool_results: Vec<ToolResult>) {
+    fn finish_run(
+        &mut self,
+        run_id: AgentRunId,
+        success: bool,
+        summary: String,
+        tool_results: Vec<ToolResult>,
+    ) {
         if let Some(run) = self.runs.get_mut(&run_id) {
-            run.status = if success { AgentPlatformStatus::Completed } else { AgentPlatformStatus::Failed };
+            run.status = if success {
+                AgentPlatformStatus::Completed
+            } else {
+                AgentPlatformStatus::Failed
+            };
             run.completed_tools = tool_results;
             run.summary = Some(summary.clone());
         }
-        self.emit(AgentPlatformEvent::RunFinished { run_id, success, summary });
+        self.emit(AgentPlatformEvent::RunFinished {
+            run_id,
+            success,
+            summary,
+        });
     }
 
     fn fail_run(&mut self, run_id: AgentRunId, error: String) {
@@ -426,14 +594,14 @@ impl AgentPlatform {
     }
 
     fn infer_capability(&self, request: &str) -> CapabilityKind {
-        let lower = request.to_lowercase();
-        if lower.contains("scene") || lower.contains("entity") || lower.contains("场景") || lower.contains("实体") {
+        use crate::keyword_matcher::KeywordMatcher;
+        if KeywordMatcher::targets_scene_domain(request) {
             CapabilityKind::SceneWrite
-        } else if lower.contains("code") || lower.contains("代码") || lower.contains("script") {
+        } else if KeywordMatcher::targets_code_domain(request) {
             CapabilityKind::CodeWrite
-        } else if lower.contains("asset") || lower.contains("资源") || lower.contains("texture") {
+        } else if KeywordMatcher::targets_asset_domain(request) {
             CapabilityKind::AssetManage
-        } else if lower.contains("review") || lower.contains("检查") || lower.contains("审查") {
+        } else if KeywordMatcher::targets_review_domain(request) {
             CapabilityKind::Review
         } else {
             CapabilityKind::Orchestrate
@@ -441,9 +609,9 @@ impl AgentPlatform {
     }
 
     fn plan_tool_calls(&self, run_id: AgentRunId, request: &str) -> Vec<ToolCall> {
-        let lower = request.to_lowercase();
         let mut calls = Vec::new();
-        if self.tools.has("query_scene") && (lower.contains("query") || lower.contains("list") || lower.contains("查询") || lower.contains("列出")) {
+        use crate::keyword_matcher::KeywordMatcher;
+        if self.tools.has("query_scene") && KeywordMatcher::has_query_keywords(request) {
             calls.push(ToolCall {
                 tool_name: "query_scene".to_string(),
                 parameters: HashMap::new(),
@@ -452,7 +620,10 @@ impl AgentPlatform {
         }
         if self.tools.has("echo") && calls.is_empty() {
             let mut parameters = HashMap::new();
-            parameters.insert("message".to_string(), serde_json::Value::String(request.to_string()));
+            parameters.insert(
+                "message".to_string(),
+                serde_json::Value::String(request.to_string()),
+            );
             calls.push(ToolCall {
                 tool_name: "echo".to_string(),
                 parameters,
@@ -466,7 +637,12 @@ impl AgentPlatform {
         let name = call.tool_name.to_lowercase();
         if name.contains("delete") || name.contains("remove") || name.contains("rollback") {
             OperationRisk::HighRisk
-        } else if name.contains("create") || name.contains("set") || name.contains("apply") || name.contains("write") || name.contains("spawn") {
+        } else if name.contains("create")
+            || name.contains("set")
+            || name.contains("apply")
+            || name.contains("write")
+            || name.contains("spawn")
+        {
             OperationRisk::MediumRisk
         } else {
             OperationRisk::Safe
@@ -482,7 +658,11 @@ impl AgentPlatform {
         let tool_summary = if tool_results.is_empty() {
             "no tools executed".to_string()
         } else {
-            tool_results.iter().map(|r| r.summary()).collect::<Vec<_>>().join("; ")
+            tool_results
+                .iter()
+                .map(|r| r.summary())
+                .collect::<Vec<_>>()
+                .join("; ")
         };
         let agent_summary = agent_response
             .map(|response| format!("agent={} result={:?}", response.agent_name, response.result))
@@ -506,7 +686,10 @@ mod tests {
         let permissions = PermissionEngine::new();
         let mut platform = AgentPlatform::new(tools, agents, permissions);
         let session_id = platform.create_session("test");
-        let result = platform.run_user_request(session_id, "hello").await.unwrap();
+        let result = platform
+            .run_user_request(session_id, "hello")
+            .await
+            .unwrap();
         assert!(result.success);
         assert_eq!(result.tool_results.len(), 1);
     }

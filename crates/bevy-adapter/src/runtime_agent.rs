@@ -20,10 +20,9 @@ fn generate_agent_id(prefix: &str) -> String {
 
 // Re-export core types for convenience
 pub use agent_core::runtime_agent::{
-    RuntimeAgentId, RuntimeAgentProfileId, RuntimeAgentControlMode,
-    RuntimeAgentStatus, RuntimeAgentAction, RuntimeTarget,
-    RuntimeGoal, RuntimeBlackboard, RuntimeObservation,
-    RuntimeBehaviorSpec, EditorAgentControlCommand,
+    EditorAgentControlCommand, RuntimeAgentAction, RuntimeAgentControlMode, RuntimeAgentId,
+    RuntimeAgentProfileId, RuntimeAgentStatus, RuntimeBehaviorSpec, RuntimeBlackboard, RuntimeGoal,
+    RuntimeObservation, RuntimeTarget,
 };
 
 /// Bevy Component wrapper for runtime agent data
@@ -55,8 +54,8 @@ impl RuntimeAgentComponent {
             control_mode: RuntimeAgentControlMode::Autonomous,
             status: RuntimeAgentStatus::Idle,
             tick_enabled: true,
-            behavior: RuntimeBehaviorSpec::Scripted { 
-                script_name: "default".to_string() 
+            behavior: RuntimeBehaviorSpec::Scripted {
+                script_name: "default".to_string(),
             },
             blackboard: RuntimeBlackboard::default(),
             active_goal: None,
@@ -80,7 +79,11 @@ impl RuntimeAgentComponent {
     }
 
     pub fn can_act(&self) -> bool {
-        self.is_active() && matches!(self.status, RuntimeAgentStatus::Idle | RuntimeAgentStatus::Thinking)
+        self.is_active()
+            && matches!(
+                self.status,
+                RuntimeAgentStatus::Idle | RuntimeAgentStatus::Thinking
+            )
     }
 }
 
@@ -134,12 +137,15 @@ pub struct RuntimeAgentPlugin;
 
 impl Plugin for RuntimeAgentPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<RuntimeAgentRegistry>()
-            .add_systems(Update, (
+        app.init_resource::<RuntimeAgentRegistry>().add_systems(
+            Update,
+            (
                 runtime_agent_tick_system,
                 sync_agent_entities,
                 execute_pending_actions,
-            ).chain());
+            )
+                .chain(),
+        );
     }
 }
 
@@ -194,21 +200,32 @@ fn evaluate_behavior(
     profile: &RuntimeAgentProfile,
 ) -> Vec<RuntimeAgentAction> {
     match &profile.behavior {
-        RuntimeBehaviorSpec::StateMachine { states, initial_state } => {
+        RuntimeBehaviorSpec::StateMachine {
+            states,
+            initial_state,
+        } => {
             // Simple state machine: find current state and execute its actions
-            let current_state = agent.blackboard.get("current_state")
+            let current_state = agent
+                .blackboard
+                .get("current_state")
                 .and_then(|v| v.as_str())
                 .unwrap_or(initial_state);
 
-            states.iter()
+            states
+                .iter()
                 .find(|s| s.name == current_state)
                 .map(|s| s.actions.clone())
                 .unwrap_or_default()
         }
         RuntimeBehaviorSpec::UtilityAI { considerations } => {
             // Simple utility: pick highest weight consideration
-            considerations.iter()
-                .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap_or(std::cmp::Ordering::Equal))
+            considerations
+                .iter()
+                .max_by(|a, b| {
+                    a.weight
+                        .partial_cmp(&b.weight)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .map(|c| vec![c.action.clone()])
                 .unwrap_or_default()
         }
@@ -218,7 +235,10 @@ fn evaluate_behavior(
                 payload: serde_json::json!({ "script": script_name }),
             }]
         }
-        RuntimeBehaviorSpec::LlmDriven { system_prompt, tool_allowlist } => {
+        RuntimeBehaviorSpec::LlmDriven {
+            system_prompt,
+            tool_allowlist,
+        } => {
             vec![RuntimeAgentAction::EmitEvent {
                 event_type: "llm_tick".to_string(),
                 payload: serde_json::json!({
@@ -282,7 +302,10 @@ fn execute_action(
             let direction = target_pos - transform.translation;
             if direction.length() > 0.1 {
                 transform.translation += direction.normalize() * 0.5;
-                agent.blackboard.set("last_move_direction", serde_json::json!([direction.x, direction.y, direction.z]));
+                agent.blackboard.set(
+                    "last_move_direction",
+                    serde_json::json!([direction.x, direction.y, direction.z]),
+                );
             }
         }
         RuntimeAgentAction::LookAt { target } => {
@@ -294,28 +317,42 @@ fn execute_action(
             }
         }
         RuntimeAgentAction::SetVelocity { velocity } => {
-            agent.blackboard.set("velocity", serde_json::json!(velocity));
+            agent
+                .blackboard
+                .set("velocity", serde_json::json!(velocity));
         }
         RuntimeAgentAction::PlayAnimation { name } => {
             agent.blackboard.set("animation", serde_json::json!(name));
         }
         RuntimeAgentAction::SpawnPrefab { prefab_id, at } => {
             let spawn_pos = resolve_target(at, transform);
-            agent.blackboard.set("spawned_prefab", serde_json::json!({
-                "prefab_id": prefab_id,
-                "position": [spawn_pos.x, spawn_pos.y, spawn_pos.z],
-            }));
+            agent.blackboard.set(
+                "spawned_prefab",
+                serde_json::json!({
+                    "prefab_id": prefab_id,
+                    "position": [spawn_pos.x, spawn_pos.y, spawn_pos.z],
+                }),
+            );
             // Note: Actual prefab spawning would require asset server access
         }
-        RuntimeAgentAction::ModifyOwnComponent { component_type, property, value } => {
+        RuntimeAgentAction::ModifyOwnComponent {
+            component_type,
+            property,
+            value,
+        } => {
             agent.blackboard.set(
-                &format!("component_override_{}_{}", component_type, property),
+                format!("component_override_{}_{}", component_type, property),
                 value,
             );
         }
-        RuntimeAgentAction::EmitEvent { event_type, payload } => {
+        RuntimeAgentAction::EmitEvent {
+            event_type,
+            payload,
+        } => {
             // Store event in blackboard for now
-            agent.blackboard.set(&format!("event_{}", event_type), payload);
+            agent
+                .blackboard
+                .set(format!("event_{}", event_type), payload);
         }
         RuntimeAgentAction::RequestEditorCommand { command } => {
             // Queue command for editor processing
@@ -359,14 +396,16 @@ pub fn runtime_action_to_engine_command(
                 None
             }
         }
-        RuntimeAgentAction::ModifyOwnComponent { component_type, property, value } => {
-            Some(crate::EngineCommand::ModifyComponent {
-                entity_id: entity_id.0,
-                component_type: component_type.clone(),
-                property: property.clone(),
-                value: value.clone(),
-            })
-        }
+        RuntimeAgentAction::ModifyOwnComponent {
+            component_type,
+            property,
+            value,
+        } => Some(crate::EngineCommand::ModifyComponent {
+            entity_id: entity_id.0,
+            component_type: component_type.clone(),
+            property: property.clone(),
+            value: value.clone(),
+        }),
         _ => None,
     }
 }
@@ -381,10 +420,7 @@ pub fn attach_runtime_agent(
 }
 
 /// Helper to detach a runtime agent from an entity
-pub fn detach_runtime_agent(
-    commands: &mut Commands,
-    entity: Entity,
-) {
+pub fn detach_runtime_agent(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<RuntimeAgentComponent>();
 }
 
@@ -395,7 +431,10 @@ pub fn process_editor_control_command(
     world: &mut World,
 ) -> Result<(), String> {
     match command {
-        EditorAgentControlCommand::AttachRuntimeAgent { entity_id, component: _ } => {
+        EditorAgentControlCommand::AttachRuntimeAgent {
+            entity_id,
+            component: _,
+        } => {
             // Note: entity_id here is agent_core::EntityId, need to find or create Bevy Entity
             // For now, this is a placeholder - actual implementation needs entity mapping
             log::info!("Attach runtime agent requested for entity {:?}", entity_id);
@@ -406,7 +445,9 @@ pub fn process_editor_control_command(
             Ok(())
         }
         EditorAgentControlCommand::SetControlMode { entity_id, mode } => {
-            if let Some(entity) = find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string())) {
+            if let Some(entity) =
+                find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string()))
+            {
                 if let Some(mut agent) = world.get_mut::<RuntimeAgentComponent>(entity) {
                     agent.control_mode = mode;
                 }
@@ -414,15 +455,23 @@ pub fn process_editor_control_command(
             Ok(())
         }
         EditorAgentControlCommand::SetRuntimeGoal { entity_id, goal } => {
-            if let Some(entity) = find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string())) {
+            if let Some(entity) =
+                find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string()))
+            {
                 if let Some(mut agent) = world.get_mut::<RuntimeAgentComponent>(entity) {
                     agent.active_goal = Some(goal);
                 }
             }
             Ok(())
         }
-        EditorAgentControlCommand::SetBlackboardValue { entity_id, key, value } => {
-            if let Some(entity) = find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string())) {
+        EditorAgentControlCommand::SetBlackboardValue {
+            entity_id,
+            key,
+            value,
+        } => {
+            if let Some(entity) =
+                find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string()))
+            {
                 if let Some(mut agent) = world.get_mut::<RuntimeAgentComponent>(entity) {
                     agent.blackboard.set(key, value);
                 }
@@ -430,15 +479,21 @@ pub fn process_editor_control_command(
             Ok(())
         }
         EditorAgentControlCommand::SendRuntimeEvent { entity_id, event } => {
-            if let Some(entity) = find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string())) {
+            if let Some(entity) =
+                find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string()))
+            {
                 if let Some(mut agent) = world.get_mut::<RuntimeAgentComponent>(entity) {
-                    let mut observation = agent.last_observation.clone().unwrap_or(RuntimeObservation {
-                        entity_id,
-                        visible_entities: Vec::new(),
-                        nearby_prefab_instances: Vec::new(),
-                        events: Vec::new(),
-                        facts: std::collections::HashMap::new(),
-                    });
+                    let mut observation =
+                        agent
+                            .last_observation
+                            .clone()
+                            .unwrap_or(RuntimeObservation {
+                                entity_id,
+                                visible_entities: Vec::new(),
+                                nearby_prefab_instances: Vec::new(),
+                                events: Vec::new(),
+                                facts: std::collections::HashMap::new(),
+                            });
                     observation.events.push(event);
                     agent.last_observation = Some(observation);
                 }
@@ -446,7 +501,9 @@ pub fn process_editor_control_command(
             Ok(())
         }
         EditorAgentControlCommand::ExecuteRuntimeAction { entity_id, action } => {
-            if let Some(entity) = find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string())) {
+            if let Some(entity) =
+                find_entity_by_agent_id(world, &RuntimeAgentId(entity_id.0.to_string()))
+            {
                 if let Some(mut agent) = world.get_mut::<RuntimeAgentComponent>(entity) {
                     agent.pending_actions.push(action);
                     agent.status = RuntimeAgentStatus::Acting;
@@ -476,16 +533,16 @@ pub fn spawn_runtime_agent_entity(
     profile_id: &str,
     control_mode: RuntimeAgentControlMode,
 ) -> Entity {
-    commands.spawn((
-        Name::new(name.to_string()),
-        Transform::from_translation(position),
-        GlobalTransform::default(),
-        Visibility::default(),
-        crate::AgentTracked,
-        Sprite::default(),
-        RuntimeAgentComponent::new(
-            generate_agent_id(name),
-            profile_id,
-        ).with_control_mode(control_mode),
-    )).id()
+    commands
+        .spawn((
+            Name::new(name.to_string()),
+            Transform::from_translation(position),
+            GlobalTransform::default(),
+            Visibility::default(),
+            crate::AgentTracked,
+            Sprite::default(),
+            RuntimeAgentComponent::new(generate_agent_id(name), profile_id)
+                .with_control_mode(control_mode),
+        ))
+        .id()
 }

@@ -8,13 +8,15 @@
 //! All tools hold a `SharedSceneBridge` for real engine access.
 //! When no bridge is connected, tools return an error instead of mock data.
 
-use crate::scene_bridge::{SharedSceneBridge, ComponentPatch};
-use crate::tool::{Tool, ToolCategory, ToolParameter, ToolResult, ToolError, ParameterType};
+use crate::scene_bridge::{ComponentPatch, SharedSceneBridge};
+use crate::tool::{ParameterType, Tool, ToolCategory, ToolError, ToolParameter, ToolResult};
 use serde_json::Value;
 use std::collections::HashMap;
 
 fn no_bridge_error() -> ToolError {
-    ToolError::ExecutionFailed("No SceneBridge connected — scene tools require a live bridge".into())
+    ToolError::ExecutionFailed(
+        "No SceneBridge connected — scene tools require a live bridge".into(),
+    )
 }
 
 /// Query entities in the scene
@@ -61,14 +63,14 @@ impl Tool for QueryEntitiesTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let filter = params.get("filter")
-            .and_then(|v| v.as_str())
-            .unwrap_or("*");
+        let filter = params.get("filter").and_then(|v| v.as_str()).unwrap_or("*");
 
-        let with_component = params.get("with_component")
-            .and_then(|v| v.as_str());
+        let with_component = params.get("with_component").and_then(|v| v.as_str());
 
-        let bridge = self.bridge.lock().map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
+        let bridge = self
+            .bridge
+            .lock()
+            .map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
 
         match bridge.as_ref() {
             Some(b) => {
@@ -108,15 +110,13 @@ impl Tool for GetEntityTool {
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "entity_id".to_string(),
-                description: "Entity ID to query".to_string(),
-                param_type: ParameterType::EntityId,
-                required: true,
-                default: None,
-            },
-        ]
+        vec![ToolParameter {
+            name: "entity_id".to_string(),
+            description: "Entity ID to query".to_string(),
+            param_type: ParameterType::EntityId,
+            required: true,
+            default: None,
+        }]
     }
 
     fn category(&self) -> ToolCategory {
@@ -124,24 +124,29 @@ impl Tool for GetEntityTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let entity_id = params.get("entity_id")
+        let entity_id = params
+            .get("entity_id")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| ToolError::MissingParameter("entity_id".to_string()))?;
 
-        let bridge = self.bridge.lock().map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
+        let bridge = self
+            .bridge
+            .lock()
+            .map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
 
         match bridge.as_ref() {
-            Some(b) => {
-                match b.get_entity(entity_id) {
-                    Some(info) => Ok(ToolResult {
-                        success: true,
-                        message: format!("Entity {} details retrieved", entity_id),
-                        data: Some(info),
-                        execution_time_ms: 0,
-                    }),
-                    None => Err(ToolError::ExecutionFailed(format!("Entity {} not found", entity_id))),
-                }
-            }
+            Some(b) => match b.get_entity(entity_id) {
+                Some(info) => Ok(ToolResult {
+                    success: true,
+                    message: format!("Entity {} details retrieved", entity_id),
+                    data: Some(info),
+                    execution_time_ms: 0,
+                }),
+                None => Err(ToolError::ExecutionFailed(format!(
+                    "Entity {} not found",
+                    entity_id
+                ))),
+            },
             None => Err(no_bridge_error()),
         }
     }
@@ -183,7 +188,7 @@ impl Tool for CreateEntityTool {
                 required: false,
                 default: Some(Value::Array(vec![
                     Value::Number(0.into()),
-                    Value::Number(0.into())
+                    Value::Number(0.into()),
                 ])),
             },
             ToolParameter {
@@ -201,11 +206,13 @@ impl Tool for CreateEntityTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("name".to_string()))?;
 
-        let position = params.get("position")
+        let position = params
+            .get("position")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 let x = arr.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -213,37 +220,47 @@ impl Tool for CreateEntityTool {
                 [x, y]
             });
 
-        let component_names: Vec<String> = params.get("components")
+        let component_names: Vec<String> = params
+            .get("components")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let patches: Vec<ComponentPatch> = component_names.iter().map(|cn| {
-            ComponentPatch {
+        let patches: Vec<ComponentPatch> = component_names
+            .iter()
+            .map(|cn| ComponentPatch {
                 type_name: cn.clone(),
                 properties: HashMap::new(),
-            }
-        }).collect();
+            })
+            .collect();
 
-        let mut bridge = self.bridge.lock().map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
+        let mut bridge = self
+            .bridge
+            .lock()
+            .map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
 
         match bridge.as_mut() {
-            Some(b) => {
-                match b.create_entity(name, position, &patches) {
-                    Ok(new_id) => Ok(ToolResult {
-                        success: true,
-                        message: format!("Created entity '{}' with ID {}", name, new_id),
-                        data: Some(serde_json::json!({
-                            "id": new_id,
-                            "name": name,
-                            "position": position.map(|[x, y]| serde_json::json!({"x": x, "y": y})),
-                            "components": component_names
-                        })),
-                        execution_time_ms: 0,
-                    }),
-                    Err(e) => Err(ToolError::ExecutionFailed(format!("Failed to create entity: {}", e))),
-                }
-            }
+            Some(b) => match b.create_entity(name, position, &patches) {
+                Ok(new_id) => Ok(ToolResult {
+                    success: true,
+                    message: format!("Created entity '{}' with ID {}", name, new_id),
+                    data: Some(serde_json::json!({
+                        "id": new_id,
+                        "name": name,
+                        "position": position.map(|[x, y]| serde_json::json!({"x": x, "y": y})),
+                        "components": component_names
+                    })),
+                    execution_time_ms: 0,
+                }),
+                Err(e) => Err(ToolError::ExecutionFailed(format!(
+                    "Failed to create entity: {}",
+                    e
+                ))),
+            },
             None => Err(no_bridge_error()),
         }
     }
@@ -307,43 +324,51 @@ impl Tool for UpdateComponentTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let entity_id = params.get("entity_id")
+        let entity_id = params
+            .get("entity_id")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| ToolError::MissingParameter("entity_id".to_string()))?;
 
-        let component = params.get("component")
+        let component = params
+            .get("component")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("component".to_string()))?;
 
-        let property = params.get("property")
+        let property = params
+            .get("property")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::MissingParameter("property".to_string()))?;
 
-        let value = params.get("value")
+        let value = params
+            .get("value")
             .ok_or_else(|| ToolError::MissingParameter("value".to_string()))?;
 
         let mut properties = HashMap::new();
         properties.insert(property.to_string(), value.clone());
 
-        let mut bridge = self.bridge.lock().map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
+        let mut bridge = self
+            .bridge
+            .lock()
+            .map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
 
         match bridge.as_mut() {
-            Some(b) => {
-                match b.update_component(entity_id, component, properties) {
-                    Ok(()) => Ok(ToolResult {
-                        success: true,
-                        message: format!("Updated {}.{} on entity {}", component, property, entity_id),
-                        data: Some(serde_json::json!({
-                            "entity_id": entity_id,
-                            "component": component,
-                            "property": property,
-                            "value": value
-                        })),
-                        execution_time_ms: 0,
-                    }),
-                    Err(e) => Err(ToolError::ExecutionFailed(format!("Failed to update component: {}", e))),
-                }
-            }
+            Some(b) => match b.update_component(entity_id, component, properties) {
+                Ok(()) => Ok(ToolResult {
+                    success: true,
+                    message: format!("Updated {}.{} on entity {}", component, property, entity_id),
+                    data: Some(serde_json::json!({
+                        "entity_id": entity_id,
+                        "component": component,
+                        "property": property,
+                        "value": value
+                    })),
+                    execution_time_ms: 0,
+                }),
+                Err(e) => Err(ToolError::ExecutionFailed(format!(
+                    "Failed to update component: {}",
+                    e
+                ))),
+            },
             None => Err(no_bridge_error()),
         }
     }
@@ -393,34 +418,40 @@ impl Tool for DeleteEntityTool {
     }
 
     fn execute(&self, params: HashMap<String, Value>) -> Result<ToolResult, ToolError> {
-        let entity_id = params.get("entity_id")
+        let entity_id = params
+            .get("entity_id")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| ToolError::MissingParameter("entity_id".to_string()))?;
 
-        let confirm = params.get("confirm")
+        let confirm = params
+            .get("confirm")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
         if !confirm {
             return Err(ToolError::ExecutionFailed(
-                "Deletion not confirmed. Set confirm=true to delete.".to_string()
+                "Deletion not confirmed. Set confirm=true to delete.".to_string(),
             ));
         }
 
-        let mut bridge = self.bridge.lock().map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
+        let mut bridge = self
+            .bridge
+            .lock()
+            .map_err(|e| ToolError::ExecutionFailed(format!("Bridge lock failed: {}", e)))?;
 
         match bridge.as_mut() {
-            Some(b) => {
-                match b.delete_entity(entity_id) {
-                    Ok(()) => Ok(ToolResult {
-                        success: true,
-                        message: format!("Deleted entity {}", entity_id),
-                        data: None,
-                        execution_time_ms: 0,
-                    }),
-                    Err(e) => Err(ToolError::ExecutionFailed(format!("Failed to delete entity: {}", e))),
-                }
-            }
+            Some(b) => match b.delete_entity(entity_id) {
+                Ok(()) => Ok(ToolResult {
+                    success: true,
+                    message: format!("Deleted entity {}", entity_id),
+                    data: None,
+                    execution_time_ms: 0,
+                }),
+                Err(e) => Err(ToolError::ExecutionFailed(format!(
+                    "Failed to delete entity: {}",
+                    e
+                ))),
+            },
             None => Err(no_bridge_error()),
         }
     }
@@ -438,7 +469,9 @@ pub fn register_scene_tools(registry: &mut crate::tool::ToolRegistry, bridge: Sh
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene_bridge::{MockSceneBridge, create_shared_bridge, create_empty_shared_bridge, SceneBridge};
+    use crate::scene_bridge::{
+        create_empty_shared_bridge, create_shared_bridge, MockSceneBridge, SceneBridge,
+    };
 
     #[test]
     fn test_query_entities_tool_with_bridge() {

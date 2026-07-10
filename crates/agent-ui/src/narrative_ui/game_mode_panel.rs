@@ -3,38 +3,38 @@
 //! Shows 4 presets + custom mode option.
 //! Displays current active mode with agent status.
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use agent_core::game_mode::{GameModeType, GameModeState, NarrativeAgentRole};
 use crate::layout::{LayoutManager, PanelPosition};
+use agent_core::game_mode::{GameModeState, GameModeType, NarrativeAgentRole};
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use log::info;
 
 pub struct GameModePanelPlugin;
 
 impl Plugin for GameModePanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameModePanel>()
-            .add_systems(Update, render_game_mode_panel);
+            .add_systems(EguiPrimaryContextPass, render_game_mode_panel);
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct GameModePanel {
-    pub visible: bool,
     pub game_state: GameModeState,
 }
 
-impl Default for GameModePanel {
-    fn default() -> Self {
-        Self { visible: false, game_state: GameModeState::default() }
-    }
-}
-
 fn render_game_mode_panel(
-    mut contexts: EguiContexts, mut panel: ResMut<GameModePanel>,
+    mut contexts: EguiContexts,
+    mut panel: ResMut<GameModePanel>,
     layout_mgr: Res<LayoutManager>,
 ) {
-    if !layout_mgr.is_visible("game_mode") { return; }
-    let ctx = match contexts.ctx_mut() { Ok(c) => c, Err(_) => return };
+    if !layout_mgr.is_visible("game_mode") {
+        return;
+    }
+    let ctx = match contexts.ctx_mut() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
 
     let (win_w, win_h) = layout_mgr
         .panel_config("game_mode")
@@ -44,22 +44,37 @@ fn render_game_mode_panel(
         })
         .unwrap_or((420.0, 380.0));
 
-    egui::Window::new("Game Mode").default_size([win_w, win_h]).resizable(true).show(ctx, |ui| {
-        if panel.game_state.is_active {
-            render_active_mode(ui, &panel.game_state);
-        } else {
-            render_mode_selector(ui, &mut panel.game_state);
-        }
-    });
+    egui::Window::new("Game Mode")
+        .default_size([win_w, win_h])
+        .resizable(true)
+        .show(ctx, |ui| {
+            if panel.game_state.is_active {
+                render_active_mode(ui, &panel.game_state);
+            } else {
+                render_mode_selector(ui, &mut panel.game_state);
+            }
+        });
 
     if panel.game_state.is_active {
-        egui::TopBottomPanel::top("game_mode_bar").min_height(24.0).show(ctx, |ui| {
-            ui.horizontal_centered(|ui| {
-                let name = panel.game_state.current.as_ref().map_or("Unknown", |m| m.name.as_str());
-                ui.label(egui::RichText::new(format!("Game Mode: {} | Round {}", name, panel.game_state.round))
-                    .size(11.0).color(egui::Color32::from_rgb(16, 185, 129)));
+        egui::TopBottomPanel::top("game_mode_bar")
+            .min_height(24.0)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let name = panel
+                        .game_state
+                        .current
+                        .as_ref()
+                        .map_or("Unknown", |m| m.name.as_str());
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Game Mode: {} | Round {}",
+                            name, panel.game_state.round
+                        ))
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(16, 185, 129)),
+                    );
+                });
             });
-        });
     }
 }
 
@@ -73,15 +88,28 @@ fn render_mode_selector(ui: &mut egui::Ui, state: &mut GameModeState) {
             let response = ui.selectable_label(false, "");
             let rect = response.rect;
             // Name + description
-            ui.painter().text(egui::pos2(rect.left() + 6.0, rect.top() + 4.0),
-                egui::Align2::LEFT_TOP, &mode.name, egui::FontId::proportional(13.0), egui::Color32::WHITE);
-            ui.painter().text(egui::pos2(rect.left() + 6.0, rect.top() + 22.0),
-                egui::Align2::LEFT_TOP, &mode.description, egui::FontId::proportional(10.0), egui::Color32::from_gray(150));
+            ui.painter().text(
+                egui::pos2(rect.left() + 6.0, rect.top() + 4.0),
+                egui::Align2::LEFT_TOP,
+                &mode.name,
+                egui::FontId::proportional(13.0),
+                egui::Color32::WHITE,
+            );
+            ui.painter().text(
+                egui::pos2(rect.left() + 6.0, rect.top() + 22.0),
+                egui::Align2::LEFT_TOP,
+                &mode.description,
+                egui::FontId::proportional(10.0),
+                egui::Color32::from_gray(150),
+            );
             // Agent count
-            ui.painter().text(egui::pos2(rect.right() - 60.0, rect.top() + 14.0),
+            ui.painter().text(
+                egui::pos2(rect.right() - 60.0, rect.top() + 14.0),
                 egui::Align2::CENTER_CENTER,
                 format!("{} agents", mode.enabled_agents.len()),
-                egui::FontId::proportional(9.0), egui::Color32::from_gray(120));
+                egui::FontId::proportional(9.0),
+                egui::Color32::from_gray(120),
+            );
 
             if response.clicked() {
                 state.activate(mode.clone());
@@ -122,6 +150,6 @@ fn agent_label(role: NarrativeAgentRole) -> &'static str {
     }
 }
 
-pub fn toggle_game_mode_panel(panel: &mut ResMut<GameModePanel>) {
-    panel.visible = !panel.visible;
+pub fn toggle_game_mode_panel(_panel: &mut ResMut<GameModePanel>) {
+    // Visibility managed by LayoutManager
 }

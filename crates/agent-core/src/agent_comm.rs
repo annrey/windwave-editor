@@ -41,28 +41,37 @@ pub enum MessagePayload {
     /// Structured data
     Data { data: serde_json::Value },
     /// Task assignment
-    Task { task_id: String, description: String, priority: TaskPriority },
+    Task {
+        task_id: String,
+        description: String,
+        priority: TaskPriority,
+    },
     /// Result of task execution
-    Result { task_id: String, success: bool, output: serde_json::Value },
+    Result {
+        task_id: String,
+        success: bool,
+        output: serde_json::Value,
+    },
     /// Shared context update
-    ContextUpdate { key: String, value: serde_json::Value },
+    ContextUpdate {
+        key: String,
+        value: serde_json::Value,
+    },
     /// Query for information
-    Query { query_type: String, parameters: serde_json::Value },
+    Query {
+        query_type: String,
+        parameters: serde_json::Value,
+    },
 }
 
 /// Task priority levels
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum TaskPriority {
     Critical = 0,
     High = 1,
+    #[default]
     Normal = 2,
     Low = 3,
-}
-
-impl Default for TaskPriority {
-    fn default() -> Self {
-        TaskPriority::Normal
-    }
 }
 
 /// Shared context for agent collaboration
@@ -101,13 +110,13 @@ impl SharedContext {
         let value = serde_json::to_value(value)
             .map_err(|e| AgentCommError::SerializeError(e.to_string()))?;
 
-        let mut entries = self.entries.lock()
-            .map_err(|_| AgentCommError::LockError)?;
+        let mut entries = self.entries.lock().map_err(|_| AgentCommError::LockError)?;
 
         // Prevent unbounded growth
         if entries.len() >= self.max_entries && !entries.contains_key(&key) {
             // Remove oldest entry
-            let oldest = entries.iter()
+            let oldest = entries
+                .iter()
                 .min_by_key(|(_, v)| v.updated_at)
                 .map(|(k, _)| k.clone());
             if let Some(k) = oldest {
@@ -115,11 +124,14 @@ impl SharedContext {
             }
         }
 
-        entries.insert(key, ContextEntry {
-            value,
-            updated_at: Instant::now(),
-            updated_by: agent_id,
-        });
+        entries.insert(
+            key,
+            ContextEntry {
+                value,
+                updated_at: Instant::now(),
+                updated_by: agent_id,
+            },
+        );
 
         Ok(())
     }
@@ -131,13 +143,14 @@ impl SharedContext {
     }
 
     /// Get value with metadata
-    pub fn get_with_meta(&self, key: &str) -> Option<(serde_json::Value, Instant, crate::registry::AgentId)> {
+    pub fn get_with_meta(
+        &self,
+        key: &str,
+    ) -> Option<(serde_json::Value, Instant, crate::registry::AgentId)> {
         let entries = self.entries.lock().ok()?;
-        entries.get(key).map(|e| (
-            e.value.clone(),
-            e.updated_at,
-            e.updated_by,
-        ))
+        entries
+            .get(key)
+            .map(|e| (e.value.clone(), e.updated_at, e.updated_by))
     }
 
     /// Remove a context value
@@ -148,7 +161,9 @@ impl SharedContext {
 
     /// List all context keys
     pub fn keys(&self) -> Vec<String> {
-        let entries = self.entries.lock()
+        let entries = self
+            .entries
+            .lock()
             .map(|e| e.keys().cloned().collect())
             .unwrap_or_default();
         entries
@@ -176,7 +191,9 @@ pub struct MessageBroker {
     /// Message counter for ID generation
     next_id: Arc<Mutex<u64>>,
     /// Subscribers by agent ID
-    subscribers: Arc<Mutex<HashMap<crate::registry::AgentId, Vec<crossbeam::channel::Sender<AgentMessage>>>>>,
+    subscribers: Arc<
+        Mutex<HashMap<crate::registry::AgentId, Vec<crossbeam::channel::Sender<AgentMessage>>>>,
+    >,
     /// Maximum message history
     max_history: usize,
 }
@@ -209,10 +226,12 @@ impl MessageBroker {
 
         // Store in history
         {
-            let mut messages = self.messages.lock()
+            let mut messages = self
+                .messages
+                .lock()
                 .map_err(|_| AgentCommError::LockError)?;
             messages.push(message.clone());
-            
+
             // Trim history
             if messages.len() > self.max_history {
                 messages.remove(0);
@@ -220,7 +239,9 @@ impl MessageBroker {
         }
 
         // Deliver to subscribers
-        let subscribers = self.subscribers.lock()
+        let subscribers = self
+            .subscribers
+            .lock()
             .map_err(|_| AgentCommError::LockError)?;
 
         // Direct message
@@ -245,33 +266,35 @@ impl MessageBroker {
     }
 
     /// Subscribe to messages for a specific agent
-    pub fn subscribe(&self, agent_id: crate::registry::AgentId) -> crossbeam::channel::Receiver<AgentMessage> {
+    pub fn subscribe(
+        &self,
+        agent_id: crate::registry::AgentId,
+    ) -> crossbeam::channel::Receiver<AgentMessage> {
         let (tx, rx) = crossbeam::channel::unbounded();
-        
+
         if let Ok(mut subscribers) = self.subscribers.lock() {
-            subscribers.entry(agent_id)
+            subscribers
+                .entry(agent_id)
                 .or_insert_with(Vec::new)
                 .push(tx);
         }
-        
+
         rx
     }
 
     /// Get message history
     pub fn history(&self) -> Vec<AgentMessage> {
-        self.messages.lock()
-            .map(|m| m.clone())
-            .unwrap_or_default()
+        self.messages.lock().map(|m| m.clone()).unwrap_or_default()
     }
 
     /// Get messages for a specific agent
     pub fn messages_for(&self, agent_id: crate::registry::AgentId) -> Vec<AgentMessage> {
-        self.messages.lock()
+        self.messages
+            .lock()
             .map(|m| {
                 m.iter()
                     .filter(|msg| {
-                        msg.to.map(|to| to == agent_id).unwrap_or(true) ||
-                        msg.from == agent_id
+                        msg.to.map(|to| to == agent_id).unwrap_or(true) || msg.from == agent_id
                     })
                     .cloned()
                     .collect()
@@ -291,10 +314,10 @@ impl Default for MessageBroker {
 pub enum AgentCommError {
     #[error("Serialization error: {0}")]
     SerializeError(String),
-    
+
     #[error("Lock error")]
     LockError,
-    
+
     #[error("Send error: {0}")]
     SendError(String),
 }
@@ -326,7 +349,9 @@ impl CommunicationHub {
             from,
             to,
             msg_type: MessageType::Notification,
-            payload: MessagePayload::Text { content: content.into() },
+            payload: MessagePayload::Text {
+                content: content.into(),
+            },
             timestamp: 0.0,
             correlation_id: None,
         };
@@ -368,12 +393,12 @@ impl CommunicationHub {
         let key_str: String = key.into();
         let value_json = serde_json::to_value(&value)
             .map_err(|e| AgentCommError::SerializeError(e.to_string()))?;
-        
+
         // Set in context (value needs to be re-serialized or cloned)
         self.context.set(key_str.clone(), &value_json, from)?;
-        
+
         // Also broadcast as message
-        
+
         let message = AgentMessage {
             id: MessageId(0),
             from,
@@ -387,13 +412,16 @@ impl CommunicationHub {
             correlation_id: None,
         };
         let _ = self.broker.send(message);
-        
+
         Ok(())
     }
 
     /// Subscribe an agent to receive messages of a specific type.
     /// Returns a receiver for the agent to poll.
-    pub fn subscribe(&self, agent_id: crate::registry::AgentId) -> crossbeam::channel::Receiver<AgentMessage> {
+    pub fn subscribe(
+        &self,
+        agent_id: crate::registry::AgentId,
+    ) -> crossbeam::channel::Receiver<AgentMessage> {
         self.broker.subscribe(agent_id)
     }
 
@@ -425,37 +453,39 @@ impl CommunicationHub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_shared_context() {
         let ctx = SharedContext::new();
         let agent_id = crate::registry::AgentId::default();
-        
+
         ctx.set("test_key", "test_value", agent_id).unwrap();
         assert_eq!(
             ctx.get("test_key"),
             Some(serde_json::Value::String("test_value".to_string()))
         );
     }
-    
+
     #[test]
     fn test_message_broker() {
         let broker = MessageBroker::new();
         let agent_id = crate::registry::AgentId::default();
-        
+
         let message = AgentMessage {
             id: MessageId(0),
             from: agent_id,
             to: None,
             msg_type: MessageType::Notification,
-            payload: MessagePayload::Text { content: "Hello".to_string() },
+            payload: MessagePayload::Text {
+                content: "Hello".to_string(),
+            },
             timestamp: 0.0,
             correlation_id: None,
         };
-        
+
         let id = broker.send(message).unwrap();
         assert_ne!(id.0, 0);
-        
+
         let history = broker.history();
         assert_eq!(history.len(), 1);
     }

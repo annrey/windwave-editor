@@ -19,8 +19,7 @@
 //! ```
 
 use crate::prompt::{
-    LayeredContext, L0SystemContext,
-    L3EntityContext, EntityComponent, FewShotExample,
+    EntityComponent, FewShotExample, L0SystemContext, L3EntityContext, LayeredContext,
 };
 use crate::scene_bridge::SceneBridge;
 
@@ -145,10 +144,7 @@ impl<'a> LayeredContextBuilder<'a> {
     /// Assembles all layers into a single well-formatted prompt with
     /// clear section headers and token-budget awareness.
     pub fn build_prompt(&self, ctx: &LayeredContext) -> String {
-        let mut parts = Vec::new();
-
-        // L0: System identity and capabilities
-        parts.push("=== SYSTEM CONTEXT (L0) ===".to_string());
+        let mut parts = vec!["=== SYSTEM CONTEXT (L0) ===".to_string()];
         parts.push(ctx.l0_system.describe());
 
         // L1: Session history and project state
@@ -261,8 +257,8 @@ impl<'a> LayeredContextBuilder<'a> {
                         entity_name: entity.name.clone(),
                         entity_id: entity.id,
                         components: Self::convert_components(&entity.components),
-                        parent: None,  // EntityListItem doesn't have parent info
-                        children: Vec::new(),  // EntityListItem doesn't have children info
+                        parent: None,         // EntityListItem doesn't have parent info
+                        children: Vec::new(), // EntityListItem doesn't have children info
                     };
                     l3_entities.push(l3_ctx);
                 }
@@ -280,18 +276,26 @@ impl<'a> LayeredContextBuilder<'a> {
         let mut seen = std::collections::HashSet::new();
 
         for word in request.split_whitespace() {
-            let cleaned: String = word.chars()
+            let cleaned: String = word
+                .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
 
             // Check if it looks like an entity name (capitalized, >1 char)
             if cleaned.len() > 1
-                && cleaned.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                && cleaned
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
                 && !seen.contains(&cleaned)
             {
                 // Exclude common words that aren't entity names
-                if !["The", "And", "For", "With", "From", "This", "That",
-                    "Create", "Delete", "Move", "Update", "Query"].contains(&cleaned.as_str())
+                if ![
+                    "The", "And", "For", "With", "From", "This", "That", "Create", "Delete",
+                    "Move", "Update", "Query",
+                ]
+                .contains(&cleaned.as_str())
                 {
                     names.push(cleaned.clone());
                     seen.insert(cleaned);
@@ -305,27 +309,26 @@ impl<'a> LayeredContextBuilder<'a> {
     /// Extract goals from user request using keyword matching.
     fn extract_goals_from_request(request: &str) -> Vec<String> {
         let mut goals = Vec::new();
-        let lower = request.to_lowercase();
+
+        use crate::keyword_matcher::KeywordMatcher;
 
         // Common goal patterns
-        if lower.contains("创建") || lower.contains("create") || lower.contains("生成") {
+        if KeywordMatcher::is_create_operation(request) {
             goals.push("Create new entity/entities".into());
         }
-        if lower.contains("删除") || lower.contains("delete") || lower.contains("移除") {
+        if KeywordMatcher::is_delete_operation(request) {
             goals.push("Remove existing entity/entities".into());
         }
-        if lower.contains("移动") || lower.contains("move") || lower.contains("位置") {
+        if KeywordMatcher::has_move_keywords(request) {
             goals.push("Reposition entity/entities".into());
         }
-        if lower.contains("修改") || lower.contains("更新") || lower.contains("改变") {
+        if KeywordMatcher::has_modify_keywords(request) {
             goals.push("Modify entity properties".into());
         }
-        if lower.contains("查询") || lower.contains("列出") || lower.contains("显示") {
+        if KeywordMatcher::has_query_keywords(request) {
             goals.push("Query and display information".into());
         }
-        if lower.contains("颜色") || lower.contains("color") || lower.contains("红色")
-            || lower.contains("蓝色") || lower.contains("绿色")
-        {
+        if KeywordMatcher::has_color_keywords(request) {
             goals.push("Change visual appearance (color)".into());
         }
 
@@ -372,12 +375,15 @@ impl<'a> LayeredContextBuilder<'a> {
 
     /// Convert component info from SceneBridge to L3 format.
     fn convert_components(components: &[String]) -> Vec<EntityComponent> {
-        components.iter().map(|comp_name| {
-            EntityComponent {
-                name: comp_name.clone(),
-                properties: std::collections::HashMap::new(), // Details would need additional API
-            }
-        }).collect()
+        components
+            .iter()
+            .map(|comp_name| {
+                EntityComponent {
+                    name: comp_name.clone(),
+                    properties: std::collections::HashMap::new(), // Details would need additional API
+                }
+            })
+            .collect()
     }
 }
 
@@ -411,8 +417,7 @@ mod tests {
 
     #[test]
     fn test_builder_with_custom_engine() {
-        let builder = LayeredContextBuilder::new()
-            .with_engine("Unity");
+        let builder = LayeredContextBuilder::new().with_engine("Unity");
         let ctx = builder.build();
 
         assert_eq!(ctx.l0_system.engine_name, "unity");
@@ -420,11 +425,10 @@ mod tests {
 
     #[test]
     fn test_builder_with_recent_actions() {
-        let builder = LayeredContextBuilder::new()
-            .with_recent_actions(vec![
-                "Created Player".into(),
-                "Moved Player to (100, 200)".into(),
-            ]);
+        let builder = LayeredContextBuilder::new().with_recent_actions(vec![
+            "Created Player".into(),
+            "Moved Player to (100, 200)".into(),
+        ]);
         let ctx = builder.build();
 
         assert_eq!(ctx.l1_session.recent_actions.len(), 2);
@@ -433,26 +437,30 @@ mod tests {
 
     #[test]
     fn test_builder_extract_entity_names() {
-        let builder = LayeredContextBuilder::new()
-            .with_user_request("把 Player 移到 Enemy 旁边");
+        let builder = LayeredContextBuilder::new().with_user_request("把 Player 移到 Enemy 旁边");
         let ctx = builder.build();
 
         // Should extract Player and Enemy as entities
-        assert!(ctx.l2_task.selected_entities.contains(&"Player".to_string()));
+        assert!(ctx
+            .l2_task
+            .selected_entities
+            .contains(&"Player".to_string()));
         assert!(ctx.l2_task.selected_entities.contains(&"Enemy".to_string()));
     }
 
     #[test]
     fn test_builder_extract_goals() {
-        let builder = LayeredContextBuilder::new()
-            .with_user_request("创建一个红色敌人放在右侧");
+        let builder = LayeredContextBuilder::new().with_user_request("创建一个红色敌人放在右侧");
         let ctx = builder.build();
 
         // Should extract creation goal and position constraint
         let has_create_goal = ctx.l2_task.goals.iter().any(|g| g.contains("Create"));
         assert!(has_create_goal, "Should detect creation goal");
 
-        let has_position_constraint = ctx.l2_task.constraints.iter()
+        let has_position_constraint = ctx
+            .l2_task
+            .constraints
+            .iter()
             .any(|c| c.contains("right") || c.contains("右侧"));
         assert!(has_position_constraint, "Should detect position constraint");
     }
@@ -485,8 +493,11 @@ mod tests {
         // Test create request → should prefer create example
         let create_examples = ctx.select_few_shot_examples("创建一个蓝色玩家", 1);
         assert_eq!(create_examples.len(), 1);
-        assert!(create_examples[0].action.contains("create"),
-            "Expected action containing 'create', got: '{}'", create_examples[0].action);
+        assert!(
+            create_examples[0].action.contains("create"),
+            "Expected action containing 'create', got: '{}'",
+            create_examples[0].action
+        );
 
         // Test update request → should prefer update example
         let update_examples = ctx.select_few_shot_examples("把Enemy改成红色", 1);
@@ -496,9 +507,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_with_base_context() {
-        let base = LayeredContextBuilder::new()
-            .with_project("MyGame")
-            .build();
+        let base = LayeredContextBuilder::new().with_project("MyGame").build();
 
         let updated = LayeredContextBuilder::new()
             .with_base_context(base)
@@ -521,9 +530,12 @@ mod tests {
         let ctx = LayeredContextBuilder::new().build();
         use crate::prompt::FewShotExample;
         let defaults = FewShotExample::default_examples();
-        assert!(ctx.few_shot_examples.len() >= defaults.len(),
+        assert!(
+            ctx.few_shot_examples.len() >= defaults.len(),
             "Builder should include all default examples, got {} expected at least {}",
-            ctx.few_shot_examples.len(), defaults.len());
+            ctx.few_shot_examples.len(),
+            defaults.len()
+        );
     }
 
     #[test]
@@ -531,8 +543,11 @@ mod tests {
         let ctx = LayeredContextBuilder::new().build();
         let results = ctx.select_few_shot_examples("删除这个敌人", 1);
         assert_eq!(results.len(), 1);
-        assert!(results[0].action.contains("delete"),
-            "Delete request should select delete example, got: {}", results[0].action);
+        assert!(
+            results[0].action.contains("delete"),
+            "Delete request should select delete example, got: {}",
+            results[0].action
+        );
     }
 
     #[test]
@@ -540,8 +555,11 @@ mod tests {
         let ctx = LayeredContextBuilder::new().build();
         let results = ctx.select_few_shot_examples("写一个移动组件", 1);
         assert_eq!(results.len(), 1);
-        assert!(results[0].action.contains("generate"),
-            "Code gen request should select generate example, got: {}", results[0].action);
+        assert!(
+            results[0].action.contains("generate"),
+            "Code gen request should select generate example, got: {}",
+            results[0].action
+        );
     }
 
     #[test]
@@ -549,8 +567,11 @@ mod tests {
         let ctx = LayeredContextBuilder::new().build();
         let results = ctx.select_few_shot_examples("存为预制体模板", 1);
         assert_eq!(results.len(), 1);
-        assert!(results[0].action.contains("prefab"),
-            "Prefab request should select prefab example, got: {}", results[0].action);
+        assert!(
+            results[0].action.contains("prefab"),
+            "Prefab request should select prefab example, got: {}",
+            results[0].action
+        );
     }
 
     #[test]
@@ -558,8 +579,11 @@ mod tests {
         let ctx = LayeredContextBuilder::new().build();
         let results = ctx.select_few_shot_examples("给Boss挂上AI", 1);
         assert_eq!(results.len(), 1);
-        assert!(results[0].action.contains("agent") || results[0].action.contains("attach"),
-            "Agent request should select agent example, got: {}", results[0].action);
+        assert!(
+            results[0].action.contains("agent") || results[0].action.contains("attach"),
+            "Agent request should select agent example, got: {}",
+            results[0].action
+        );
     }
 
     #[test]
@@ -567,8 +591,11 @@ mod tests {
         let ctx = LayeredContextBuilder::new().build();
         let results = ctx.select_few_shot_examples("检查这段代码有没有问题", 1);
         assert_eq!(results.len(), 1);
-        assert!(results[0].action.contains("review"),
-            "Review request should select review example, got: {}", results[0].action);
+        assert!(
+            results[0].action.contains("review"),
+            "Review request should select review example, got: {}",
+            results[0].action
+        );
     }
 
     #[test]

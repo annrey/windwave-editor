@@ -16,7 +16,7 @@ use std::collections::HashMap;
 // Capability Kind
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CapabilityKind {
     Orchestrate,
     SceneRead,
@@ -38,14 +38,8 @@ pub enum CapabilityKind {
 // Agent ID
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct AgentId(pub u64);
-
-impl Default for AgentId {
-    fn default() -> Self {
-        AgentId(0)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Agent Request / Response / Error
@@ -68,10 +62,21 @@ pub struct AgentResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentResultKind {
-    Success { summary: String, output: serde_json::Value },
-    PartialSuccess { summary: String, output: serde_json::Value, warnings: Vec<String> },
-    NeedUserInput { question: String },
-    Failed { reason: String },
+    Success {
+        summary: String,
+        output: serde_json::Value,
+    },
+    PartialSuccess {
+        summary: String,
+        output: serde_json::Value,
+        warnings: Vec<String>,
+    },
+    NeedUserInput {
+        question: String,
+    },
+    Failed {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +109,14 @@ pub trait Agent: Send + Sync {
     fn role(&self) -> &str;
     fn capabilities(&self) -> &[CapabilityKind];
     async fn handle(&mut self, request: AgentRequest) -> Result<AgentResponse, AgentError>;
+
+    fn confirm_pending_user_input(&mut self) -> Result<Option<AgentResponse>, AgentError> {
+        Ok(None)
+    }
+
+    fn reject_pending_user_input(&mut self) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,12 +149,11 @@ impl AgentRole {
             Self::Director => vec![CapabilityKind::Orchestrate],
             Self::Planner => vec![CapabilityKind::Orchestrate],
             Self::Executor => vec![CapabilityKind::WorkflowExecute],
-            Self::Reviewer => vec![
-                CapabilityKind::RuleCheck,
-                CapabilityKind::VisionAnalyze,
-            ],
+            Self::Reviewer => vec![CapabilityKind::RuleCheck, CapabilityKind::VisionAnalyze],
             Self::Specialist(kind) => match kind {
-                SpecialistKind::Scene => vec![CapabilityKind::SceneRead, CapabilityKind::SceneWrite],
+                SpecialistKind::Scene => {
+                    vec![CapabilityKind::SceneRead, CapabilityKind::SceneWrite]
+                }
                 SpecialistKind::Code => vec![CapabilityKind::CodeRead, CapabilityKind::CodeWrite],
                 SpecialistKind::Asset => vec![CapabilityKind::AssetManage],
                 SpecialistKind::Vision => vec![CapabilityKind::VisionAnalyze],
@@ -175,10 +187,7 @@ impl AgentRegistry {
         let capabilities = agent.capabilities().to_vec();
 
         for cap in &capabilities {
-            self.capability_index
-                .entry(cap.clone())
-                .or_default()
-                .push(id);
+            self.capability_index.entry(*cap).or_default().push(id);
         }
 
         self.agents.insert(id, agent);
@@ -186,6 +195,25 @@ impl AgentRegistry {
 
     pub fn get(&self, id: &AgentId) -> Option<&dyn Agent> {
         self.agents.get(id).map(|a| a.as_ref())
+    }
+
+    pub fn confirm_pending_user_input(
+        &mut self,
+        agent_id: AgentId,
+    ) -> Result<Option<AgentResponse>, AgentError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
+            .ok_or(AgentError::NotFound(agent_id))?;
+        agent.confirm_pending_user_input()
+    }
+
+    pub fn reject_pending_user_input(&mut self, agent_id: AgentId) -> Result<bool, AgentError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
+            .ok_or(AgentError::NotFound(agent_id))?;
+        Ok(agent.reject_pending_user_input())
     }
 
     pub fn find_by_capability(&self, capability: &CapabilityKind) -> Vec<&dyn Agent> {
@@ -354,10 +382,7 @@ impl AgentRegistry {
     /// Team mode: dispatch a multi-step plan to multiple agents (async).
     ///
     /// Each step is assigned to the best matching agent based on capabilities.
-    pub async fn dispatch_team_plan(
-        &mut self,
-        plan: &crate::plan::EditPlan,
-    ) -> TeamDispatchResult {
+    pub async fn dispatch_team_plan(&mut self, plan: &crate::plan::EditPlan) -> TeamDispatchResult {
         let mut step_results = Vec::new();
         let mut assigned_agents = Vec::new();
 
@@ -370,7 +395,10 @@ impl AgentRegistry {
                     step_id: step.id.clone(),
                     success: false,
                     result: None,
-                    error: Some(format!("No agent found for capability: {:?}", target_capability)),
+                    error: Some(format!(
+                        "No agent found for capability: {:?}",
+                        target_capability
+                    )),
                 });
                 continue;
             }
@@ -394,7 +422,9 @@ impl AgentRegistry {
                     step_results.push(StepResult {
                         step_id: step.id.clone(),
                         success: true,
-                        result: Some(serde_json::json!({"result": format!("{:?}", response.result)})),
+                        result: Some(
+                            serde_json::json!({"result": format!("{:?}", response.result)}),
+                        ),
                         error: None,
                     });
                 }
@@ -421,10 +451,7 @@ impl AgentRegistry {
     ///
     /// Each step is assigned to the best matching agent by capability.
     /// Uses `dispatch_sync` instead of async dispatch for Bevy system contexts.
-    pub fn dispatch_team_plan_sync(
-        &mut self,
-        plan: &crate::plan::EditPlan,
-    ) -> TeamDispatchResult {
+    pub fn dispatch_team_plan_sync(&mut self, plan: &crate::plan::EditPlan) -> TeamDispatchResult {
         let mut step_results = Vec::new();
         let mut assigned_agents = Vec::new();
 
@@ -437,7 +464,10 @@ impl AgentRegistry {
                     step_id: step.id.clone(),
                     success: false,
                     result: None,
-                    error: Some(format!("No agent found for capability: {:?}", target_capability)),
+                    error: Some(format!(
+                        "No agent found for capability: {:?}",
+                        target_capability
+                    )),
                 });
                 continue;
             }
@@ -461,7 +491,9 @@ impl AgentRegistry {
                     step_results.push(StepResult {
                         step_id: step.id.clone(),
                         success: true,
-                        result: Some(serde_json::json!({"result": format!("{:?}", response.result)})),
+                        result: Some(
+                            serde_json::json!({"result": format!("{:?}", response.result)}),
+                        ),
                         error: None,
                     });
                 }
@@ -488,9 +520,15 @@ impl AgentRegistry {
     fn infer_capability_from_step(step: &crate::plan::EditPlanStep) -> CapabilityKind {
         let title_lower = step.title.to_lowercase();
 
-        if title_lower.contains("scene") || title_lower.contains("entity") || title_lower.contains("spawn") {
+        if title_lower.contains("scene")
+            || title_lower.contains("entity")
+            || title_lower.contains("spawn")
+        {
             CapabilityKind::SceneEdit
-        } else if title_lower.contains("code") || title_lower.contains("script") || title_lower.contains("component") {
+        } else if title_lower.contains("code")
+            || title_lower.contains("script")
+            || title_lower.contains("component")
+        {
             CapabilityKind::CodeGen
         } else if title_lower.contains("test") || title_lower.contains("review") {
             CapabilityKind::Review
@@ -575,9 +613,7 @@ impl Default for AgentRegistry {
 fn tokio_runtime() -> &'static tokio::runtime::Runtime {
     use std::sync::OnceLock;
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
-    })
+    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().expect("Failed to create tokio runtime"))
 }
 
 // ---------------------------------------------------------------------------
