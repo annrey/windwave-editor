@@ -1,4 +1,4 @@
-use agent_core::{OpenWorldReplayWorldState, OpenWorldRuntimeState};
+use agent_core::application::{OpenWorldReplayWorldState, OpenWorldRuntimeState};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 

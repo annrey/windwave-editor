@@ -1,6 +1,6 @@
 //! World Timeline panel for playable-world QA and replay evidence.
 
-use agent_core::{
+use agent_core::application::{
     DirectorRuntime, OpenWorldReplayWorldState, OpenWorldTimeline, OpenWorldTimelineTick,
 };
 use bevy::app::AppExit;

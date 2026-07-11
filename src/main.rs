@@ -9,12 +9,12 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 
 use agent_core::agent::AgentInstanceId;
+use agent_core::application::DirectorRuntime;
 use agent_core::keyword_matcher::KeywordMatcher;
 use agent_core::{
     create_empty_shared_bridge, register_builtin_skills, register_code_tools, register_file_tools,
-    register_scene_tools, AgentConfig, AgentId, AgentRegistry, BaseAgent, CodeAgent,
-    DirectorRuntime, EditorMode, HybridLlmStatus, Message, PlannerAgent, ReviewAgent, SceneAgent,
-    ToolRegistry,
+    register_scene_tools, AgentConfig, AgentId, AgentRegistry, BaseAgent, CodeAgent, EditorMode,
+    HybridLlmStatus, Message, PlannerAgent, ReviewAgent, SceneAgent, ToolRegistry,
 };
 use agent_ui::AgentUiPlugin;
 use agent_ui::{

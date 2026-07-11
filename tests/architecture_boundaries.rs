@@ -34,6 +34,15 @@ fn assert_sources_exclude(root: &Path, forbidden: &str) {
     );
 }
 
+fn assert_source_uses_application_facade(relative_path: &str, expected_import: &str) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    let source = fs::read_to_string(&path).expect("read Rust source file");
+    assert!(
+        source.contains(expected_import),
+        "{relative_path} must contain stable application import `{expected_import}`"
+    );
+}
+
 #[test]
 fn bevy_adapter_uses_scene_port() {
     assert_sources_exclude(
@@ -57,4 +66,28 @@ fn agent_ui_manifest_has_no_multica_dependency() {
     )
     .expect("read agent-ui manifest");
     assert!(!manifest.contains("multica-bridge"));
+}
+
+#[test]
+fn application_consumers_use_stable_facade() {
+    for (relative_path, expected_import) in [
+        (
+            "crates/agent-ui/src/world_timeline_panel.rs",
+            "use agent_core::application::{",
+        ),
+        (
+            "crates/agent-ui/src/open_world_quest_panel.rs",
+            "use agent_core::application::{OpenWorldReplayWorldState, OpenWorldRuntimeState};",
+        ),
+        (
+            "crates/agent-ui/src/open_world_interaction.rs",
+            "use agent_core::application::{OpenWorldRuntimeError, OpenWorldRuntimeState};",
+        ),
+        (
+            "src/main.rs",
+            "use agent_core::application::DirectorRuntime;",
+        ),
+    ] {
+        assert_source_uses_application_facade(relative_path, expected_import);
+    }
 }

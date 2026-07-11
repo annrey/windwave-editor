@@ -1,5 +1,5 @@
 use crate::interactable::InteractionCompleteEvent;
-use agent_core::{OpenWorldRuntimeError, OpenWorldRuntimeState};
+use agent_core::application::{OpenWorldRuntimeError, OpenWorldRuntimeState};
 use bevy::prelude::*;
 use bevy_adapter::{
     process_open_world_combat_interaction, process_open_world_loot_interaction, OpenWorldObject,
