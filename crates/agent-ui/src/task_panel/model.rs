@@ -250,6 +250,47 @@ impl TaskPanelState {
         }
     }
 
+    /// Merge a backend snapshot without replacing panel-local task identity.
+    pub fn apply_backend_snapshot(&mut self, snapshot: TaskPanelSnapshot) {
+        let mut merged = self.tasks.clone();
+        for mut remote in snapshot.tasks {
+            let existing_id = remote.multica_id.as_ref().and_then(|remote_id| {
+                merged
+                    .iter()
+                    .find(|(_, task)| task.multica_id.as_ref() == Some(remote_id))
+                    .map(|(id, _)| id.clone())
+            });
+            if let Some(existing_id) = existing_id {
+                remote.id = existing_id.clone();
+                merged.insert(existing_id, remote);
+            } else {
+                merged.insert(remote.id.clone(), remote);
+            }
+        }
+        self.apply_snapshot(TaskPanelSnapshot {
+            tasks: merged.into_values().collect(),
+            sync_status: snapshot.sync_status,
+        });
+    }
+
+    /// Translate panel-local identity to the backend identity carried by the task.
+    pub fn route_backend_command(&self, command: TaskPanelCommand) -> TaskPanelCommand {
+        let backend_id = |id: String| {
+            self.tasks
+                .get(&id)
+                .and_then(|task| task.multica_id.clone())
+                .unwrap_or(id)
+        };
+        match command {
+            TaskPanelCommand::UpdateStatus { id, status } => TaskPanelCommand::UpdateStatus {
+                id: backend_id(id),
+                status,
+            },
+            TaskPanelCommand::Delete { id } => TaskPanelCommand::Delete { id: backend_id(id) },
+            other => other,
+        }
+    }
+
     /// 添加任务
     pub fn add_task(&mut self, task: TaskInfo) {
         let status = task.status.clone();

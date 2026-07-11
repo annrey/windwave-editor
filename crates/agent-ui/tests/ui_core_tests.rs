@@ -24,6 +24,7 @@ impl TaskPanelBackend for MemoryTaskPanelBackend {
 #[derive(Clone, Default)]
 struct SharedMemoryTaskPanelBackend {
     inner: Arc<Mutex<MemoryTaskPanelBackend>>,
+    fail_first: bool,
 }
 
 impl TaskPanelBackend for SharedMemoryTaskPanelBackend {
@@ -32,7 +33,14 @@ impl TaskPanelBackend for SharedMemoryTaskPanelBackend {
     }
 
     fn handle(&mut self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
-        self.inner.lock().unwrap().commands.push(command);
+        let mut inner = self.inner.lock().unwrap();
+        inner.commands.push(command);
+        if self.fail_first && inner.commands.len() == 1 {
+            return Err(TaskPanelBackendError {
+                kind: TaskPanelBackendErrorKind::Rejected,
+                message: "first command rejected".into(),
+            });
+        }
         Ok(())
     }
 }
@@ -101,6 +109,84 @@ fn task_panel_backend_resource_handles_commands_and_refreshes_snapshot() {
     );
     assert_eq!(snapshot.tasks.len(), 1);
     assert_eq!(snapshot.sync_status, SyncStatus::Synced);
+}
+
+#[test]
+fn task_panel_state_merges_backend_snapshot_without_replacing_local_identity() {
+    let local = TaskInfo::new("local-only".into(), "Local".into(), "Keep me".into());
+    let existing = TaskInfo::new("panel-id".into(), "Old".into(), "Old description".into())
+        .with_multica_id("42".into());
+    let mut state = TaskPanelState::default();
+    state.add_task(local);
+    state.add_task(existing);
+
+    let mut updated = TaskInfo::new(
+        "task_bridge_42".into(),
+        "Updated".into(),
+        "Remote description".into(),
+    )
+    .with_multica_id("42".into());
+    updated.status = TaskStatus::Done;
+    let remote_new = TaskInfo::new("task_bridge_99".into(), "Remote".into(), "New".into())
+        .with_multica_id("99".into());
+
+    state.apply_backend_snapshot(TaskPanelSnapshot {
+        tasks: vec![updated, remote_new],
+        sync_status: SyncStatus::Synced,
+    });
+
+    assert!(state.tasks.contains_key("local-only"));
+    assert!(!state.tasks.contains_key("task_bridge_42"));
+    assert_eq!(state.tasks["panel-id"].title, "Updated");
+    assert_eq!(state.tasks["panel-id"].status, TaskStatus::Done);
+    assert!(state.tasks.contains_key("task_bridge_99"));
+}
+
+#[test]
+fn task_panel_state_routes_panel_id_to_backend_identity() {
+    let task =
+        TaskInfo::new("panel-id".into(), "Quest".into(), "".into()).with_multica_id("42".into());
+    let mut state = TaskPanelState::default();
+    state.add_task(task);
+
+    assert_eq!(
+        state.route_backend_command(TaskPanelCommand::UpdateStatus {
+            id: "panel-id".into(),
+            status: TaskStatus::Done,
+        }),
+        TaskPanelCommand::UpdateStatus {
+            id: "42".into(),
+            status: TaskStatus::Done,
+        }
+    );
+    assert_eq!(
+        state.route_backend_command(TaskPanelCommand::Delete {
+            id: "panel-id".into(),
+        }),
+        TaskPanelCommand::Delete { id: "42".into() }
+    );
+}
+
+#[test]
+fn task_panel_backend_resource_continues_after_command_failure() {
+    let backend = SharedMemoryTaskPanelBackend {
+        fail_first: true,
+        ..Default::default()
+    };
+    let resource = TaskPanelBackendResource::new(backend.clone());
+    let errors = resource.handle_all(vec![
+        TaskPanelCommand::Refresh,
+        TaskPanelCommand::Delete { id: "42".into() },
+    ]);
+
+    assert_eq!(errors.len(), 1);
+    assert_eq!(
+        backend.inner.lock().unwrap().commands,
+        vec![
+            TaskPanelCommand::Refresh,
+            TaskPanelCommand::Delete { id: "42".into() }
+        ]
+    );
 }
 
 #[test]

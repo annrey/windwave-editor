@@ -42,7 +42,7 @@ pub enum TaskAction {
 // Backend Integration Resources
 // ════════════════════════════════════════════════════════════
 
-/// Resource holding a shared handle to the TaskBridge for backend dispatch.
+/// Compatibility resource used to construct the temporary Multica backend adapter.
 ///
 /// Insert this into the Bevy app to enable backend task operations:
 /// ```ignore
@@ -85,6 +85,16 @@ impl TaskPanelBackendResource {
             .lock()
             .map_err(|_| backend_unavailable("task panel backend lock poisoned"))?
             .handle(command)
+    }
+
+    pub fn handle_all(
+        &self,
+        commands: impl IntoIterator<Item = TaskPanelCommand>,
+    ) -> Vec<TaskPanelBackendError> {
+        commands
+            .into_iter()
+            .filter_map(|command| self.handle(command).err())
+            .collect()
     }
 
     pub fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
@@ -205,11 +215,11 @@ impl Plugin for TaskPanelPlugin {
         app
             // Core state
             .init_resource::<TaskPanelState>()
-            // Task action event channel (for Bevy-internal event-driven dispatch)
+            // Legacy task action message channel retained for public compatibility
             .add_message::<TaskAction>()
             // UI rendering
             .add_systems(EguiPrimaryContextPass, render_task_panel)
-            // Backend integration systems (run after UI to process queued actions)
+            // Backend integration systems (run after UI to process queued commands)
             .add_systems(
                 Update,
                 (
@@ -292,12 +302,7 @@ fn task_info_to_unified(task: &TaskInfo) -> UnifiedTask {
 // Backend Integration Systems
 // ════════════════════════════════════════════════════════════
 
-/// Process pending task actions by dispatching them to the TaskBridge.
-///
-/// Runs every frame after the UI has had a chance to push actions into
-/// `pending_actions`. Drains the queue and attempts to execute each action
-/// through the bridge. If no `TaskBridgeResource` is present, actions are
-/// silently skipped (the panel operates in standalone mode).
+/// Temporary Task 5 adapter from the backend port to the existing Multica bridge.
 #[derive(Clone)]
 struct MulticaTaskPanelBackend {
     bridge: Arc<TaskBridge>,
@@ -383,7 +388,7 @@ impl TaskPanelBackend for MulticaTaskPanelBackend {
     }
 }
 
-/// Process pending commands through the backend port and refresh panel state.
+/// Route pending panel commands through the backend port, then merge its snapshot.
 fn process_task_actions(
     mut task_state: ResMut<TaskPanelState>,
     backend: Option<Res<TaskPanelBackendResource>>,
@@ -410,19 +415,36 @@ fn process_task_actions(
         return;
     };
 
-    for command in actions {
-        if let Err(error) = backend.handle(command) {
-            error!("Task panel backend command failed: {}", error.message);
-            task_state.sync_status = SyncStatus::SyncError(error.message);
-            return;
-        }
+    let commands = actions
+        .into_iter()
+        .map(|command| task_state.route_backend_command(command));
+    let errors = backend.handle_all(commands);
+    for backend_error in &errors {
+        error!(
+            "Task panel backend command failed: {}",
+            backend_error.message
+        );
     }
 
     match backend.snapshot() {
-        Ok(snapshot) => task_state.apply_snapshot(snapshot),
-        Err(error) => {
-            error!("Task panel backend snapshot failed: {}", error.message);
-            task_state.sync_status = SyncStatus::SyncError(error.message);
+        Ok(snapshot) => {
+            task_state.apply_backend_snapshot(snapshot);
+            if !errors.is_empty() {
+                task_state.sync_status = SyncStatus::SyncError(
+                    errors
+                        .iter()
+                        .map(|error| error.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                );
+            }
+        }
+        Err(snapshot_error) => {
+            error!(
+                "Task panel backend snapshot failed: {}",
+                snapshot_error.message
+            );
+            task_state.sync_status = SyncStatus::SyncError(snapshot_error.message);
         }
     }
 }
