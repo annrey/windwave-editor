@@ -29,6 +29,18 @@ fn task_panel_port_is_backend_agnostic() {
 }
 
 #[test]
+fn task_panel_state_applies_backend_snapshot() {
+    let task = TaskInfo::new("1".into(), "Quest".into(), "Find item".into());
+    let mut state = TaskPanelState::default();
+    state.apply_snapshot(TaskPanelSnapshot {
+        tasks: vec![task],
+        sync_status: SyncStatus::Synced,
+    });
+    assert_eq!(state.total_count, 1);
+    assert_eq!(state.sync_status, SyncStatus::Synced);
+}
+
+#[test]
 fn task_view_model_preserves_status_semantics() {
     let mut task = TaskInfo::new("1".into(), "Build world".into(), "".into());
     task.status = TaskStatus::InProgress;

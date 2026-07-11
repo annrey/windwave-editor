@@ -5,7 +5,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::TaskAction;
+use super::port::{TaskPanelCommand, TaskPanelSnapshot};
 
 /// 任务状态枚举
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -167,7 +167,7 @@ pub struct TaskPanelState {
     /// 新任务场景 ID
     pub new_task_scene_id: String,
     /// 任务操作事件队列
-    pub pending_actions: Vec<TaskAction>,
+    pub pending_actions: Vec<TaskPanelCommand>,
     /// 同步状态
     pub sync_status: SyncStatus,
     /// 排序方式
@@ -217,6 +217,31 @@ impl Default for TaskPanelState {
 }
 
 impl TaskPanelState {
+    fn update_statistics(&mut self) {
+        self.total_count = self.tasks.len();
+        self.status_counts.clear();
+        for task in self.tasks.values() {
+            *self.status_counts.entry(task.status.clone()).or_insert(0) += 1;
+        }
+    }
+
+    pub fn apply_snapshot(&mut self, snapshot: TaskPanelSnapshot) {
+        self.tasks = snapshot
+            .tasks
+            .into_iter()
+            .map(|task| (task.id.clone(), task))
+            .collect();
+        self.sync_status = snapshot.sync_status;
+        self.update_statistics();
+        if self
+            .selected_task
+            .as_ref()
+            .is_some_and(|id| !self.tasks.contains_key(id))
+        {
+            self.selected_task = None;
+        }
+    }
+
     /// 添加任务
     pub fn add_task(&mut self, task: TaskInfo) {
         let status = task.status.clone();
@@ -286,7 +311,7 @@ impl TaskPanelState {
 
         let task_for_queue = task.clone();
         self.pending_actions
-            .push(TaskAction::CreateTask(task_for_queue));
+            .push(TaskPanelCommand::Create(task_for_queue));
         self.add_task(task);
         info!("Task creation queued: {}", title);
     }
