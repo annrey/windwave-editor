@@ -1,4 +1,4 @@
-//! BevySceneBridge — real Bevy ECS implementation of agent_core::scene_bridge::SceneBridge.
+//! BevySceneBridge — real Bevy ECS implementation of agent_core::ports::scene::SceneBridge.
 //!
 //! Provides complete scene operations including:
 //! - Entity query and manipulation

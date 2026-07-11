@@ -1,6 +1,6 @@
 use crate::adapter;
 use crate::scene_index::ComponentSummary;
-use agent_core::{scene_bridge, OpenWorldRuntimeError, OpenWorldRuntimeState};
+use agent_core::{ports::scene, OpenWorldRuntimeError, OpenWorldRuntimeState};
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use serde_json::Value;
@@ -337,7 +337,7 @@ pub fn insert_engine_component_patch(
 
 pub fn insert_scene_component_patch(
     entity: &mut EntityCommands,
-    patch: &scene_bridge::ComponentPatch,
+    patch: &scene::ComponentPatch,
 ) -> bool {
     match patch.type_name.as_str() {
         "OpenWorldObject" => {

@@ -13,7 +13,7 @@ use crate::scene_index::{ComponentSummary, SceneEntityNode, SceneIndex};
 use crate::BevyAdapter;
 use crate::EngineCommand;
 use agent_core::goal_checker::SceneEntityInfo as CoreSceneEntityInfo;
-use agent_core::scene_bridge::{ComponentPatch, EntityListItem, SceneBridge};
+use agent_core::ports::scene::{ComponentPatch, EntityListItem, SceneBridge};
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::prelude::*;
 use bevy::sprite::Sprite;

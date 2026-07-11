@@ -2,7 +2,7 @@ use super::commands::SceneCommand;
 use super::ops::BevySceneOps;
 use crate::scene_index::{SceneEntityNode, SceneIndex};
 use agent_core::goal_checker::SceneEntityInfo;
-use agent_core::scene_bridge::{ComponentPatch, EntityListItem, SceneBridge};
+use agent_core::ports::scene::{ComponentPatch, EntityListItem, SceneBridge};
 use bevy::prelude::*;
 use std::collections::HashMap;
 

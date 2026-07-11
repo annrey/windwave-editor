@@ -5,7 +5,7 @@ use crate::open_world_components;
 use crate::scene_index::{SceneEntityNode, SceneIndex};
 use crate::EngineCommand;
 use agent_core::goal_checker::SceneEntityInfo;
-use agent_core::scene_bridge::{ComponentPatch, EntityListItem};
+use agent_core::ports::scene::{ComponentPatch, EntityListItem};
 use bevy::prelude::*;
 use bevy::sprite::Sprite;
 use std::collections::HashMap;

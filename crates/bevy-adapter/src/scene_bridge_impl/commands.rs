@@ -1,4 +1,4 @@
-use agent_core::scene_bridge::ComponentPatch;
+use agent_core::ports::scene::ComponentPatch;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
