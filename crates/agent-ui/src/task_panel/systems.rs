@@ -8,25 +8,12 @@ use bevy_egui::EguiPrimaryContextPass;
 use log::{debug, error};
 use std::sync::{Arc, Mutex};
 
-use super::model::{SyncStatus, TaskInfo, TaskPanelState, TaskStatus};
+use super::model::{SyncStatus, TaskPanelState};
 use super::port::{
-    TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelCommand,
-    TaskPanelSnapshot,
+    TaskAction, TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind,
+    TaskPanelBackendTransaction, TaskPanelCommand, TaskPanelSnapshot,
 };
 use super::view::render_task_panel;
-
-/// 任务操作事件
-#[derive(Message, Clone, Debug)]
-pub enum TaskAction {
-    /// 创建新任务
-    CreateTask(TaskInfo),
-    /// 更新任务状态
-    UpdateTaskStatus(String, TaskStatus),
-    /// 删除任务
-    DeleteTask(String),
-    /// 刷新任务列表
-    RefreshTasks,
-}
 
 /// Public scheduling boundary for composition-root task backend integrations.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -66,6 +53,27 @@ impl TaskPanelBackendResource {
             .into_iter()
             .filter_map(|command| self.handle(command).err())
             .collect()
+    }
+
+    pub fn handle_all_and_snapshot(
+        &self,
+        commands: impl IntoIterator<Item = TaskPanelCommand>,
+    ) -> TaskPanelBackendTransaction {
+        let mut backend = match self.backend.lock() {
+            Ok(backend) => backend,
+            Err(_) => {
+                return TaskPanelBackendTransaction {
+                    errors: Vec::new(),
+                    snapshot: Err(backend_unavailable("task panel backend lock poisoned")),
+                }
+            }
+        };
+        let errors = commands
+            .into_iter()
+            .filter_map(|command| backend.handle(command).err())
+            .collect();
+        let snapshot = backend.snapshot();
+        TaskPanelBackendTransaction { errors, snapshot }
     }
 
     pub fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
@@ -110,9 +118,16 @@ impl Plugin for TaskPanelPlugin {
 /// Route pending panel commands through the backend port, then merge its snapshot.
 fn process_task_actions(
     mut task_state: ResMut<TaskPanelState>,
+    mut legacy_messages: MessageReader<TaskAction>,
     backend: Option<Res<TaskPanelBackendResource>>,
 ) {
-    let actions: Vec<TaskPanelCommand> = std::mem::take(&mut task_state.pending_actions);
+    let mut actions: Vec<TaskPanelCommand> = std::mem::take(&mut task_state.pending_commands);
+    actions.extend(
+        std::mem::take(&mut task_state.pending_actions)
+            .into_iter()
+            .map(TaskPanelCommand::from),
+    );
+    actions.extend(legacy_messages.read().cloned().map(TaskPanelCommand::from));
     if actions.is_empty() {
         return;
     }
@@ -122,14 +137,22 @@ fn process_task_actions(
             "No TaskPanelBackendResource found; {} task actions remain unprocessed",
             actions.len()
         );
-        task_state.pending_actions = actions;
+        task_state.pending_commands = actions;
         return;
     };
 
-    let commands = actions
+    let commands: Vec<_> = actions
         .into_iter()
-        .map(|command| task_state.route_backend_command(command));
-    let errors = backend.handle_all(commands);
+        .map(|command| {
+            let routed = task_state.route_backend_command(command.clone());
+            if let TaskPanelCommand::Delete { id } = command {
+                task_state.delete_task(&id);
+            }
+            routed
+        })
+        .collect();
+    let transaction = backend.handle_all_and_snapshot(commands);
+    let errors = transaction.errors;
     for backend_error in &errors {
         error!(
             "Task panel backend command failed: {}",
@@ -137,7 +160,7 @@ fn process_task_actions(
         );
     }
 
-    match backend.snapshot() {
+    match transaction.snapshot {
         Ok(snapshot) => {
             task_state.apply_backend_snapshot(snapshot);
             if !errors.is_empty() {

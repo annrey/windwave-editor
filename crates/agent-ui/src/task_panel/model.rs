@@ -5,7 +5,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::port::{TaskPanelCommand, TaskPanelSnapshot};
+use super::port::{TaskAction, TaskPanelCommand, TaskPanelSnapshot};
 
 /// 任务状态枚举
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -167,7 +167,10 @@ pub struct TaskPanelState {
     /// 新任务场景 ID
     pub new_task_scene_id: String,
     /// 任务操作事件队列
-    pub pending_actions: Vec<TaskPanelCommand>,
+    pub pending_actions: Vec<TaskAction>,
+    /// Backend-neutral commands emitted by the current panel view.
+    pub pending_commands: Vec<TaskPanelCommand>,
+    deleted_backend_ids: HashMap<String, String>,
     /// 同步状态
     pub sync_status: SyncStatus,
     /// 排序方式
@@ -233,6 +236,8 @@ impl Default for TaskPanelState {
             new_task_priority: 3,
             new_task_scene_id: String::new(),
             pending_actions: Vec::new(),
+            pending_commands: Vec::new(),
+            deleted_backend_ids: HashMap::new(),
             sync_status: SyncStatus::NotSynced,
             sort_by: SortBy::Priority,
             selected_ids: Vec::new(),
@@ -279,6 +284,15 @@ impl TaskPanelState {
     pub fn apply_backend_snapshot(&mut self, snapshot: TaskPanelSnapshot) {
         let mut merged = self.tasks.clone();
         for mut remote in snapshot.tasks {
+            if self
+                .deleted_backend_ids
+                .iter()
+                .any(|(panel_id, backend_id)| {
+                    remote.id == *panel_id || remote.multica_id.as_deref() == Some(backend_id)
+                })
+            {
+                continue;
+            }
             let existing_id = remote.multica_id.as_ref().and_then(|remote_id| {
                 merged
                     .iter()
@@ -304,6 +318,7 @@ impl TaskPanelState {
             self.tasks
                 .get(&id)
                 .and_then(|task| task.multica_id.clone())
+                .or_else(|| self.deleted_backend_ids.get(&id).cloned())
                 .unwrap_or(id)
         };
         match command {
@@ -356,6 +371,10 @@ impl TaskPanelState {
     /// 删除任务
     pub fn delete_task(&mut self, task_id: &str) -> bool {
         if let Some(task) = self.tasks.remove(task_id) {
+            if let Some(backend_id) = &task.multica_id {
+                self.deleted_backend_ids
+                    .insert(task_id.to_string(), backend_id.clone());
+            }
             self.status_counts
                 .entry(task.status)
                 .and_modify(|c| *c = c.saturating_sub(1));
@@ -384,7 +403,7 @@ impl TaskPanelState {
         task.priority = priority.clamp(1, 5);
 
         let task_for_queue = task.clone();
-        self.pending_actions
+        self.pending_commands
             .push(TaskPanelCommand::Create(task_for_queue));
         self.add_task(task);
         info!("Task creation queued: {}", title);

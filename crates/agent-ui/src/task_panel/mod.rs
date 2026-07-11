@@ -9,7 +9,7 @@ pub use model::{
     CreatedTaskAliases, SortBy, SyncStatus, TaskFilter, TaskInfo, TaskPanelState, TaskStatus,
 };
 pub use port::{
-    TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelCommand,
-    TaskPanelSnapshot,
+    TaskAction, TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind,
+    TaskPanelBackendTransaction, TaskPanelCommand, TaskPanelSnapshot,
 };
-pub use systems::{TaskAction, TaskPanelBackendResource, TaskPanelPlugin, TaskPanelSystemSet};
+pub use systems::{TaskPanelBackendResource, TaskPanelPlugin, TaskPanelSystemSet};

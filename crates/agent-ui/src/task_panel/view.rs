@@ -83,7 +83,7 @@ pub(super) fn render_task_panel(
                     .on_hover_text("刷新任务列表")
                     .clicked()
                 {
-                    task_state.pending_actions.push(TaskPanelCommand::Refresh);
+                    task_state.pending_commands.push(TaskPanelCommand::Refresh);
                 }
 
                 // ── P2-2: Sync status icon ──
@@ -205,7 +205,7 @@ pub(super) fn render_task_panel(
                             ui.label(format!("已选择 {} 项", task_state.selected_ids.len()));
                             if ui.button("批量开始").clicked() {
                                 for id in task_state.selected_ids.clone() {
-                                    task_state.pending_actions.push(
+                                    task_state.pending_commands.push(
                                         TaskPanelCommand::UpdateStatus {
                                             id: id.clone(),
                                             status: TaskStatus::InProgress,
@@ -217,7 +217,7 @@ pub(super) fn render_task_panel(
                             }
                             if ui.button("批量完成").clicked() {
                                 for id in task_state.selected_ids.clone() {
-                                    task_state.pending_actions.push(
+                                    task_state.pending_commands.push(
                                         TaskPanelCommand::UpdateStatus {
                                             id: id.clone(),
                                             status: TaskStatus::Done,
@@ -232,7 +232,7 @@ pub(super) fn render_task_panel(
                                 // (batch delete confirms all)
                                 for id in task_state.selected_ids.clone() {
                                     task_state
-                                        .pending_actions
+                                        .pending_commands
                                         .push(TaskPanelCommand::Delete { id: id.clone() });
                                     task_state.delete_task(&id);
                                 }
@@ -332,7 +332,7 @@ pub(super) fn render_task_panel(
                                         .on_hover_text("开始执行此任务")
                                         .clicked()
                                     {
-                                        task_state.pending_actions.push(
+                                        task_state.pending_commands.push(
                                             TaskPanelCommand::UpdateStatus {
                                                 id: task.id.clone(),
                                                 status: TaskStatus::InProgress,
@@ -349,7 +349,7 @@ pub(super) fn render_task_panel(
                                         .on_hover_text("标记任务为已完成")
                                         .clicked()
                                     {
-                                        task_state.pending_actions.push(
+                                        task_state.pending_commands.push(
                                             TaskPanelCommand::UpdateStatus {
                                                 id: task.id.clone(),
                                                 status: TaskStatus::Done,
@@ -494,7 +494,7 @@ pub(super) fn render_task_panel(
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button("确认删除").clicked() {
-                        task_state.pending_actions.push(TaskPanelCommand::Delete {
+                        task_state.pending_commands.push(TaskPanelCommand::Delete {
                             id: delete_id.clone(),
                         });
                         task_state.delete_task(delete_id);

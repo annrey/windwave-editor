@@ -321,6 +321,11 @@ pub struct SceneEventSubscriberId {
     _subscriber_id: Option<SubscriberId>,
 }
 
+#[derive(Resource, Default)]
+struct PublishedSceneIndexState {
+    entity_fingerprint_by_id: HashMap<u64, String>,
+}
+
 #[derive(Resource, Clone)]
 #[allow(dead_code)] // Composition-root integration surface for scene/task producers.
 pub struct MulticaTaskPanelIntegration {
@@ -403,13 +408,80 @@ impl Plugin for MulticaTaskPanelPlugin {
         .insert_resource(SceneEventSubscriberId {
             _subscriber_id: subscriber_id,
         })
+        .init_resource::<PublishedSceneIndexState>()
         .add_systems(
             Update,
-            (process_scene_events, update_sync_status)
+            (
+                publish_scene_index_changes,
+                process_scene_events,
+                update_sync_status,
+            )
                 .chain()
                 .after(TaskPanelSystemSet::ProcessBackendActions),
         );
     }
+}
+
+fn publish_scene_index_changes(
+    cache: Option<Res<bevy_adapter::integration::SceneIndexCache>>,
+    integration: Res<MulticaTaskPanelIntegration>,
+    mut published: ResMut<PublishedSceneIndexState>,
+) {
+    let Some(cache) = cache else {
+        return;
+    };
+    let current: HashMap<u64, String> = cache
+        .get()
+        .entities_by_name
+        .iter()
+        .map(|(name, id)| {
+            let fingerprint = cache
+                .get()
+                .get_entity_by_name(name)
+                .and_then(|node| serde_json::to_string(node).ok())
+                .unwrap_or_else(|| name.clone());
+            (*id, fingerprint)
+        })
+        .collect();
+    let timestamp = format!("{:?}", std::time::SystemTime::now());
+    for (entity_id, name) in &current {
+        let event_type = match published.entity_fingerprint_by_id.get(entity_id) {
+            None => Some(SceneEventType::EntityCreated),
+            Some(previous_name) if previous_name != name => Some(SceneEventType::EntityUpdated),
+            Some(_) => None,
+        };
+        if let Some(event_type) = event_type {
+            if let Err(error) = integration.publish_scene_event(SceneEvent {
+                scene_id: "default".into(),
+                event_type,
+                entity_id: *entity_id,
+                entity_before: None,
+                entity_after: None,
+                component: None,
+                timestamp: timestamp.clone(),
+            }) {
+                error!("Failed to publish SceneIndex change: {}", error.message);
+            }
+        }
+    }
+    for entity_id in published
+        .entity_fingerprint_by_id
+        .keys()
+        .filter(|entity_id| !current.contains_key(entity_id))
+    {
+        if let Err(error) = integration.publish_scene_event(SceneEvent {
+            scene_id: "default".into(),
+            event_type: SceneEventType::EntityDeleted,
+            entity_id: *entity_id,
+            entity_before: None,
+            entity_after: None,
+            component: None,
+            timestamp: timestamp.clone(),
+        }) {
+            error!("Failed to publish SceneIndex deletion: {}", error.message);
+        }
+    }
+    published.entity_fingerprint_by_id = current;
 }
 
 fn process_scene_events(queue: Res<SceneEventQueue>, mut task_state: ResMut<TaskPanelState>) {
@@ -684,6 +756,41 @@ mod tests {
     }
 
     #[test]
+    fn scene_index_rebuild_publishes_entity_creation_to_linked_tasks() {
+        let mut app = App::new();
+        app.init_resource::<TaskPanelState>().add_plugins((
+            bevy_adapter::BevyAdapterPlugin,
+            bevy_adapter::integration::SceneIndexRebuildPlugin::every(1),
+            MulticaTaskPanelPlugin,
+        ));
+        app.world_mut().resource_mut::<TaskPanelState>().add_task(
+            TaskInfo::new(
+                "panel-real-scene".into(),
+                "Quest".into(),
+                "Track scene".into(),
+            )
+            .with_scene("default".into()),
+        );
+        let entity = app
+            .world_mut()
+            .spawn((Name::new("Real Producer Entity"), Transform::default()))
+            .id();
+        let entity_id = app
+            .world_mut()
+            .resource_mut::<bevy_adapter::BevyAdapter>()
+            .register_entity(entity)
+            .0;
+
+        app.update();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<TaskPanelState>().tasks["panel-real-scene"].entity_ids,
+            vec![entity_id.to_string()]
+        );
+    }
+
+    #[test]
     fn scene_queue_lock_failure_is_observable() {
         let queue = SceneEventQueue::default();
         let events = queue.events.clone();
@@ -736,6 +843,65 @@ mod tests {
             .unwrap();
         assert_eq!(
             integration.synchronized_tasks_for_scene("scene-1").unwrap()[0].status,
+            UnifiedTaskStatus::Cancelled
+        );
+    }
+
+    #[test]
+    fn deleted_remote_linked_task_stays_absent_after_cancelled_snapshots() {
+        let mut app = App::new();
+        app.add_plugins((agent_ui::TaskPanelPlugin, MulticaTaskPanelPlugin));
+        let task = TaskInfo::new("panel-delete".into(), "Quest".into(), "Delete me".into())
+            .with_scene("scene-1".into());
+        app.world()
+            .resource::<TaskPanelBackendResource>()
+            .handle(TaskPanelCommand::Create(task))
+            .unwrap();
+        let snapshot = app
+            .world()
+            .resource::<TaskPanelBackendResource>()
+            .snapshot()
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<TaskPanelState>()
+            .apply_backend_snapshot(snapshot);
+        let panel_id = app
+            .world()
+            .resource::<TaskPanelState>()
+            .tasks
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        app.world_mut()
+            .resource_mut::<TaskPanelState>()
+            .pending_commands
+            .push(TaskPanelCommand::Delete {
+                id: panel_id.clone(),
+            });
+
+        app.update();
+        assert!(!app
+            .world()
+            .resource::<TaskPanelState>()
+            .tasks
+            .contains_key(&panel_id));
+        app.world_mut()
+            .resource_mut::<TaskPanelState>()
+            .pending_commands
+            .push(TaskPanelCommand::Refresh);
+        app.update();
+        assert!(!app
+            .world()
+            .resource::<TaskPanelState>()
+            .tasks
+            .contains_key(&panel_id));
+        assert_eq!(
+            app.world()
+                .resource::<MulticaTaskPanelIntegration>()
+                .synchronized_tasks_for_scene("scene-1")
+                .unwrap()[0]
+                .status,
             UnifiedTaskStatus::Cancelled
         );
     }

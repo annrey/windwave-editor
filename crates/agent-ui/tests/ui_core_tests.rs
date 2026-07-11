@@ -143,6 +143,28 @@ fn task_panel_state_merges_backend_snapshot_without_replacing_local_identity() {
 }
 
 #[test]
+fn remote_cancelled_task_remains_visible_without_local_delete_tombstone() {
+    let mut cancelled = TaskInfo::new(
+        "task_bridge_remote".into(),
+        "Remote cancelled".into(),
+        "Still visible".into(),
+    )
+    .with_multica_id("remote".into());
+    cancelled.status = TaskStatus::Cancelled;
+    let mut state = TaskPanelState::default();
+
+    state.apply_backend_snapshot(TaskPanelSnapshot {
+        tasks: vec![cancelled],
+        sync_status: SyncStatus::Synced,
+    });
+
+    assert_eq!(
+        state.tasks["task_bridge_remote"].status,
+        TaskStatus::Cancelled
+    );
+}
+
+#[test]
 fn created_task_alias_prevents_duplicate_after_snapshot_merge() {
     let original = TaskInfo::new("panel-created".into(), "Quest".into(), "Find item".into());
     let mut state = TaskPanelState::default();
@@ -212,6 +234,52 @@ fn task_panel_backend_resource_continues_after_command_failure() {
             TaskPanelCommand::Refresh,
             TaskPanelCommand::Delete { id: "42".into() }
         ]
+    );
+}
+
+#[test]
+fn legacy_pending_actions_and_messages_drive_backend_commands() {
+    fn accepts_legacy_actions(_: &Vec<TaskAction>) {}
+
+    let backend = SharedMemoryTaskPanelBackend::default();
+    let mut app = bevy::prelude::App::new();
+    app.add_plugins(TaskPanelPlugin)
+        .insert_resource(TaskPanelBackendResource::new(backend.clone()));
+    accepts_legacy_actions(&app.world().resource::<TaskPanelState>().pending_actions);
+    app.world_mut()
+        .resource_mut::<TaskPanelState>()
+        .pending_actions
+        .push(TaskAction::RefreshTasks);
+    app.world_mut()
+        .write_message(TaskAction::DeleteTask("42".into()));
+
+    app.update();
+
+    assert_eq!(
+        backend.inner.lock().unwrap().commands,
+        vec![
+            TaskPanelCommand::Refresh,
+            TaskPanelCommand::Delete { id: "42".into() },
+        ]
+    );
+}
+
+#[test]
+fn backend_batch_handles_commands_and_snapshot_under_one_transaction() {
+    let backend = SharedMemoryTaskPanelBackend::default();
+    backend.inner.lock().unwrap().snapshot.sync_status = SyncStatus::Synced;
+    let resource = TaskPanelBackendResource::new(backend.clone());
+
+    let transaction = resource.handle_all_and_snapshot(vec![TaskPanelCommand::Refresh]);
+
+    assert!(transaction.errors.is_empty());
+    assert_eq!(
+        transaction.snapshot.unwrap().sync_status,
+        SyncStatus::Synced
+    );
+    assert_eq!(
+        backend.inner.lock().unwrap().commands,
+        vec![TaskPanelCommand::Refresh]
     );
 }
 

@@ -1,4 +1,24 @@
 use super::{SyncStatus, TaskInfo, TaskStatus};
+use bevy::prelude::Message;
+
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub enum TaskAction {
+    CreateTask(TaskInfo),
+    UpdateTaskStatus(String, TaskStatus),
+    DeleteTask(String),
+    RefreshTasks,
+}
+
+impl From<TaskAction> for TaskPanelCommand {
+    fn from(action: TaskAction) -> Self {
+        match action {
+            TaskAction::CreateTask(task) => Self::Create(task),
+            TaskAction::UpdateTaskStatus(id, status) => Self::UpdateStatus { id, status },
+            TaskAction::DeleteTask(id) => Self::Delete { id },
+            TaskAction::RefreshTasks => Self::Refresh,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskPanelCommand {
@@ -12,6 +32,11 @@ pub enum TaskPanelCommand {
 pub struct TaskPanelSnapshot {
     pub tasks: Vec<TaskInfo>,
     pub sync_status: SyncStatus,
+}
+
+pub struct TaskPanelBackendTransaction {
+    pub errors: Vec<TaskPanelBackendError>,
+    pub snapshot: Result<TaskPanelSnapshot, TaskPanelBackendError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
