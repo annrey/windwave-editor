@@ -428,7 +428,7 @@ fn test_open_world_replay_world_state_applies_to_bevy_components() {
         .get::<OpenWorldReplayInventoryState>(player)
         .unwrap()
         .items
-        .contains(&"reward_item".to_string()));
+        .contains("reward_item"));
 
     let chest = find_open_world_entity(&mut world, "reward_chest");
     assert_eq!(

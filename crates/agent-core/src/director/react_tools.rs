@@ -74,7 +74,7 @@ impl DirectorRuntime {
                         "[ReflectionEngine] Tool '{}' failed: [{}] {}",
                         tool_name,
                         classification.describe(),
-                        &e
+                        e
                     );
 
                     let _reflection =

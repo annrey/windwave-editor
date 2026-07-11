@@ -270,40 +270,30 @@ impl ConfigLoader {
             let arg = &args[i];
 
             match arg.as_str() {
-                "-p" | "--prompt" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("agent.prompt", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "-p" | "--prompt" if i + 1 < args.len() => {
+                    self.set_cli_override("agent.prompt", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
-                "-m" | "--model" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("llm.model", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "-m" | "--model" if i + 1 < args.len() => {
+                    self.set_cli_override("llm.model", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
-                "--api-key" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("llm.api_key", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "--api-key" if i + 1 < args.len() => {
+                    self.set_cli_override("llm.api_key", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
-                "--base-url" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("llm.base_url", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "--base-url" if i + 1 < args.len() => {
+                    self.set_cli_override("llm.base_url", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
-                "--approval-mode" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("agent.approval_mode", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "--approval-mode" if i + 1 < args.len() => {
+                    self.set_cli_override("agent.approval_mode", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
                 "--yolo" => {
                     self.set_cli_override("agent.approval_mode", "yolo");
@@ -314,26 +304,20 @@ impl ConfigLoader {
                 "--debug" => {
                     self.set_cli_override("agent.debug_mode", "true");
                 }
-                "--max-iterations" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("agent.max_iterations", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "--max-iterations" if i + 1 < args.len() => {
+                    self.set_cli_override("agent.max_iterations", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
-                "--image-provider" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("assets.image_provider", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "--image-provider" if i + 1 < args.len() => {
+                    self.set_cli_override("assets.image_provider", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
-                "--image-api-key" => {
-                    if i + 1 < args.len() {
-                        self.set_cli_override("assets.image_api_key", &args[i + 1]);
-                        i += 2;
-                        continue;
-                    }
+                "--image-api-key" if i + 1 < args.len() => {
+                    self.set_cli_override("assets.image_api_key", &args[i + 1]);
+                    i += 2;
+                    continue;
                 }
                 _ => {}
             }

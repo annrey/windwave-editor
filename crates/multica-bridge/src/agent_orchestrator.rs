@@ -499,7 +499,8 @@ impl AgentOrchestrator {
         info!("Enqueueing pipeline task: {}", task.title);
         self.task_queue.push(task);
         // Sort by priority (higher = more urgent)
-        self.task_queue.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.task_queue
+            .sort_by_key(|a| std::cmp::Reverse(a.priority));
     }
 
     /// Process the task queue, executing up to max_concurrent_tasks

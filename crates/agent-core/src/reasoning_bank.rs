@@ -308,7 +308,7 @@ impl ReasoningBank {
         }
 
         let mut sorted_traces: Vec<_> = matched_traces.into_iter().collect();
-        sorted_traces.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_traces.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         sorted_traces
             .into_iter()

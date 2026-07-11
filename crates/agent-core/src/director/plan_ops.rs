@@ -101,10 +101,8 @@ impl DirectorRuntime {
                         true,
                     );
                 }
-                EditorEvent::ExecutionCompleted { success, .. } => {
-                    if !success {
-                        all_success = false;
-                    }
+                EditorEvent::ExecutionCompleted { success: false, .. } => {
+                    all_success = false;
                 }
                 _ => {}
             }

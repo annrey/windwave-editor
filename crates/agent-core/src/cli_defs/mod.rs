@@ -2,7 +2,7 @@
 //!
 //! Mirrors Open Design's `apps/daemon/src/runtimes/registry.ts`.
 //! 23+ agents registered as static AgentDef values.
-//! Add a new agent: create a <id>.rs file, then add it to AGENT_REGS below.
+//! Add a new agent: create a `<id>.rs` file, then add it to AGENT_REGS below.
 
 pub mod types;
 

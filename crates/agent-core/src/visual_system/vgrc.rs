@@ -152,10 +152,8 @@ impl VgcrController {
                         ));
                     }
                 }
-                VisualExpectation::NoAnomalies => {
-                    if !vision.anomalies.is_empty() {
-                        failures.push(format!("检测到 {} 个异常", vision.anomalies.len()));
-                    }
+                VisualExpectation::NoAnomalies if !vision.anomalies.is_empty() => {
+                    failures.push(format!("检测到 {} 个异常", vision.anomalies.len()));
                 }
                 _ => {}
             }

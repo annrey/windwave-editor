@@ -543,7 +543,7 @@ impl AgentRegistry {
     pub async fn shutdown_all(&mut self) -> Vec<(AgentId, bool)> {
         let mut results = Vec::new();
 
-        for (id, _agent) in self.agents.iter_mut() {
+        for id in self.agents.keys() {
             // Future: call agent.shutdown() when available
             results.push((*id, true));
         }

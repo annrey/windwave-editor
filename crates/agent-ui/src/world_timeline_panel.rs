@@ -421,7 +421,7 @@ fn take_or_request_bevy_framebuffer_screenshot(
         return BevyFramebufferScreenshotStatus::Unavailable;
     };
 
-    while let Some(result) = queue.pop_result() {
+    if let Some(result) = queue.pop_result() {
         match result {
             bevy_adapter::ScreenshotResult::Success {
                 path, dimensions, ..

@@ -143,7 +143,7 @@ pub struct GoalRequirementResult {
     /// Human-readable description of the requirement.
     pub description: String,
 
-    /// Optional diagnostic message (e.g. "expected translation [0,0,0], got [1,2,3]").
+    /// Optional diagnostic message (e.g. "expected translation \[0,0,0\], got \[1,2,3\]").
     pub message: Option<String>,
 }
 

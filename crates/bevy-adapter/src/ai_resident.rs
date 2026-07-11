@@ -254,23 +254,20 @@ pub fn run_ai_resident_slice01_bevy_smoke(world: &mut World) -> Vec<Adjudication
 
     let mut sandbox = AiResidentSandbox::slice01_fixture();
     // Fixture defaults to shop/patrol hours (12:00).
-    let mut outcomes = Vec::new();
-    outcomes.push(
+    let outcomes = vec![
         sandbox
             .adjudicate(&ResidentIntent {
                 agent_id: "merchant_01".into(),
                 template: ActionTemplateId::QuotePrice,
             })
             .expect("merchant"),
-    );
-    outcomes.push(
         sandbox
             .adjudicate(&ResidentIntent {
                 agent_id: "guard_01".into(),
                 template: ActionTemplateId::PatrolWaypoint,
             })
             .expect("guard"),
-    );
+    ];
     apply_sandbox_to_world(world, &sandbox);
     outcomes
 }

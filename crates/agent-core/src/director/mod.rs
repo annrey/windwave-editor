@@ -567,7 +567,7 @@ impl DirectorRuntime {
     /// Check if LLM client is available.
     ///
     /// Returns true if an explicit llm_client is configured and ready, OR
-    /// if the ReAct agent (which internally holds an Arc<dyn LlmClient>)
+    /// if the ReAct agent (which internally holds an `Arc<dyn LlmClient>`)
     /// is present. This ensures the main path enters the real LLM loop
     /// when the runtime was auto-configured from environment (where
     /// llm_client is intentionally left None and react_agent carries

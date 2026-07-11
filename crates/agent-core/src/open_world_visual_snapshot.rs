@@ -61,7 +61,7 @@ fn fill_rect(pixels: &mut [u8], x: u32, y: u32, width: u32, height: u32, color: 
 }
 
 fn png_error(error: png::EncodingError) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, error)
+    io::Error::other(error)
 }
 
 #[cfg(test)]

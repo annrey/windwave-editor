@@ -308,7 +308,7 @@ impl SkillExecutor {
     /// ordered such that all nodes in layer N are complete before any
     /// node in layer N+1 starts.
     ///
-    /// Example: A→B, A→C, B→D, C→D  →  [[A], [B, C], [D]]
+    /// Example: A→B, A→C, B→D, C→D  →  `[[A], [B, C], [D]]`
     pub fn build_execution_layers(
         &self,
         skill: &SkillDefinition,

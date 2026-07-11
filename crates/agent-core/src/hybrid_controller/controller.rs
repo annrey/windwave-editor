@@ -310,11 +310,10 @@ impl HybridEditorController {
                 .find("```")
                 .map(|end| after_start[..end].trim())
                 .unwrap_or(after_start.trim())
-        } else if let Some(start) = raw.find('{') {
+        } else {
+            let start = raw.find('{')?;
             let end = raw[start..].find('}').map(|i| start + i + 1)?;
             &raw[start..end]
-        } else {
-            return None;
         };
 
         let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
