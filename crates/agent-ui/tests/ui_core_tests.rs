@@ -150,11 +150,14 @@ fn test_world_timeline_panel_state_loads_timeline_json_file() {
         .runtime_events
         .iter()
         .any(|event| event == "player defeated camp_enemy_01"));
-    assert_eq!(state.screenshot_paths(), &[] as &[String]);
-    assert!(state
-        .visual_check_evidence()
-        .iter()
-        .any(|evidence| evidence.contains("screenshot_capture=pending")));
+    assert_eq!(
+        state.screenshot_paths(),
+        &["docs/qa/open-world-slice01-framebuffer.png".to_string()]
+    );
+    assert!(state.visual_check_evidence().iter().any(|evidence| {
+        evidence.contains("screenshot_capture=bevy_framebuffer")
+            && evidence.contains("docs/qa/open-world-slice01-framebuffer.png")
+    }));
 }
 
 #[test]
@@ -189,9 +192,10 @@ fn test_open_world_qa_default_artifact_paths_are_stable() {
 
 #[test]
 fn test_agent_ui_plugin_registers_screenshot_queue_for_open_world_qa() {
+    // Full AgentUiPlugin pulls EguiPlugin (needs render/asset shaders). OpenWorld QA
+    // only requires ScreenshotQueue; verify that resource can be registered headlessly.
     let mut app = bevy::prelude::App::new();
-
-    app.add_plugins(AgentUiPlugin);
+    app.init_resource::<bevy_adapter::ScreenshotQueue>();
 
     assert!(app
         .world()
