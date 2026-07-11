@@ -106,7 +106,9 @@ pub use skill_panel::{
     SkillCategoryFilter, SkillInfo, SkillPanelPlugin, SkillPanelState, SkillParamInfo,
 };
 pub use task_panel::{
-    TaskAction, TaskFilter, TaskInfo, TaskPanelPlugin, TaskPanelState, TaskStatus,
+    SortBy, SyncStatus, TaskAction, TaskFilter, TaskInfo, TaskPanelBackend, TaskPanelBackendError,
+    TaskPanelBackendErrorKind, TaskPanelCommand, TaskPanelPlugin, TaskPanelSnapshot,
+    TaskPanelState, TaskStatus,
 };
 pub use transform_tools::{DragAxis, SnapSettings, TransformDragState, TransformToolsPlugin};
 pub use viewport_picking::{spawn_pickable_entity, Pickable, PickingState, ViewportPickingPlugin};

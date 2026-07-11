@@ -3,6 +3,38 @@ use agent_ui::*;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy_adapter::{LootContainer, OpenWorldObject};
 
+#[derive(Default)]
+struct MemoryTaskPanelBackend {
+    snapshot: TaskPanelSnapshot,
+    commands: Vec<TaskPanelCommand>,
+}
+
+impl TaskPanelBackend for MemoryTaskPanelBackend {
+    fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
+        Ok(self.snapshot.clone())
+    }
+
+    fn handle(&mut self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
+        self.commands.push(command);
+        Ok(())
+    }
+}
+
+#[test]
+fn task_panel_port_is_backend_agnostic() {
+    let mut backend = MemoryTaskPanelBackend::default();
+    backend.handle(TaskPanelCommand::Refresh).unwrap();
+    assert_eq!(backend.commands, vec![TaskPanelCommand::Refresh]);
+    assert!(backend.snapshot().unwrap().tasks.is_empty());
+}
+
+#[test]
+fn task_view_model_preserves_status_semantics() {
+    let mut task = TaskInfo::new("1".into(), "Build world".into(), "".into());
+    task.status = TaskStatus::InProgress;
+    assert_eq!(task.status.display(), "进行中");
+}
+
 fn sync_director_events_to_pending_ui(
     desk: &mut DirectorDeskState,
     events: &[agent_core::EditorEvent],
