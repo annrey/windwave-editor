@@ -192,6 +192,31 @@ pub enum SyncStatus {
     SyncError(String),
 }
 
+/// Panel identities assigned to tasks created during a backend batch.
+#[derive(Debug, Clone, Default)]
+pub struct CreatedTaskAliases {
+    panel_id_by_backend_id: HashMap<String, String>,
+}
+
+impl CreatedTaskAliases {
+    pub fn record(&mut self, backend_id: String, panel_id: String) {
+        self.panel_id_by_backend_id.insert(backend_id, panel_id);
+    }
+
+    pub fn apply(&self, mut snapshot: TaskPanelSnapshot) -> TaskPanelSnapshot {
+        for task in &mut snapshot.tasks {
+            if let Some(panel_id) = task
+                .multica_id
+                .as_ref()
+                .and_then(|backend_id| self.panel_id_by_backend_id.get(backend_id))
+            {
+                task.id = panel_id.clone();
+            }
+        }
+        snapshot
+    }
+}
+
 impl Default for TaskPanelState {
     fn default() -> Self {
         Self {

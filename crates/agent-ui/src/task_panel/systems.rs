@@ -18,7 +18,7 @@ use multica_bridge::scene_event_bus::{
 use multica_bridge::task_bridge::{TaskBridge, UnifiedTask, UnifiedTaskStatus};
 use multica_bridge::task_sync_module::{SyncStatus as ModuleSyncStatus, TaskSynchronizer};
 
-use super::model::{SyncStatus, TaskInfo, TaskPanelState, TaskStatus};
+use super::model::{CreatedTaskAliases, SyncStatus, TaskInfo, TaskPanelState, TaskStatus};
 use super::port::{
     TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelCommand,
     TaskPanelSnapshot,
@@ -306,6 +306,7 @@ fn task_info_to_unified(task: &TaskInfo) -> UnifiedTask {
 #[derive(Clone)]
 struct MulticaTaskPanelBackend {
     bridge: Arc<TaskBridge>,
+    created_aliases: CreatedTaskAliases,
 }
 
 impl MulticaTaskPanelBackend {
@@ -338,17 +339,19 @@ impl TaskPanelBackend for MulticaTaskPanelBackend {
                 task
             })
             .collect();
-        Ok(TaskPanelSnapshot {
+        Ok(self.created_aliases.apply(TaskPanelSnapshot {
             tasks,
             sync_status: SyncStatus::Synced,
-        })
+        }))
     }
 
     fn handle(&mut self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
         match command {
             TaskPanelCommand::Refresh => Ok(()),
             TaskPanelCommand::Create(task) => {
-                self.bridge
+                let panel_id = task.id.clone();
+                let registered = self
+                    .bridge
                     .register_task(task_info_to_unified(&task))
                     .map_err(|error| {
                         backend_unavailable(format!(
@@ -356,6 +359,8 @@ impl TaskPanelBackend for MulticaTaskPanelBackend {
                             task.title
                         ))
                     })?;
+                self.created_aliases
+                    .record(registered.id.bridge_id.to_string(), panel_id);
                 Ok(())
             }
             TaskPanelCommand::UpdateStatus { id, status } => {
@@ -402,6 +407,7 @@ fn process_task_actions(
     let multica_backend = bridge.map(|bridge| {
         TaskPanelBackendResource::new(MulticaTaskPanelBackend {
             bridge: bridge.bridge.clone(),
+            created_aliases: CreatedTaskAliases::default(),
         })
     });
     let backend = backend.as_deref().or(multica_backend.as_ref());

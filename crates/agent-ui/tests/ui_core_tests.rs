@@ -143,6 +143,32 @@ fn task_panel_state_merges_backend_snapshot_without_replacing_local_identity() {
 }
 
 #[test]
+fn created_task_alias_prevents_duplicate_after_snapshot_merge() {
+    let original = TaskInfo::new("panel-created".into(), "Quest".into(), "Find item".into());
+    let mut state = TaskPanelState::default();
+    state.add_task(original);
+
+    let mut aliases = CreatedTaskAliases::default();
+    aliases.record("7".into(), "panel-created".into());
+    let remote = TaskInfo::new("task_bridge_7".into(), "Quest".into(), "Find item".into())
+        .with_multica_id("7".into());
+    let snapshot = aliases.apply(TaskPanelSnapshot {
+        tasks: vec![remote],
+        sync_status: SyncStatus::Synced,
+    });
+
+    state.apply_backend_snapshot(snapshot);
+
+    assert_eq!(state.tasks.len(), 1);
+    assert!(state.tasks.contains_key("panel-created"));
+    assert_eq!(
+        state.tasks["panel-created"].multica_id.as_deref(),
+        Some("7")
+    );
+    assert!(!state.tasks.contains_key("task_bridge_7"));
+}
+
+#[test]
 fn task_panel_state_routes_panel_id_to_backend_identity() {
     let task =
         TaskInfo::new("panel-id".into(), "Quest".into(), "".into()).with_multica_id("42".into());

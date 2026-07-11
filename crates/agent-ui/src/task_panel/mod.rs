@@ -5,7 +5,9 @@ mod port;
 mod systems;
 mod view;
 
-pub use model::{SortBy, SyncStatus, TaskFilter, TaskInfo, TaskPanelState, TaskStatus};
+pub use model::{
+    CreatedTaskAliases, SortBy, SyncStatus, TaskFilter, TaskInfo, TaskPanelState, TaskStatus,
+};
 pub use port::{
     TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelCommand,
     TaskPanelSnapshot,
