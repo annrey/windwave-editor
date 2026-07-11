@@ -324,6 +324,7 @@ pub struct SceneEventSubscriberId {
 #[derive(Resource, Default)]
 struct PublishedSceneIndexState {
     entity_fingerprint_by_id: HashMap<u64, String>,
+    has_baseline: bool,
 }
 
 #[derive(Resource, Clone)]
@@ -444,6 +445,13 @@ fn publish_scene_index_changes(
         })
         .collect();
     let timestamp = format!("{:?}", std::time::SystemTime::now());
+    if !published.has_baseline {
+        if !current.is_empty() {
+            published.entity_fingerprint_by_id = current;
+            published.has_baseline = true;
+        }
+        return;
+    }
     for (entity_id, name) in &current {
         let event_type = match published.entity_fingerprint_by_id.get(entity_id) {
             None => Some(SceneEventType::EntityCreated),
@@ -771,14 +779,30 @@ mod tests {
             )
             .with_scene("default".into()),
         );
-        let entity = app
+        let preexisting_entity = app
             .world_mut()
-            .spawn((Name::new("Real Producer Entity"), Transform::default()))
+            .spawn((Name::new("Preexisting Entity"), Transform::default()))
+            .id();
+        app.world_mut()
+            .resource_mut::<bevy_adapter::BevyAdapter>()
+            .register_entity(preexisting_entity);
+
+        app.update();
+        app.update();
+        assert!(
+            app.world().resource::<TaskPanelState>().tasks["panel-real-scene"]
+                .entity_ids
+                .is_empty()
+        );
+
+        let created_entity = app
+            .world_mut()
+            .spawn((Name::new("Created After Baseline"), Transform::default()))
             .id();
         let entity_id = app
             .world_mut()
             .resource_mut::<bevy_adapter::BevyAdapter>()
-            .register_entity(entity)
+            .register_entity(created_entity)
             .0;
 
         app.update();
