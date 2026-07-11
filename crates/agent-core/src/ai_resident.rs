@@ -208,10 +208,7 @@ impl ResidentObservation {
         } else {
             self.schedule.allowed_actions.join(",")
         };
-        let template = self
-            .active_template
-            .map(|t| t.as_str())
-            .unwrap_or("none");
+        let template = self.active_template.map(|t| t.as_str()).unwrap_or("none");
         format!(
             "agent_id={} role={} zone={} schedule={} window={} allowed={} template={}",
             self.agent_id,
@@ -385,7 +382,10 @@ impl AiResidentSandbox {
         })
     }
 
-    pub fn adjudicate(&mut self, intent: &ResidentIntent) -> Result<AdjudicationOutcome, AiResidentError> {
+    pub fn adjudicate(
+        &mut self,
+        intent: &ResidentIntent,
+    ) -> Result<AdjudicationOutcome, AiResidentError> {
         let profile = self
             .profiles
             .get(&intent.agent_id)
@@ -446,7 +446,10 @@ impl AiResidentSandbox {
             return Ok(outcome);
         }
 
-        match self.permission_engine.decide_for_plan(intent.template.risk()) {
+        match self
+            .permission_engine
+            .decide_for_plan(intent.template.risk())
+        {
             PermissionRequirement::AutoApproved => {
                 let outcome = AdjudicationOutcome::Allowed {
                     template: intent.template,
@@ -461,7 +464,10 @@ impl AiResidentSandbox {
             PermissionRequirement::NeedUserConfirmation { risk, reason } => {
                 let outcome = AdjudicationOutcome::Denied {
                     template: intent.template,
-                    reason: format!("permission requires confirmation for {:?}: {}", risk, reason),
+                    reason: format!(
+                        "permission requires confirmation for {:?}: {}",
+                        risk, reason
+                    ),
                 };
                 self.record_outcome(&intent.agent_id, &outcome, tick);
                 Ok(outcome)
@@ -478,7 +484,9 @@ impl AiResidentSandbox {
     }
 
     /// Run one schedule-driven tick for every resident.
-    pub fn tick_all_schedule_driven(&mut self) -> Result<Vec<AdjudicationOutcome>, AiResidentError> {
+    pub fn tick_all_schedule_driven(
+        &mut self,
+    ) -> Result<Vec<AdjudicationOutcome>, AiResidentError> {
         let agent_ids: Vec<String> = self.profiles.keys().cloned().collect();
         let mut outcomes = Vec::with_capacity(agent_ids.len());
         for agent_id in agent_ids {

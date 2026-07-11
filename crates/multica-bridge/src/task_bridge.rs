@@ -471,7 +471,7 @@ impl TaskBridge {
     /// Register a task with an explicit scene association.
     ///
     /// The returned [`UnifiedTask`] is stored in the bridge and indexed by
-    /// its scene ID so that it can be retrieved via [`get_tasks_by_scene`].
+    /// its scene ID so that it can be retrieved via [`Self::get_tasks_by_scene`].
     pub fn register_scene_task(
         &self,
         title: String,

@@ -66,8 +66,10 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v1
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
+          # Image default Rust is too old for Cargo.lock version 4.
+          rust-version: stable
           command: check bans licenses sources
 
   docs:

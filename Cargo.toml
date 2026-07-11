@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["AgentEdit Team"]
 description = "AI Agent Driven Game Editor"
+publish = false
 
 [[bin]]
 name = "agent-edit"

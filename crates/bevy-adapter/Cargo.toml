@@ -3,6 +3,7 @@ name = "bevy-adapter"
 version.workspace = true
 edition.workspace = true
 description = "Bevy engine adapter for AgentEdit"
+publish = false
 
 [dependencies]
 agent-core = { path = "../agent-core", default-features = false }

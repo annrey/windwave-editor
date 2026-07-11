@@ -3,6 +3,7 @@ name = "agent-core"
 version.workspace = true
 edition.workspace = true
 description = "Agent interface layer - core types and context management"
+publish = false
 
 [dependencies]
 serde = { workspace = true }

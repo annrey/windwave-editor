@@ -55,8 +55,10 @@ pub struct AiResidentPlugin;
 
 impl Plugin for AiResidentPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AiResidentClock>()
-            .add_systems(Update, (sync_resident_behavior_from_clock, animate_guard_patrol));
+        app.init_resource::<AiResidentClock>().add_systems(
+            Update,
+            (sync_resident_behavior_from_clock, animate_guard_patrol),
+        );
     }
 }
 
@@ -225,7 +227,10 @@ pub fn push_resident_scene_index_summaries(
     if let Some(behavior) = world.get::<ResidentBehaviorState>(entity) {
         let mut props = HashMap::new();
         props.insert("template".into(), Value::String(behavior.template.clone()));
-        props.insert("schedule_active".into(), Value::Bool(behavior.schedule_active));
+        props.insert(
+            "schedule_active".into(),
+            Value::Bool(behavior.schedule_active),
+        );
         props.insert(
             "window_id".into(),
             behavior
@@ -235,10 +240,7 @@ pub fn push_resident_scene_index_summaries(
                 .unwrap_or(Value::Null),
         );
         props.insert("shop_open".into(), Value::Bool(behavior.shop_open));
-        props.insert(
-            "patrol_t".into(),
-            Value::from(f64::from(behavior.patrol_t)),
-        );
+        props.insert("patrol_t".into(), Value::from(f64::from(behavior.patrol_t)));
         components.push(ComponentSummary {
             type_name: "ResidentBehaviorState".into(),
             properties: props,

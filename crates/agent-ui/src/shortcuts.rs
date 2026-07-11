@@ -54,10 +54,7 @@ fn handle_shortcuts(
     let shift_pressed = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     // Ctrl+Z: Undo
-    if ctrl_pressed
-        && keys.just_pressed(KeyCode::KeyZ)
-        && !shift_pressed
-    {
+    if ctrl_pressed && keys.just_pressed(KeyCode::KeyZ) && !shift_pressed {
         shortcut_state.last_shortcut = Some("Undo".to_string());
         info!("Shortcut: Undo (Ctrl+Z)");
         desk_state

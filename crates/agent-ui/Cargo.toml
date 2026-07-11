@@ -3,6 +3,7 @@ name = "agent-ui"
 version.workspace = true
 edition.workspace = true
 description = "Agent chat UI and conversation interface"
+publish = false
 
 [dependencies]
 agent-core = { path = "../agent-core", default-features = false }

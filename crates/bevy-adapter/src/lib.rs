@@ -27,9 +27,9 @@ pub use adapter::{AgentActionEvent, AgentEntityId, AgentTracked};
 pub use adapter::{AssetReference, AssetType, ComponentPatch, EngineCommand, EngineCommandResult};
 pub use adapter::{EntitySnapshot, RollbackOperation};
 pub use ai_resident::{
-    apply_sandbox_to_world, push_resident_scene_index_summaries, run_ai_resident_slice01_bevy_smoke,
-    spawn_ai_resident_slice01, AiResidentClock, AiResidentPlugin, GuardPatrolPath, ResidentAgent,
-    ResidentBehaviorState,
+    apply_sandbox_to_world, push_resident_scene_index_summaries,
+    run_ai_resident_slice01_bevy_smoke, spawn_ai_resident_slice01, AiResidentClock,
+    AiResidentPlugin, GuardPatrolPath, ResidentAgent, ResidentBehaviorState,
 };
 pub use command_processor::{CommandHistory, CommandProcessorPlugin, PendingCommands};
 pub use llm_runtime_agent::{

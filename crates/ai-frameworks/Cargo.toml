@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Integrations for LangChain, LlamaIndex, and DSPy AI frameworks"
 autoexamples = false
+publish = false
 
 [[example]]
 name = "ai_frameworks_basic_usage"

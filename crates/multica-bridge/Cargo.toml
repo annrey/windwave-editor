@@ -3,6 +3,7 @@ name = "multica-bridge"
 version = "0.1.0"
 edition = "2021"
 description = "Bridge between WindWave and Multica agent platform"
+publish = false
 
 [[example]]
 name = "basic_usage"

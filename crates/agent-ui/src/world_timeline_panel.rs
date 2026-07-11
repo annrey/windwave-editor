@@ -469,7 +469,8 @@ fn stamp_open_world_main_window_acceptance(markdown_path: &Path) -> std::io::Res
     if existing.contains("Main-window acceptance") {
         return Ok(());
     }
-    let stamped = if let Some(rest) = existing.strip_prefix("# OpenWorld Verification Bundle: open_world_slice01\n\n")
+    let stamped = if let Some(rest) =
+        existing.strip_prefix("# OpenWorld Verification Bundle: open_world_slice01\n\n")
     {
         format!("# OpenWorld Verification Bundle: open_world_slice01\n\n{STAMP}{rest}")
     } else {
@@ -520,9 +521,7 @@ fn open_world_qa_accept_mode_system(
             let output_dir = std::env::temp_dir().join("windwave-open-world-qa-screenshots");
             let _ = std::fs::create_dir_all(&output_dir);
             screenshot_state.set_output_dir(output_dir);
-            info!(
-                "OpenWorld QA accept mode: warming up primary window for framebuffer readback"
-            );
+            info!("OpenWorld QA accept mode: warming up primary window for framebuffer readback");
             *phase = OpenWorldQaAcceptPhase::Warmup;
         }
         OpenWorldQaAcceptPhase::Warmup => {
@@ -566,9 +565,7 @@ fn open_world_qa_accept_mode_system(
                 .iter()
                 .any(|row| row.contains("screenshot_capture=bevy_framebuffer"));
             if has_framebuffer {
-                info!(
-                    "OpenWorld QA accept mode: PASSED (screenshot_capture=bevy_framebuffer)"
-                );
+                info!("OpenWorld QA accept mode: PASSED (screenshot_capture=bevy_framebuffer)");
                 let _ = stamp_open_world_main_window_acceptance(
                     &OpenWorldQaRequestQueue::default_open_world_slice01_artifact_paths()
                         .markdown_path,

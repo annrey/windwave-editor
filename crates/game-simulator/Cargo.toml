@@ -3,6 +3,7 @@ name = "game-simulator"
 version.workspace = true
 edition.workspace = true
 description = "Headless game logic simulator"
+publish = false
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
