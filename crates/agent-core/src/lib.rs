@@ -20,6 +20,7 @@ pub mod ai_frameworks;
 pub mod ai_resident;
 #[cfg(feature = "http-api")]
 pub mod api;
+pub mod application;
 pub mod audit;
 pub mod bench;
 pub mod bevy_editor_model;
@@ -78,6 +79,7 @@ pub mod persistent_memory;
 pub mod plan;
 pub mod planner;
 pub mod playable_scenario;
+pub mod ports;
 pub mod project;
 pub mod project_system;
 pub mod prompt;
