@@ -1,7 +1,9 @@
 //! AgentEdit - AI Agent Driven Game Editor
 
+mod multica_task_panel_adapter;
 mod resources;
 use crate::resources::*;
+use multica_task_panel_adapter::MulticaTaskPanelPlugin;
 
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
@@ -605,6 +607,7 @@ fn main() {
                 ..default()
             }),
             AgentCorePlugin,
+            MulticaTaskPanelPlugin,
             AgentUiPlugin,
             BevyAdapterPlugin,
             BevySceneBridgePlugin,

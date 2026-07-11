@@ -12,7 +12,4 @@ pub use port::{
     TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelCommand,
     TaskPanelSnapshot,
 };
-pub use systems::{
-    PanelSceneEventSubscriber, SceneEventQueue, SceneEventSubscriberId, TaskAction,
-    TaskBridgeResource, TaskPanelBackendResource, TaskPanelPlugin, TaskSynchronizerResource,
-};
+pub use systems::{TaskAction, TaskPanelBackendResource, TaskPanelPlugin, TaskPanelSystemSet};

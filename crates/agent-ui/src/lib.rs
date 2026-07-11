@@ -108,7 +108,7 @@ pub use skill_panel::{
 pub use task_panel::{
     CreatedTaskAliases, SortBy, SyncStatus, TaskAction, TaskFilter, TaskInfo, TaskPanelBackend,
     TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelBackendResource, TaskPanelCommand,
-    TaskPanelPlugin, TaskPanelSnapshot, TaskPanelState, TaskStatus,
+    TaskPanelPlugin, TaskPanelSnapshot, TaskPanelState, TaskPanelSystemSet, TaskStatus,
 };
 pub use transform_tools::{DragAxis, SnapSettings, TransformDragState, TransformToolsPlugin};
 pub use viewport_picking::{spawn_pickable_entity, Pickable, PickingState, ViewportPickingPlugin};
