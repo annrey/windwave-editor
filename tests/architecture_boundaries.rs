@@ -97,7 +97,8 @@ fn application_import_error(source: &str, type_name: &str) -> Option<String> {
                 && use_statement_imports_type(statement, type_name)
         })
         .collect();
-    let legacy_qualified = source.contains(&format!("agent_core::director::{type_name}"))
+    let legacy_qualified = source.contains(&format!("agent_core::{type_name}"))
+        || source.contains(&format!("agent_core::director::{type_name}"))
         || source.contains(&format!("agent_core::open_world_runtime::{type_name}"))
         || source.contains(&format!("agent_core::open_world_timeline::{type_name}"));
 
@@ -189,6 +190,22 @@ fn application_consumers_use_stable_facade() {
         assert!(
             application_import_error(legacy_fixture, "DirectorRuntime").is_some(),
             "legacy fixture must be rejected: {legacy_fixture}"
+        );
+    }
+
+    for (type_name, root_qualified_fixture) in [
+        (
+            "DirectorRuntime",
+            "use agent_core::application::DirectorRuntime;\nfn legacy(_: agent_core::DirectorRuntime) {}",
+        ),
+        (
+            "OpenWorldRuntimeState",
+            "use agent_core::application::OpenWorldRuntimeState;\nfn legacy(_: agent_core::OpenWorldRuntimeState) {}",
+        ),
+    ] {
+        assert!(
+            application_import_error(root_qualified_fixture, type_name).is_some(),
+            "root-qualified legacy fixture must be rejected: {root_qualified_fixture}"
         );
     }
 }
