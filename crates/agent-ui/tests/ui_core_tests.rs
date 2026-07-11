@@ -27,6 +27,27 @@ struct SharedMemoryTaskPanelBackend {
     fail_first: bool,
 }
 
+#[derive(Clone)]
+struct RejectDeleteBackend {
+    snapshot: TaskPanelSnapshot,
+}
+
+impl TaskPanelBackend for RejectDeleteBackend {
+    fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
+        Ok(self.snapshot.clone())
+    }
+
+    fn handle(&mut self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
+        if matches!(command, TaskPanelCommand::Delete { .. }) {
+            return Err(TaskPanelBackendError {
+                kind: TaskPanelBackendErrorKind::Rejected,
+                message: "delete rejected".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
 impl TaskPanelBackend for SharedMemoryTaskPanelBackend {
     fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
         Ok(self.inner.lock().unwrap().snapshot.clone())
@@ -281,6 +302,46 @@ fn backend_batch_handles_commands_and_snapshot_under_one_transaction() {
         backend.inner.lock().unwrap().commands,
         vec![TaskPanelCommand::Refresh]
     );
+}
+
+#[test]
+fn rejected_delete_restores_task_and_later_refresh_keeps_it_visible() {
+    let remote = TaskInfo::new("panel-rejected".into(), "Keep".into(), "Rejected".into())
+        .with_multica_id("42".into());
+    let backend = RejectDeleteBackend {
+        snapshot: TaskPanelSnapshot {
+            tasks: vec![remote.clone()],
+            sync_status: SyncStatus::Synced,
+        },
+    };
+    let mut app = bevy::prelude::App::new();
+    app.add_plugins(TaskPanelPlugin)
+        .insert_resource(TaskPanelBackendResource::new(backend));
+    app.world_mut()
+        .resource_mut::<TaskPanelState>()
+        .add_task(remote);
+    app.world_mut()
+        .resource_mut::<TaskPanelState>()
+        .pending_commands
+        .push(TaskPanelCommand::Delete {
+            id: "panel-rejected".into(),
+        });
+
+    app.update();
+    let state = app.world().resource::<TaskPanelState>();
+    assert!(state.tasks.contains_key("panel-rejected"));
+    assert!(matches!(state.sync_status, SyncStatus::SyncError(_)));
+
+    app.world_mut()
+        .resource_mut::<TaskPanelState>()
+        .pending_commands
+        .push(TaskPanelCommand::Refresh);
+    app.update();
+    assert!(app
+        .world()
+        .resource::<TaskPanelState>()
+        .tasks
+        .contains_key("panel-rejected"));
 }
 
 #[test]

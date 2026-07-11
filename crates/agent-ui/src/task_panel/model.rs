@@ -170,7 +170,7 @@ pub struct TaskPanelState {
     pub pending_actions: Vec<TaskAction>,
     /// Backend-neutral commands emitted by the current panel view.
     pub pending_commands: Vec<TaskPanelCommand>,
-    deleted_backend_ids: HashMap<String, String>,
+    deleted_tasks: HashMap<String, TaskInfo>,
     /// 同步状态
     pub sync_status: SyncStatus,
     /// 排序方式
@@ -237,7 +237,7 @@ impl Default for TaskPanelState {
             new_task_scene_id: String::new(),
             pending_actions: Vec::new(),
             pending_commands: Vec::new(),
-            deleted_backend_ids: HashMap::new(),
+            deleted_tasks: HashMap::new(),
             sync_status: SyncStatus::NotSynced,
             sort_by: SortBy::Priority,
             selected_ids: Vec::new(),
@@ -284,13 +284,9 @@ impl TaskPanelState {
     pub fn apply_backend_snapshot(&mut self, snapshot: TaskPanelSnapshot) {
         let mut merged = self.tasks.clone();
         for mut remote in snapshot.tasks {
-            if self
-                .deleted_backend_ids
-                .iter()
-                .any(|(panel_id, backend_id)| {
-                    remote.id == *panel_id || remote.multica_id.as_deref() == Some(backend_id)
-                })
-            {
+            if self.deleted_tasks.iter().any(|(panel_id, deleted)| {
+                remote.id == *panel_id || remote.multica_id.as_ref() == deleted.multica_id.as_ref()
+            }) {
                 continue;
             }
             let existing_id = remote.multica_id.as_ref().and_then(|remote_id| {
@@ -318,7 +314,11 @@ impl TaskPanelState {
             self.tasks
                 .get(&id)
                 .and_then(|task| task.multica_id.clone())
-                .or_else(|| self.deleted_backend_ids.get(&id).cloned())
+                .or_else(|| {
+                    self.deleted_tasks
+                        .get(&id)
+                        .and_then(|task| task.multica_id.clone())
+                })
                 .unwrap_or(id)
         };
         match command {
@@ -371,9 +371,8 @@ impl TaskPanelState {
     /// 删除任务
     pub fn delete_task(&mut self, task_id: &str) -> bool {
         if let Some(task) = self.tasks.remove(task_id) {
-            if let Some(backend_id) = &task.multica_id {
-                self.deleted_backend_ids
-                    .insert(task_id.to_string(), backend_id.clone());
+            if task.multica_id.is_some() {
+                self.deleted_tasks.insert(task_id.to_string(), task.clone());
             }
             self.status_counts
                 .entry(task.status)
@@ -386,6 +385,12 @@ impl TaskPanelState {
             true
         } else {
             false
+        }
+    }
+
+    pub fn restore_deleted_task(&mut self, task_id: &str) {
+        if let Some(task) = self.deleted_tasks.remove(task_id) {
+            self.add_task(task);
         }
     }
 

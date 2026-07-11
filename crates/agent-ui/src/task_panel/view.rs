@@ -234,7 +234,6 @@ pub(super) fn render_task_panel(
                                     task_state
                                         .pending_commands
                                         .push(TaskPanelCommand::Delete { id: id.clone() });
-                                    task_state.delete_task(&id);
                                 }
                                 task_state.selected_ids.clear();
                             }
@@ -497,7 +496,6 @@ pub(super) fn render_task_panel(
                         task_state.pending_commands.push(TaskPanelCommand::Delete {
                             id: delete_id.clone(),
                         });
-                        task_state.delete_task(delete_id);
                         task_state.show_delete_confirm = None;
                     }
                     if ui.button("取消").clicked() {

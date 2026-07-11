@@ -35,8 +35,14 @@ pub struct TaskPanelSnapshot {
 }
 
 pub struct TaskPanelBackendTransaction {
+    pub command_results: Vec<TaskPanelCommandResult>,
     pub errors: Vec<TaskPanelBackendError>,
     pub snapshot: Result<TaskPanelSnapshot, TaskPanelBackendError>,
+}
+
+pub struct TaskPanelCommandResult {
+    pub command: TaskPanelCommand,
+    pub result: Result<(), TaskPanelBackendError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use super::model::{SyncStatus, TaskPanelState};
 use super::port::{
     TaskAction, TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind,
-    TaskPanelBackendTransaction, TaskPanelCommand, TaskPanelSnapshot,
+    TaskPanelBackendTransaction, TaskPanelCommand, TaskPanelCommandResult, TaskPanelSnapshot,
 };
 use super::view::render_task_panel;
 
@@ -59,21 +59,41 @@ impl TaskPanelBackendResource {
         &self,
         commands: impl IntoIterator<Item = TaskPanelCommand>,
     ) -> TaskPanelBackendTransaction {
+        let commands: Vec<_> = commands.into_iter().collect();
         let mut backend = match self.backend.lock() {
             Ok(backend) => backend,
             Err(_) => {
+                let error = backend_unavailable("task panel backend lock poisoned");
                 return TaskPanelBackendTransaction {
-                    errors: Vec::new(),
-                    snapshot: Err(backend_unavailable("task panel backend lock poisoned")),
-                }
+                    command_results: commands
+                        .into_iter()
+                        .map(|command| TaskPanelCommandResult {
+                            command,
+                            result: Err(error.clone()),
+                        })
+                        .collect(),
+                    errors: vec![error.clone()],
+                    snapshot: Err(error),
+                };
             }
         };
-        let errors = commands
+        let command_results: Vec<_> = commands
             .into_iter()
-            .filter_map(|command| backend.handle(command).err())
+            .map(|command| TaskPanelCommandResult {
+                result: backend.handle(command.clone()),
+                command,
+            })
+            .collect();
+        let errors = command_results
+            .iter()
+            .filter_map(|outcome| outcome.result.as_ref().err().cloned())
             .collect();
         let snapshot = backend.snapshot();
-        TaskPanelBackendTransaction { errors, snapshot }
+        TaskPanelBackendTransaction {
+            command_results,
+            errors,
+            snapshot,
+        }
     }
 
     pub fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
@@ -142,16 +162,20 @@ fn process_task_actions(
     };
 
     let commands: Vec<_> = actions
-        .into_iter()
-        .map(|command| {
-            let routed = task_state.route_backend_command(command.clone());
-            if let TaskPanelCommand::Delete { id } = command {
-                task_state.delete_task(&id);
-            }
-            routed
-        })
+        .iter()
+        .cloned()
+        .map(|command| task_state.route_backend_command(command))
         .collect();
     let transaction = backend.handle_all_and_snapshot(commands);
+    for (original, outcome) in actions.iter().zip(&transaction.command_results) {
+        if let TaskPanelCommand::Delete { id } = original {
+            if outcome.result.is_ok() {
+                task_state.delete_task(id);
+            } else {
+                task_state.restore_deleted_task(id);
+            }
+        }
+    }
     let errors = transaction.errors;
     for backend_error in &errors {
         error!(

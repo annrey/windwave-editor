@@ -10,6 +10,6 @@ pub use model::{
 };
 pub use port::{
     TaskAction, TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind,
-    TaskPanelBackendTransaction, TaskPanelCommand, TaskPanelSnapshot,
+    TaskPanelBackendTransaction, TaskPanelCommand, TaskPanelCommandResult, TaskPanelSnapshot,
 };
 pub use systems::{TaskPanelBackendResource, TaskPanelPlugin, TaskPanelSystemSet};

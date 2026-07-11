@@ -446,10 +446,8 @@ fn publish_scene_index_changes(
         .collect();
     let timestamp = format!("{:?}", std::time::SystemTime::now());
     if !published.has_baseline {
-        if !current.is_empty() {
-            published.entity_fingerprint_by_id = current;
-            published.has_baseline = true;
-        }
+        published.entity_fingerprint_by_id = current;
+        published.has_baseline = true;
         return;
     }
     for (entity_id, name) in &current {
@@ -810,6 +808,38 @@ mod tests {
 
         assert_eq!(
             app.world().resource::<TaskPanelState>().tasks["panel-real-scene"].entity_ids,
+            vec![entity_id.to_string()]
+        );
+    }
+
+    #[test]
+    fn empty_scene_index_baseline_publishes_first_later_entity() {
+        let mut app = App::new();
+        app.init_resource::<TaskPanelState>().add_plugins((
+            bevy_adapter::BevyAdapterPlugin,
+            bevy_adapter::integration::SceneIndexRebuildPlugin::every(1),
+            MulticaTaskPanelPlugin,
+        ));
+        app.world_mut().resource_mut::<TaskPanelState>().add_task(
+            TaskInfo::new("panel-empty".into(), "Quest".into(), "Track first".into())
+                .with_scene("default".into()),
+        );
+        app.update();
+
+        let entity = app
+            .world_mut()
+            .spawn((Name::new("First Entity"), Transform::default()))
+            .id();
+        let entity_id = app
+            .world_mut()
+            .resource_mut::<bevy_adapter::BevyAdapter>()
+            .register_entity(entity)
+            .0;
+        app.update();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<TaskPanelState>().tasks["panel-empty"].entity_ids,
             vec![entity_id.to_string()]
         );
     }
