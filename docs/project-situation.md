@@ -1,14 +1,12 @@
 # WindWave 项目情况整理
 
-> 整理日期：2026-06-07  
+> 整理日期：2026-06-07（方向口径同步：2026-07-11）  
 > 范围：根目录 Rust workspace、`src/`、`crates/`、当前核心文档与近期会话日志  
 > 目的：把项目现状、可信依据、正在收敛的问题和下一批要处理的内容集中到一个入口。
 
 ## 1. 一句话结论
 
-WindWave（`agent-edit`）当前是一个基于 Rust、Bevy 0.17、bevy_egui 的 AI Agent 驱动游戏编辑器。项目主体骨架已经成型，具备 Director/Planner/Skill/Tool、SceneBridge、SceneIndex、Memory、EventStream、权限/回滚/审计、UI、Bevy adapter、Multica bridge 等模块。
-
-下一阶段重点不是继续铺新模块，而是把已有能力从“能规划、能展示、能局部执行”收敛为“用户请求能稳定闭环执行、可观察、可验证、可撤销”。
+WindWave（`agent-edit`）是基于 Rust、Bevy 0.17、bevy_egui 的 AI Agent 驱动游戏编辑器。长期愿景是 AI 可创造、可游玩的 3D 世界（「个人服务器」模型：邀请/加入、AI↔AI、AI 理解 3D）；OpenWorldSlice01 主窗口 framebuffer 验收已于 2026-07-11 通过，**当前主线为 AI 居民沙盘**（PRD：`docs/prd/ai-resident-sandbox.md`，**尚未实现**）。派单以 `docs/remaining-work.md` 与 `docs/windwave-ai-playable-world-editor-roadmap.md` 为准（2026-07 三项决策已锁定）。
 
 ## 2. 当前可信入口
 
@@ -18,9 +16,10 @@ WindWave（`agent-edit`）当前是一个基于 Rust、Bevy 0.17、bevy_egui 的
 | `README.md` | 项目入口说明 | 高 | 已对齐为 WindWave，不再把根项目误写成 Understand Anything |
 | `CONTEXT-MAP.md` | 领域上下文与模块关系 | 高 | 明确 agent-core、bevy-adapter、agent-ui 的边界 |
 | `PROJECT_STATUS.md` | 项目总体状态与历史 Sprint 汇总 | 中高 | 内容较全，但仍有历史测试数量口径残留 |
-| `docs/windwave-version-plan.md` | 版本目标、优先级与验收门禁 | 高 | 当前最适合作为路线图入口 |
-| `docs/windwave-execution-plan.md` | v0.2 代码级执行清单 | 高 | 适合直接拆任务执行 |
-| `docs/remaining-work.md` | 剩余任务与待解决问题 | 高 | 后续开发和派单入口 |
+| `docs/windwave-ai-playable-world-editor-roadmap.md` | AI 可玩世界编辑器路线总纲（含 North Star） | 高 | 产品方向入口；2026-07 三项决策已锁定 |
+| `docs/remaining-work.md` | 剩余任务与待解决问题 | 高 | 后续开发和派单入口（2026-07-11 已锁定近程顺序） |
+| `docs/windwave-version-plan.md` | 版本目标、优先级与验收门禁 | 中 | 偏 v0.2 历史口径；近程以 remaining-work + roadmap 为准 |
+| `docs/windwave-execution-plan.md` | v0.2 代码级执行清单 | 中 | 适合查阅历史拆分；新派单优先 remaining-work |
 | `docs/repository-boundaries.md` | Rust/Node 混居边界 | 高 | 明确 `Cargo.toml` 与 `package.json` 的职责 |
 | `docs/qa/red-enemy-closed-loop.md` | v0.2 P0 闭环 QA 场景 | 高 | 用于红色敌人验收 |
 | `docs/issues/v0.2.0-closed-loop-execution.md` | v0.2 GitHub issue 草案 | 中高 | `gh` token 修复后可发布 |
@@ -240,6 +239,6 @@ cargo clippy --workspace -- -D warnings
 
 ## 10. 当前行动建议
 
-本项目最值得马上推进的是 v0.2.0 的最小闭环，不建议先做更多新功能。闭环打穿后，Memory、Vision、Multica、多引擎 adapter 才会有稳定承载点。
+近程以 AI 居民沙盘为当前 P0（OpenWorldSlice01 主窗口 framebuffer 验收已完成；沙盘短 PRD 见 `docs/prd/ai-resident-sandbox.md`，**实现尚未开始**）；工具中枢更后。详细派单见 `docs/remaining-work.md`，产品方向见 `docs/windwave-ai-playable-world-editor-roadmap.md`。
 
-建议下一步直接打开 `docs/windwave-execution-plan.md`，从 M1/M2 中挑一个小任务开始做；如果需要开 issue，则按本文件的 P0/P1 清单拆成独立、可验收的任务。
+历史 v0.2 闭环细节仍可查 `docs/windwave-execution-plan.md`；新派单不要以本文件第 6–7 节的 2026-06 清单为准。

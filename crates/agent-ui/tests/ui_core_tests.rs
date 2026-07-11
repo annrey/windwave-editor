@@ -367,10 +367,13 @@ fn test_world_timeline_qa_request_uses_bevy_framebuffer_screenshot_result() {
         "windwave-open-world-qa-framebuffer-{}",
         std::process::id()
     ));
+    std::fs::create_dir_all(&artifact_dir).unwrap();
     let markdown_path = artifact_dir.join("open-world-slice01.md");
     let timeline_json_path = artifact_dir.join("open-world-slice01-timeline.json");
     let proxy_visual_path = artifact_dir.join("open-world-slice01-proxy.png");
     let engine_screenshot_path = artifact_dir.join("bevy-framebuffer.png");
+    let durable_framebuffer_path = artifact_dir.join("open-world-slice01-framebuffer.png");
+    std::fs::write(&engine_screenshot_path, b"fake-png-bytes").unwrap();
 
     {
         let screenshot_queue = app.world().resource::<bevy_adapter::ScreenshotQueue>();
@@ -395,7 +398,7 @@ fn test_world_timeline_qa_request_uses_bevy_framebuffer_screenshot_result() {
     let timeline = state.timeline.as_ref().unwrap();
     assert_eq!(
         timeline.screenshot_paths,
-        vec![engine_screenshot_path.to_string_lossy().to_string()]
+        vec![durable_framebuffer_path.to_string_lossy().to_string()]
     );
     assert!(timeline
         .visual_check_evidence
@@ -414,14 +417,15 @@ fn test_world_timeline_qa_request_uses_bevy_framebuffer_screenshot_result() {
 
     let markdown = std::fs::read_to_string(&markdown_path).unwrap();
     assert!(markdown.contains("screenshot_capture=bevy_framebuffer"));
-    assert!(markdown.contains("bevy-framebuffer.png"));
+    assert!(markdown.contains("open-world-slice01-framebuffer.png"));
     assert!(markdown.contains("bevy_screenshot_success_total=1"));
 
     let timeline_json = std::fs::read_to_string(&timeline_json_path).unwrap();
     assert!(timeline_json.contains("screenshot_capture=bevy_framebuffer"));
-    assert!(timeline_json.contains("bevy-framebuffer.png"));
+    assert!(timeline_json.contains("open-world-slice01-framebuffer.png"));
     assert!(timeline_json.contains("bevy_screenshot_success_total=1"));
     assert!(!proxy_visual_path.exists());
+    assert!(durable_framebuffer_path.exists());
 }
 
 #[test]
@@ -441,10 +445,12 @@ fn test_world_timeline_qa_request_waits_for_bevy_framebuffer_capture() {
         "windwave-open-world-qa-wait-framebuffer-{}",
         std::process::id()
     ));
+    std::fs::create_dir_all(&artifact_dir).unwrap();
     let markdown_path = artifact_dir.join("open-world-slice01.md");
     let timeline_json_path = artifact_dir.join("open-world-slice01-timeline.json");
     let proxy_visual_path = artifact_dir.join("open-world-slice01-proxy.png");
     let engine_screenshot_path = artifact_dir.join("bevy-framebuffer.png");
+    let durable_framebuffer_path = artifact_dir.join("open-world-slice01-framebuffer.png");
 
     app.world_mut()
         .resource_mut::<OpenWorldQaRequestQueue>()
@@ -469,6 +475,7 @@ fn test_world_timeline_qa_request_waits_for_bevy_framebuffer_capture() {
     assert!(!markdown_path.exists());
     assert!(!proxy_visual_path.exists());
 
+    std::fs::write(&engine_screenshot_path, b"fake-png-bytes").unwrap();
     {
         let screenshot_queue = app.world().resource::<bevy_adapter::ScreenshotQueue>();
         screenshot_queue
@@ -488,14 +495,16 @@ fn test_world_timeline_qa_request_waits_for_bevy_framebuffer_capture() {
     let timeline = state.timeline.as_ref().unwrap();
     assert_eq!(
         timeline.screenshot_paths,
-        vec![engine_screenshot_path.to_string_lossy().to_string()]
+        vec![durable_framebuffer_path.to_string_lossy().to_string()]
     );
     assert!(markdown_path.exists());
     assert!(!proxy_visual_path.exists());
+    assert!(durable_framebuffer_path.exists());
 
     let markdown = std::fs::read_to_string(&markdown_path).unwrap();
     assert!(markdown.contains("screenshot_capture=bevy_framebuffer"));
     assert!(markdown.contains("dimensions=1024x576"));
+    assert!(markdown.contains("open-world-slice01-framebuffer.png"));
 }
 
 #[test]

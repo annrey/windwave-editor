@@ -7,6 +7,7 @@
 //! - Delete: Delete selected entity
 //! - F: Focus camera on selected entity
 //! - Ctrl+P: Open Command Palette
+//! - Ctrl+Shift+T: Toggle World Timeline (OpenWorld QA)
 
 use bevy::prelude::*;
 use log::info;
@@ -46,15 +47,16 @@ fn handle_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     mut shortcut_state: ResMut<ShortcutState>,
     mut desk_state: ResMut<crate::director_desk::DirectorDeskState>,
+    mut timeline_state: ResMut<crate::world_timeline_panel::WorldTimelinePanelState>,
 ) {
     // Check for Ctrl modifier
     let ctrl_pressed = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let shift_pressed = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     // Ctrl+Z: Undo
     if ctrl_pressed
         && keys.just_pressed(KeyCode::KeyZ)
-        && !keys.pressed(KeyCode::ShiftLeft)
-        && !keys.pressed(KeyCode::ShiftRight)
+        && !shift_pressed
     {
         shortcut_state.last_shortcut = Some("Undo".to_string());
         info!("Shortcut: Undo (Ctrl+Z)");
@@ -65,9 +67,7 @@ fn handle_shortcuts(
 
     // Ctrl+Y or Ctrl+Shift+Z: Redo
     if (ctrl_pressed && keys.just_pressed(KeyCode::KeyY))
-        || (ctrl_pressed
-            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
-            && keys.just_pressed(KeyCode::KeyZ))
+        || (ctrl_pressed && shift_pressed && keys.just_pressed(KeyCode::KeyZ))
     {
         shortcut_state.last_shortcut = Some("Redo".to_string());
         info!("Shortcut: Redo (Ctrl+Y)");
@@ -101,6 +101,16 @@ fn handle_shortcuts(
         desk_state
             .pending_actions
             .push(crate::director_desk::UserAction::ToggleCommandPalette);
+    }
+
+    // Ctrl+Shift+T: Toggle World Timeline (OpenWorld QA entrypoint)
+    if ctrl_pressed && shift_pressed && keys.just_pressed(KeyCode::KeyT) {
+        timeline_state.visible = !timeline_state.visible;
+        shortcut_state.last_shortcut = Some("ToggleWorldTimeline".to_string());
+        info!(
+            "Shortcut: Toggle World Timeline (Ctrl+Shift+T) visible={}",
+            timeline_state.visible
+        );
     }
 
     // G/R/S: Gizmo modes (when no text input is focused)

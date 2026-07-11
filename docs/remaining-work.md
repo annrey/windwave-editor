@@ -1,125 +1,145 @@
 # WindWave 剩余任务与待解决问题
 
-> 更新日期：2026-06-07  
-> 范围：当前 Rust workspace、核心文档、v0.2 闭环目标、近期 P0/P1 修复  
-> 用途：作为后续开发和派单入口。更细的代码级步骤见 `docs/windwave-execution-plan.md`。
+> 更新日期：2026-07-11  
+> 范围：当前 Rust workspace、产品方向对齐、OpenWorldSlice01 验收、近程里程碑  
+> 用途：开发和派单入口。产品愿景与阶段路线见 `docs/windwave-ai-playable-world-editor-roadmap.md`。  
+> 更细的 v0.2 代码级步骤见 `docs/windwave-execution-plan.md`（历史口径，仅作参考）。
 
 ## 总体判断
 
-WindWave 当前不是“从零补模块”的阶段，而是“把已有模块接成可验证闭环”的阶段。剩余任务可以分成四类：
+WindWave 的长期愿景是：**AI 能在编辑器里创造世界（含外部 3D/2D 工具），也能作为玩家/居民进入并游玩；世界模型是「每个人都是自己的服务器」，可邀请/加入他人世界，并支持 AI↔AI 通讯与 AI 对 3D 世界的理解。**
 
-1. 必须先完成的 v0.2 闭环执行。
-2. 已写代码但还没跑完整验证的正确性修复。
-3. 需要人工、外部凭据或真实环境的验收项。
-4. v0.3+ 的体验、记忆、视觉、生态扩展。
+近程仍坚持「先可玩证据，再工具中枢」：不立刻做商业级多人 MMO，也不把 Blender/Godot 工具中枢提前。当前阶段是把已有模块接成**可验证的可玩证据链**，再开 AI 居民沙盘。
 
-当前最重要的验收场景仍是：
+当前最重要的工程卡点：
 
 ```text
-创建一个红色敌人放在右边
+AI 居民沙盘深化（AiResidentSlice01 第一刀已落地；下一刀可选更多角色/事件）
 ```
 
-目标链路：
+OpenWorldSlice01 主窗口真实 framebuffer readback 已于 2026-07-11 通过（`screenshot_capture=bevy_framebuffer`，见 `docs/qa/open-world-slice01.md`）。`AiResidentSlice01` 自动验收见 `docs/qa/ai-resident-slice01.md` / `make test-ai-resident`。
+
+## 已确认方向（2026-07）
+
+| # | 决策 | 状态 |
+|---|---|---|
+| 1 | 近程仍坚持「先可玩证据，再工具中枢」 | **已确认** |
+| 2 | 「3D MMO」= 体验隐喻（个人服务器 + 邀请/加入 + AI↔AI 通讯 + AI 理解 3D 世界）；**不是**近期完整商业级多人 MMO | **已确认** |
+| 3 | 主窗口验收后下一刀优先「AI 居民沙盘」；治理/回放并行加深已有 Timeline，但不抢主线 | **已确认** |
+
+近程锁定顺序：
 
 ```text
-user request -> plan -> act -> observe -> revise -> verify -> undo
+主窗口 framebuffer 验收 ✅ → AI 居民沙盘 →（工具中枢更后）
 ```
 
-## P0：必须先处理
+## North Star（长期愿景）
+
+一句话：
+
+> WindWave 是面向 AI 可玩世界的 3D 编辑器与运行时：AI 可创造、可游玩、可守规矩；世界以「个人服务器」为单元持续演化，可邀请/加入他人世界，并具备 AI↔AI 通讯与 AI 对 3D 世界的理解。
+
+「3D MMO」含义（已确认，2026-07）：
+
+| 是 | 不是 |
+|---|---|
+| 体验隐喻：每人自己的服务器 | 近期完整商业级多人在线 MMO |
+| 可邀请或加入他人的世界（中期能力柱） | 近程就排真多人网络里程碑 |
+| AI↔AI 交流通讯 | 仅「多 NPC 同屏」的空口号 |
+| AI 能理解一个 3D 世界 | 纯表格/纯剧情图替代 3D 主语 |
+
+能力柱与现状：
+
+| 能力柱 | 已有 | 缺口 | 下一刀 |
+|---|---|---|---|
+| 世界可玩性 | OpenWorldSlice01 自动 playtest Passed；主窗口 framebuffer 验收 Passed（2026-07-11） | 真人玩法手感与 Vision 闭环加深 | 已完成 P0 验收；后续体验增强见 P2 |
+| AI 创作管线 / 外部 3D·2D 工具 | Director → Plan → SceneBridge；规则/LLM 规划 | Blender 等 ToolAdapter；资产预算与导入失败进 VerificationBundle | Phase 4，可玩闭环与沙盘之后 |
+| AI 作为玩家 / 居民 | **AiResidentSlice01**（Merchant+Guard；动作模板+权限+证据；`make test-ai-resident`） | 更多角色类型、白天/夜晚多事件、AI↔AI 受限消息 | Phase 2 加深；见 `docs/prd/ai-resident-sandbox.md` |
+| 持续世界 / 个人服务器模型 | WorldClock 初版；单切片小岛 | 多 chunk、离线低风险演化、长期记忆；邀请/加入他人世界（依赖沙盘与世界理解之后） | Phase 5 / 中期；非近程商业 MMO |
+| 治理与回放 | 权限/审计骨架；ReplayLedger / Timeline 面板雏形 | 行为时间线、越权告警、按时间回放修正 | 与沙盘并行加深，不抢主线 |
+
+与旧决策的调和：
+
+- **仍成立**：不立刻做完整商业级 3D MMO；外部工具服务于可玩闭环，不反客为主；先证据后规模；Rust/Bevy 主引擎。
+- **已锁定**：MMO 感 = 个人服务器 + 邀请/加入 + AI↔AI + AI 理解 3D；近程顺序 = 主窗口验收 → AI 居民沙盘 → 工具中枢更后。
+
+## P0：当前必须先处理
 
 | 编号 | 任务 | 当前状态 | 下一步 | 验收标准 |
 |---|---|---|---|---|
-| P0-1 | 打穿红色敌人闭环执行 | 自动端到端测试通过；编辑器可启动；Computer Use 未暴露 Bevy/winit 窗口，仍需真人窗口点击验收 | 由用户或可访问窗口的本机工具手动输入"创建一个红色敌人放在右边"，观察场景变化 | 输入"创建一个红色敌人放在右边"后，场景真实新增红色敌人，位于右侧 |
-| P0-2 | 自动验收升级为真实端到端 | ✅ 已完成 (2026-06-03) | `test_director_red_enemy_request_mutates_bevy_world_and_undoes` 在 iCloud 路径通过 | 测试能证明实体创建、SceneIndex 可见、undo 后实体消失 |
-| P0-3 | 失败后修正闭环 | ✅ 已完成 (2026-06-03) | `test_failed_internal_plan_emits_revision_review` 在 iCloud 路径通过 | 执行失败时不是静默结束，而是生成修订计划或可解释失败 |
-| P0-4 | 质量门禁真实跑通 | ✅ 2026-06-07 `cargo check`、`cargo test --workspace`、`cargo clippy --workspace -- -D warnings` 全部在 iCloud 路径通过；`cargo run --bin agent-edit` 可启动 | 保持 CI 或本地复跑 | 三条命令完整返回且通过 |
-| P0-5 | GitHub issue 远程发布 | 被凭据阻塞 | 修复 `gh auth` 后发布 `docs/issues/v0.2.0-closed-loop-execution.md` | GitHub 上存在 v0.2.0 闭环 issue |
+| P0-OW-1 | OpenWorldSlice01 主窗口 framebuffer 验收 | **已完成（2026-07-11）**：`make accept-open-world-qa` / `WINDWAVE_OPEN_WORLD_QA_ACCEPT=1` 跑通；QA 含 `screenshot_capture=bevy_framebuffer` 与 `docs/qa/open-world-slice01-framebuffer.png`（1600×900） | 保持回归：`make accept-open-world-qa` | 真人/自动主窗口路径均可复现；QA 字段保持 bevy_framebuffer |
+| P0-OW-2 | 主线玩通证据落盘 | **已完成（2026-07-11）**：`docs/qa/open-world-slice01.md` + timeline JSON 已写入主窗口 framebuffer 证据 | 无；回归时重跑 accept | 文档状态为「主窗口已验证」 |
+| P0-1 | 红色敌人真实窗口验收 | 自动端到端已通过；真人窗口仍受 Computer Use 限制 | 可与日常主窗口回归一并点验，不阻塞沙盘 | 输入后场景新增红色敌人于右侧 |
+| P0-5 | GitHub issue 远程发布 | 被凭据阻塞；开发/设计文档默认不推 GitHub | 仅在需要公开跟踪时再 `gh auth` | 可选，不阻塞主线 |
+| P0-AI-1 | AI 居民沙盘 PRD + 最小代理 | **已完成第一刀（2026-07-11）**：`AiResidentSlice01` core harness + Bevy 桥接；QA：`docs/qa/ai-resident-slice01.md`；`make test-ai-resident` | 可选：主窗口肉眼点验；下一刀更多角色/事件 | PRD §5：日程营业/巡逻、越权进证据、SceneIndex 含 agent 状态、playtest/QA 可复现 ✅ |
 
 参考文档：
 
-- `docs/qa/red-enemy-closed-loop.md`
-- `docs/issues/v0.2.0-closed-loop-execution.md`
-- `docs/windwave-execution-plan.md`
+- `docs/prd/ai-resident-sandbox.md` ← **AiResidentSlice01 已落地；深化另开 slice**
+- `docs/qa/ai-resident-slice01.md`
+- `docs/windwave-ai-playable-world-editor-roadmap.md`
+- `docs/prd/open-world-vertical-slice-prd.md`
+- `docs/qa/open-world-slice01.md`
+- `docs/prd/world-clock-and-real-time.md`
 
-## P1：下一批正确性与集成问题
+## 已完成（相对 2026-06 口径的跃迁）
 
-| 编号 | 任务 | 当前状态 | 下一步 | 验收标准 |
-|---|---|---|---|---|
-| P1-1 | SceneIndex 删除实体残留测试确认 | ✅ 已完成 (2026-06-03) | `test_incremental_plugin_reconciles_deleted_entities_without_waiting_for_fallback` 在 iCloud 路径通过 | 测试通过；删除实体不会残留到 fallback interval |
-| P1-2 | undo/redo full UI 验收 | 自动回归通过；真实窗口点击仍受 Computer Use 窗口发现限制 | `test_multi_undo_chain`、Prefab/SpriteTexture reverse tests 已通过；真人窗口验收仍需补 | Undo 后新实体消失，Redo 后恢复或行为符合设计 |
-| P1-3 | HR add/remove/fire approval UI smoke | ✅ 自动 UI smoke 通过；真实窗口点击仍受 Computer Use 窗口发现限制 | `cargo test -p agent-edit ui_smoke_hr_request` 已覆盖 approve/reject 清 desk 与 roster 变化 | roster 按 approve/reject 正确变化，危险操作不绕过确认 |
-| P1-4 | 关键词判断收敛 | ✅ 已完成 (2026-06-03) | agent_dispatch.rs 改用 KeywordMatcher 统一方法；rule_based/keywords.rs 添加文档区分话题路由 vs 实体解析 | 新增/修改关键词只需改统一策略或有明确局部理由 |
-| P1-5 | 新增 EngineCommand reverse contract 守卫 | ✅ 代码侧完成 (2026-06-03) | 13 个写入型 EngineCommand 变体：12 个有完整反向命令，1 个 (LoadAsset) 有意跳过 | 每个写入型 `EngineCommand` 都能说明是否可撤销以及如何撤销 |
-| P1-6 | 测试数字口径清理 | ✅ 已完成 | 统一口径：不硬编码总数，以 2026-06-07 `cargo test --workspace` 完整输出或 CI 输出为准 | 不再出现 861/876/880/1031 互相冲突的"当前数字" |
+以下不再作为当前 P0 阻塞项（细节见路线总纲 PRD 状态段）：
 
-已确认事项：
+- v0.2 红色敌人自动闭环、失败修正、质量门禁、SceneIndex 删除残留、EngineCommand reverse contract、HR approval 自动 UI smoke。
+- OpenWorldSlice01：自动 playtest 主线 Passed；WorldClock / ReplayLedger 初版；最小 Merchant 日程；World Timeline / Quest 面板；SceneIndex proxy 视觉 evidence；UI QA → ScreenshotQueue 接线；**主窗口 framebuffer readback 运行时验收（2026-07-11）**。
 
-- `SpawnPrefab` 反向命令已有回归测试：`test_spawn_prefab_reverse_is_delete` ✅ 2026-06-03 通过。
-- `SetSpriteTexture` 在新增 Sprite 情况下已有回归测试：`test_set_sprite_texture_reverse_removes_added_sprite` ✅ 2026-06-03 通过。
-- `LoadAsset` 当前按幂等低风险操作处理，不生成反向命令；如需热卸载，应新增 `RemoveAssetReference`。
-- `SceneIndex` 增量删除残留已修复，`test_incremental_plugin_reconciles_deleted_entities_without_waiting_for_fallback` ✅ 2026-06-03 通过。
-- 红色敌人闭环已补 `test_director_red_enemy_request_mutates_bevy_world_and_undoes`，覆盖 DirectorRuntime -> SceneBridge -> EngineCommand -> Bevy World -> SceneIndex -> undo；✅ 2026-06-07 在 iCloud 路径通过。
-- 失败后修正闭环已补 `test_failed_internal_plan_emits_revision_review`，覆盖缺失实体失败后产生 `needs_revision` 复盘事件并改写计划；✅ 2026-06-07 在 iCloud 路径通过。
-- HR approval 自动 UI smoke `ui_smoke_hr_request_approve_clears_desk_and_updates_roster` / `ui_smoke_hr_request_reject_clears_desk_without_updating_roster` ✅ 2026-06-07 通过。
-- 质量门禁：`cargo check`、`cargo test --workspace`、`cargo clippy --workspace -- -D warnings` ✅ 2026-06-07 在 iCloud 路径通过；`cargo run --bin agent-edit` 可启动。启用 Bevy `png` feature 后，运行态不再刷 `Cannot save screenshot, IO error: The image format Png is not supported`。
-
-## P2：稳定性、体验与真实集成
+## P1：验收通过后立刻开
 
 | 编号 | 任务 | 当前状态 | 下一步 | 验收标准 |
 |---|---|---|---|---|
-| P2-1 | MemoryInjector / episodic recall / layered context | 未完成 | 明确注入预算、召回依据、压缩策略 | Prompt 注入稳定在预算内，失败经验能影响类似请求 |
-| P2-2 | Visual feedback loop | 未完成 | 串起 operation -> screenshot -> vision verify -> revise | 视觉验证失败能触发修正或给出明确失败原因 |
-| P2-3 | Runtime Agent / Task Panel / Director events 状态一致 | 未完成 | 对齐同一操作在 UI 面板中的状态来源 | 用户看到的任务、事件、Agent 状态不互相矛盾 |
-| P2-4 | 真实 Multica server smoke test | 未完成 | 准备真实服务启动与连接步骤 | 真实环境能任务分发、进度回传、技能执行、场景状态同步 |
-| P2-5 | 关键模块测试覆盖补强 | 未完成 | 补 edit_ops、layout、memory、event_stream、SceneIndex integration 测试 | 关键路径回归测试覆盖写入/撤销/事件/索引 |
-| P2-6 | 性能 benchmark 与大型场景压测 | 未完成 | 明确场景规模、指标、基准命令 | 大型场景下 SceneIndex、UI、命令处理有可记录性能数据 |
+| P1-1 | AI 居民沙盘加深 | **AiResidentSlice01 第一刀已完成**；见 P0-AI-1 | 更多角色（Quest/Explorer）、多事件窗口 | 同 PRD Phase 2 全量口径 |
+| P1-2 | 治理 / 回放工作台加深 | Timeline / Replay 雏形已有 | 并行加深行为时间线、权限裁决可视化、异常标记；**不抢沙盘主线** | 能回答「谁在何时做了什么、是否越权」 |
+| P1-3 | undo/redo 与 HR 真人窗口补验 | 自动回归通过 | 主窗口可用后补点验 | QA 有记录或明确豁免 |
 
-## P3：后续扩展能力
+## P2：体验与证据增强
 
 | 编号 | 任务 | 当前状态 | 下一步 | 验收标准 |
 |---|---|---|---|---|
-| P3-1 | CodeGraph / ImpactAnalyzer / CodeContextGenerator | 规划中 | 先定义最小输入输出 | 能用于编辑前影响分析 |
-| P3-2 | Multi-selection tools / Transform Palette | 规划中 | 接入 UI 与命令历史 | 多选变换可 undo/redo |
-| P3-3 | Prefab / Asset / Hierarchy 深化 | 规划中 | 明确常用编辑命令与 UI 流程 | 常见资源与层级操作可视化、可撤销 |
-| P3-4 | Godot / Unreal adapter | 规划中 | 先做最小读取/命令/回滚链路 | 至少一个非 Bevy adapter 跑通最小链路 |
-| P3-5 | Narrative / game-design agents | 规划中 | 明确与 DirectorRuntime 的协作边界 | 游戏设计 Agent 能参与真实任务流 |
+| P2-1 | Visual feedback loop（真 Vision） | proxy + 主窗口 framebuffer 有；Vision 闭环未串 | operation → screenshot → vision verify → revise | 视觉失败能触发修正或明确失败原因 |
+| P2-2 | MemoryInjector / episodic recall | 未完成 | 注入预算、召回、压缩 | Prompt 在预算内；失败经验影响类似请求 |
+| P2-3 | Runtime / Task / Director 状态一致 | 部分面板已有 | 对齐同一操作的状态来源 | UI 不互相矛盾 |
+| P2-4 | 性能与大型场景预算 | 未完成 | 实体数、帧时间、SceneIndex、回放账本 | 有可记录基准 |
+
+## P3：愿景层扩展（可玩闭环与沙盘之后）
+
+| 编号 | 任务 | 说明 |
+|---|---|---|
+| P3-1 | 外部 3D/2D ToolAdapter | Blender 等 POC：生成/导入简单模型；失败进 VerificationBundle（工具中枢，排在沙盘之后） |
+| P3-2 | 小规模持续世界 / 个人服务器 | 多 WorldChunk、离线低风险演化、长期记忆摘要；每人自己的世界实例 |
+| P3-3 | 邀请/加入他人世界 | 中期能力柱：依赖 AI 居民沙盘与「AI 理解 3D 世界」之后再排；**不是**近期商业级多人 MMO |
+| P3-4 | AI↔AI 通讯 | 与沙盘深化联动；居民间受限消息/意图交换，经权限与审计 |
+| P3-5 | Godot / Unreal adapter、Narrative agents 等 | 保留为后续，不抢主线 |
 
 ## 外部阻塞
 
 | 阻塞项 | 影响 | 解决方式 |
 |---|---|---|
-| `gh` token 无效 | 无法远程创建 GitHub issue | 重新执行 `gh auth login -h github.com`，再发布 issue 草案 |
-| 真实 Multica 环境未就绪 | 只能验证 mock/test server | 准备真实 server smoke 环境 |
-| Computer Use 未暴露 Bevy/winit 窗口 | 无法由 Codex 直接点击运行中的 editor UI | 当前以自动 UI smoke 和运行态日志作为代理验收；最终人工窗口验收仍需用户或可访问该窗口的工具完成 |
+| Computer Use 未暴露 Bevy/winit 窗口 | Agent 无法代点编辑器 UI | 自动 accept 模式 + 人工点验；`make accept-open-world-qa` |
+| `gh` token / 文档不默认推 GitHub | 远程 issue 与公开规划不同步 | 本地文档为准；需公开时再发布 |
+| 真实 Multica 环境未就绪 | 只能 mock/test server | 需要时再准备真实 smoke |
 
 ## 建议执行顺序
 
-1. **P0 (代码侧已完成，外部/手动项剩余)**: 剩余 P0-1 的真人窗口验收和 P0-5 的 `gh auth` 凭据修复/远程 issue 发布。
+1. **立刻**：保持 `make test-ai-resident` 与 `make accept-open-world-qa` 回归绿；并行加深 P1-2 Timeline/权限可视化。
+2. **下一刀（可选）**：AiResident 加深 — 更多角色类型、白天/夜晚多事件（不塞回 Slice01）。
+3. **再后**：P2 Vision/Memory/性能；P3 工具中枢、个人服务器持续世界、邀请/加入与 AI↔AI。
 
-2. **P1 (代码侧全部完成 2026-06-03)**:
-   - EngineCommand 反向命令 13/13 覆盖 ✅
-   - HR 审批链路 14 tests pass ✅
-   - 关键词收敛：agent_dispatch 统一使用 KeywordMatcher ✅
-   - 测试数字口径统一 ~1022 tests ✅
-   - 剩余需要真人窗口验收：undo/redo UI (P1-2)、HR approval UI (P1-3)
+不要并行开大 MMO、工具中枢和沙盘三条线；沙盘优先于工具中枢。
 
-3. **P2**:
-   - Rust 黄色修复收尾（EventQueue/scheduler/PermissionRequested 告警）
-   - 失败闭环阐述：agent-core 新增导演手册和 trace 文档
-   - 自动验收 CI：GitHub Actions workflow 配 check + test + clippy
-   - Agent 角色规范文档：明确各角色的职责边界
-   - 关键模块测试覆盖补强
-   - 性能 benchmark 与大型场景压测
+## 完成定义（当前里程碑）
 
-4. 再做 Memory、Vision、Multica 真实 server 和平台扩展。
+OpenWorldSlice01 近程里程碑可视为完成，至少需要：
 
-## 完成定义
+- 自动 playtest 主线继续 Passed。 ✅
+- **主窗口**真实玩通一次，framebuffer / 截图证据写入 QA。 ✅（2026-07-11，`screenshot_capture=bevy_framebuffer`）
+- SceneIndex 关键目标与任务状态可查询。 ✅
+- `cargo check`、`cargo test --workspace`、`cargo clippy --workspace -- -D warnings` 通过。（回归时再跑）
+- 本文件与 `docs/windwave-ai-playable-world-editor-roadmap.md` 状态一致。
 
-v0.2.0 可视为完成，至少需要：
-
-- 红色敌人闭环场景通过。
-- SceneIndex 删除残留回归测试通过。
-- Undo/redo 在 UI QA 中通过。
-- HR approval 自动 smoke 通过；真实窗口点击验收有记录或明确豁免。
-- `cargo build`、`cargo test --workspace`、`cargo clippy --workspace -- -D warnings` 完整通过。
-- README、`PROJECT_STATUS.md`、`docs/project-situation.md`、`docs/windwave-version-plan.md`、本文件状态一致。
+v0.2 红色敌人闭环的自动侧已完成；真人窗口补验可并入日常主窗口回归，不再单独阻塞 open-world / 沙盘主线。

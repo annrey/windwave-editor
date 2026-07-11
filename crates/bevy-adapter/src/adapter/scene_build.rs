@@ -88,6 +88,7 @@ impl BevyAdapter {
             }
 
             open_world_components::push_scene_index_summaries(world, entity, &mut components);
+            crate::ai_resident::push_resident_scene_index_summaries(world, entity, &mut components);
 
             let node = SceneEntityNode {
                 id: agent_id,

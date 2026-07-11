@@ -2,9 +2,10 @@
 
 **让 AI Agent 真正进入游戏编辑器。**
 
-WindWave 是一个 Rust + Bevy 驱动的 AI Agent 游戏编辑器。它的目标不是
-给编辑器加一个聊天框，而是让自然语言请求进入可规划、可执行、可观察、
-可验证、可撤销的游戏编辑闭环。
+WindWave 是一个 Rust + Bevy 驱动的 AI Agent 游戏编辑器。长期愿景是让 AI
+既能创造可玩的 3D 世界，也能自己进入世界游玩（个人服务器式世界，可邀请/加入）。
+当前目标不是给编辑器加一个聊天框，而是让自然语言请求进入可规划、可执行、
+可观察、可验证、可撤销的游戏编辑闭环，并先用小型开放世界切片证明内容真的能玩。
 
 ```text
 说出意图 -> 生成计划 -> 修改场景 -> 观察结果 -> 修正偏差 -> 验证目标 -> 安全撤销
@@ -203,10 +204,12 @@ WindWave 当前适合探索这些方向：
 
 WindWave 处在早期但主体骨架已经成型的阶段。已有模块包括 Director、Planner、
 SceneBridge、SceneIndex、Memory、EventStream、权限、回滚、审计、agent-ui、
-bevy-adapter、multica-bridge、headless simulator 等。
+bevy-adapter、open-world 切片与 VerificationBundle 等。
 
-当前最重要的工程目标仍是 v0.2 闭环执行。新功能如果不能帮助
-`plan -> act -> observe -> verify -> undo`，优先级应低于闭环稳定性。
+当前最重要的工程目标是 AI 居民沙盘（PRD：`docs/prd/ai-resident-sandbox.md`，
+尚未实现；OpenWorldSlice01 主窗口 framebuffer 验收已于 2026-07-11 通过，回归用
+`make accept-open-world-qa`）。新功能如果不能帮助「生成 → 可玩 → 可观测 → 可验证 →
+可回放」，优先级应低于该证据链。详细派单见 `docs/remaining-work.md`。
 
 ## 仓库边界
 

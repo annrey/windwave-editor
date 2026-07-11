@@ -11,6 +11,7 @@
 #![allow(clippy::cloned_ref_to_slice_refs)]
 
 pub mod agent;
+pub mod ai_resident;
 pub mod agent_collaboration;
 pub mod agent_context;
 pub mod agent_pipeline;
@@ -333,6 +334,10 @@ pub use world_clock::{
     AgentSchedule, CalendarEvent, CalendarEventState, OfflineProgressionPolicy,
     OfflineProgressionReport, ReplayLedger, ReplayLedgerEntry, ScheduleDecision, ScheduleWindow,
     TimePolicy, WorldClock, WorldClockError, WorldClockMode, WorldTimestamp,
+};
+pub use ai_resident::{
+    ActionTemplateId, AdjudicationOutcome, AiResidentError, AiResidentSandbox, ResidentIntent,
+    ResidentObservation, ResidentProfile, ResidentRole, MAX_AI_RESIDENTS, SLICE_ID as AI_RESIDENT_SLICE_ID,
 };
 
 // New CLI agent system (multica/Open Design inspired)

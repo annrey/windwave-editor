@@ -146,6 +146,7 @@ impl OpenWorldVerificationBundle {
                 visual_check_evidence: Vec::new(),
                 director_events: Vec::new(),
                 engine_events: Vec::new(),
+                agent_events: Vec::new(),
             },
         }
     }
@@ -228,6 +229,11 @@ impl OpenWorldVerificationBundle {
         if !self.evidence.schedule_decisions.is_empty() {
             markdown.push_str("\n## Schedule Decisions\n\n");
             push_lines(&mut markdown, &self.evidence.schedule_decisions);
+        }
+
+        if !self.evidence.agent_events.is_empty() {
+            markdown.push_str("\n## Agent Events\n\n");
+            push_lines(&mut markdown, &self.evidence.agent_events);
         }
 
         if !self.evidence.performance_evidence.is_empty() {
@@ -325,6 +331,9 @@ pub struct VerificationEvidence {
     pub visual_check_evidence: Vec<String>,
     pub director_events: Vec<String>,
     pub engine_events: Vec<String>,
+    /// AI resident adjudication lines (allow / deny / fallback).
+    #[serde(default)]
+    pub agent_events: Vec<String>,
 }
 
 fn evaluate_goal(

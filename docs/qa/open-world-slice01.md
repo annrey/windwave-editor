@@ -1,5 +1,8 @@
 # OpenWorld Verification Bundle: open_world_slice01
 
+> **Main-window acceptance (2026-07-11):** Passed via `WINDWAVE_OPEN_WORLD_QA_ACCEPT=1` / `make accept-open-world-qa`.
+> Evidence: `screenshot_capture=bevy_framebuffer`, durable PNG `docs/qa/open-world-slice01-framebuffer.png` (1600×900), playtest Passed.
+
 Status: Passed
 Scenario: `playtest_open_world_slice01_main_path`
 Playtest: passed (13 steps, final quest: `Completed`)
@@ -54,8 +57,18 @@ Playtest: passed (13 steps, final quest: `Completed`)
 - scene_index_observations=24
 - verification_goals=5
 - scenario_steps=13
-- verification_duration_us=14
-- scene_index_observation_duration_us=0
+- verification_duration_us=50
+- scene_index_observation_duration_us=21
+- bevy_frame_count=94
+- bevy_frame_time_samples=94
+- bevy_frame_time_avg_ms=20.973
+- bevy_frame_time_max_ms=250.000
+- bevy_screenshot_requested=true
+- bevy_screenshot_requests_total=6
+- bevy_screenshot_success_total=3
+- bevy_screenshot_failure_total=0
+- bevy_screenshot_result_count=1
+- bevy_screenshot_last_result=success path=docs/qa/screenshot_2.png dimensions=1600x900
 
 ## SceneIndex Observations
 
@@ -83,14 +96,16 @@ Playtest: passed (13 steps, final quest: `Completed`)
 - objective collect_reward_item completed
 - main_quest state RewardCollected
 - main_quest state Completed
+- world_clock wall_time=2026-07-05T12:00:00+00:00 sim_time_ms=0 tick=13 clock_mode=Frozen
+- agent_schedule merchant_01 active window=shop_hours allowed=quote_price,restock_low_risk_item
 
 ## Screenshots
 
-- docs/qa/open-world-slice01-visual.png
+- docs/qa/open-world-slice01-framebuffer.png
 
 ## Visual Check Evidence
 
-- visual_check=scene_index_proxy visible_targets=4/4 targets=[player,puzzle_switch,reward_chest,camp_enemy_01] screenshot_capture=scene_index_proxy_png path=docs/qa/open-world-slice01-visual.png
+- visual_check=engine_framebuffer visible_targets=4/4 targets=[player,puzzle_switch,reward_chest,camp_enemy_01] screenshot_capture=bevy_framebuffer path=docs/qa/open-world-slice01-framebuffer.png dimensions=1600x900
 
 ## Director Events
 
@@ -99,3 +114,4 @@ Playtest: passed (13 steps, final quest: `Completed`)
 ## Engine Events
 
 - scene_bridge_connected=false
+- bevy_framebuffer_screenshot path=docs/qa/open-world-slice01-framebuffer.png dimensions=1600x900

@@ -26,8 +26,7 @@ use bevy_adapter::integration::{
 use bevy_adapter::scene_bridge_impl::BevySceneBridgePlugin;
 use bevy_adapter::{
     AgentEntityId, AgentTracked, BevyAdapter, BevyAdapterPlugin, CommandProcessorPlugin,
-    EngineCommand, LlmRuntimeAgentPlugin, PerceptionPlugin, RuntimeAgentPlugin, ScreenshotPlugin,
-    ScreenshotQueue,
+    EngineCommand, LlmRuntimeAgentPlugin, PerceptionPlugin, RuntimeAgentPlugin, ScreenshotQueue,
 };
 
 // ===========================================================================
@@ -492,35 +491,43 @@ fn vgrc_bridge_system(
     mut director: ResMut<DirectorResource>,
     mut vis_state: ResMut<VisualUnderstandingState>,
     mut screenshot_queue: ResMut<ScreenshotQueue>,
+    qa_requests: Option<Res<agent_ui::OpenWorldQaRequestQueue>>,
     mut frame_count: Local<u64>,
 ) {
     *frame_count += 1;
 
-    // Request screenshot every 30 frames (~0.5s at 60fps) for VGRC
-    if (*frame_count).is_multiple_of(30) {
-        screenshot_queue.request_capture();
-    }
+    // OpenWorld QA owns ScreenshotQueue results while WriteArtifacts is pending.
+    let qa_waiting_for_framebuffer = qa_requests
+        .as_ref()
+        .is_some_and(|queue| queue.has_pending_write_artifacts());
 
-    // Pop screenshot results and feed into visual state
-    if let Some(result) = screenshot_queue.pop_result() {
-        match result {
-            bevy_adapter::ScreenshotResult::Success {
-                path: _,
-                dimensions,
-                base64,
-            } => {
-                vis_state.update_screenshot(base64, dimensions);
-                vis_state.add_vgrc_cycle(VgrcCycleSummary {
-                    cycle_id: *frame_count as u32,
-                    goal: "Verify scene state".into(),
-                    vision_count: 1,
-                    realize_attempts: 0,
-                    check_passed: true,
-                    total_duration_ms: 0,
-                });
-            }
-            bevy_adapter::ScreenshotResult::Failure { error } => {
-                bevy::log::warn!("Screenshot failed: {}", error);
+    if !qa_waiting_for_framebuffer {
+        // Request screenshot every 30 frames (~0.5s at 60fps) for VGRC
+        if (*frame_count).is_multiple_of(30) {
+            screenshot_queue.request_capture();
+        }
+
+        // Pop screenshot results and feed into visual state
+        if let Some(result) = screenshot_queue.pop_result() {
+            match result {
+                bevy_adapter::ScreenshotResult::Success {
+                    path: _,
+                    dimensions,
+                    base64,
+                } => {
+                    vis_state.update_screenshot(base64, dimensions);
+                    vis_state.add_vgrc_cycle(VgrcCycleSummary {
+                        cycle_id: *frame_count as u32,
+                        goal: "Verify scene state".into(),
+                        vision_count: 1,
+                        realize_attempts: 0,
+                        check_passed: true,
+                        total_duration_ms: 0,
+                    });
+                }
+                bevy_adapter::ScreenshotResult::Failure { error } => {
+                    bevy::log::warn!("Screenshot failed: {}", error);
+                }
             }
         }
     }
@@ -611,7 +618,6 @@ fn main() {
             },
             IntegrationPlugin,
             VisionPlugin,
-            ScreenshotPlugin,
             CommandProcessorPlugin,
         ))
         .run();

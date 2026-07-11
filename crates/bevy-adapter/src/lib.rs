@@ -6,6 +6,7 @@
 #![allow(clippy::type_complexity)]
 
 pub mod adapter;
+pub mod ai_resident;
 pub mod command_processor;
 pub mod integration;
 pub mod llm_runtime_agent;
@@ -25,6 +26,11 @@ pub use adapter::EngineAdapter;
 pub use adapter::{AgentActionEvent, AgentEntityId, AgentTracked};
 pub use adapter::{AssetReference, AssetType, ComponentPatch, EngineCommand, EngineCommandResult};
 pub use adapter::{EntitySnapshot, RollbackOperation};
+pub use ai_resident::{
+    apply_sandbox_to_world, push_resident_scene_index_summaries, run_ai_resident_slice01_bevy_smoke,
+    spawn_ai_resident_slice01, AiResidentClock, AiResidentPlugin, GuardPatrolPath, ResidentAgent,
+    ResidentBehaviorState,
+};
 pub use command_processor::{CommandHistory, CommandProcessorPlugin, PendingCommands};
 pub use llm_runtime_agent::{
     configure_llm_runtime, LlmAgentRequest, LlmAgentResponse, LlmRuntimeAgentPlugin,
@@ -49,4 +55,6 @@ pub use runtime_agent::{
     RuntimeAgentComponent, RuntimeAgentControlMode, RuntimeAgentId, RuntimeAgentPlugin,
     RuntimeAgentProfileId, RuntimeAgentRegistry, RuntimeAgentStatus, RuntimeTarget,
 };
-pub use screenshot::{ScreenshotArtifact, ScreenshotPlugin, ScreenshotQueue, ScreenshotResult};
+pub use screenshot::{
+    ScreenshotArtifact, ScreenshotPlugin, ScreenshotQueue, ScreenshotResult, ScreenshotState,
+};

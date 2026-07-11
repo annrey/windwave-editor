@@ -253,13 +253,23 @@
     "scene_index_observations=24",
     "verification_goals=5",
     "scenario_steps=13",
-    "verification_duration_us=14",
-    "scene_index_observation_duration_us=0"
+    "verification_duration_us=50",
+    "scene_index_observation_duration_us=21",
+    "bevy_frame_count=94",
+    "bevy_frame_time_samples=94",
+    "bevy_frame_time_avg_ms=20.973",
+    "bevy_frame_time_max_ms=250.000",
+    "bevy_screenshot_requested=true",
+    "bevy_screenshot_requests_total=6",
+    "bevy_screenshot_success_total=3",
+    "bevy_screenshot_failure_total=0",
+    "bevy_screenshot_result_count=1",
+    "bevy_screenshot_last_result=success path=docs/qa/screenshot_2.png dimensions=1600x900"
   ],
   "screenshot_paths": [
-    "docs/qa/open-world-slice01-visual.png"
+    "docs/qa/open-world-slice01-framebuffer.png"
   ],
   "visual_check_evidence": [
-    "visual_check=scene_index_proxy visible_targets=4/4 targets=[player,puzzle_switch,reward_chest,camp_enemy_01] screenshot_capture=scene_index_proxy_png path=docs/qa/open-world-slice01-visual.png"
+    "visual_check=engine_framebuffer visible_targets=4/4 targets=[player,puzzle_switch,reward_chest,camp_enemy_01] screenshot_capture=bevy_framebuffer path=docs/qa/open-world-slice01-framebuffer.png dimensions=1600x900"
   ]
 }

@@ -81,9 +81,22 @@ Xcode:
 `cargo run --bin agent-edit` starts the Bevy editor. Bevy `png` support is
 enabled in `Cargo.toml` so the screenshot pipeline can save PNG output.
 
+OpenWorldSlice01 main-window framebuffer acceptance:
+
+```bash
+make accept-open-world-qa
+# equivalent:
+WINDWAVE_OPEN_WORLD_QA_ACCEPT=1 cargo run --bin agent-edit
+```
+
+This boots the real Bevy window, waits for `ScreenshotQueue` framebuffer
+readback, writes `docs/qa/open-world-slice01*.{md,json,png}`, and exits 0 only
+when evidence contains `screenshot_capture=bevy_framebuffer`. Manual path:
+Ctrl+Shift+T opens World Timeline, then click **Generate OpenWorld QA**.
+
 Computer Use currently does not expose the Bevy/winit editor window as a
-controllable macOS app. Use automated smoke tests as the proxy signal, then do
-final window-level UI checks manually when needed.
+controllable macOS app. Prefer `make accept-open-world-qa` for framebuffer
+regression; use manual window clicks only when needed.
 
 ## iCloud Checkout Notes
 

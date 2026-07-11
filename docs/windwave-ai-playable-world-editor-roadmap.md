@@ -1,15 +1,30 @@
 # WindWave AI 可玩世界编辑器路线总纲
 
-> 日期：2026-07-05  
-> 状态：方向收敛稿  
+> 日期：2026-07-05（North Star / 三项决策锁定：2026-07-11）  
+> 状态：方向已确认（2026-07）  
 > 上游参考：`/Users/chengyongwei/Downloads/deep-research-report-3.md`、`docs/windwave-ai-open-world-vertical-slice-plan.md`、`docs/prd/open-world-vertical-slice-prd.md`  
+> 派单入口：`docs/remaining-work.md`  
 > 技术基线：Rust workspace + Bevy runtime/editor adapter，不转向 Unity 或 Unreal 作为主引擎。
+
+## North Star
+
+长期愿景：WindWave 是一个 **AI 可创造、也可自己进入游玩的 3D 世界编辑器与运行时**——AI 利用各类 3D/2D 工具生成内容，也能作为玩家或居民在世界中行动。世界模型是 **每个人都是自己的服务器**：可邀请或加入他人的世界，需要 **AI↔AI 交流通讯**，且 AI 要能 **理解一个 3D 世界**。
+
+分层口径：
+
+| 层 | 含义 |
+|---|---|
+| North Star | AI 自创造（多工具）+ AI 自玩编辑器 + 个人服务器世界（邀请/加入、AI↔AI、3D 世界理解） |
+| Near-term | `主窗口 framebuffer 验收` ✅（2026-07-11）→ `AiResidentSlice01` ✅（2026-07-11）→（工具中枢更后）；治理/回放并行加深 Timeline，不抢主线 |
+| 不做（近程） | 不做完整商业级多人 MMO；不把外部工具中枢置于可玩证据与沙盘之前 |
+
+「3D MMO」含义（**已确认，2026-07**）：是体验隐喻，不是近期商业级多人 MMO。等价于个人服务器 + 邀请/加入 + AI↔AI 通讯 + AI 理解 3D 世界。邀请/加入作为中期能力柱，依赖沙盘与世界理解之后再排。
 
 ## 一句话定位
 
 WindWave 的主线方向收敛为：**面向 AI 可玩世界的 3D 游戏编辑器**。它不只生成内容，还要证明内容能玩、AI 能守规矩、失败能回放和修正。
 
-这不是立刻制作完整 3D MMO，也不是通用聊天式游戏编辑器。WindWave 要先成为一个能生产、运行、观测、验证和治理 AI-driven gameplay 的 Rust 编辑器平台。
+这不是立刻制作完整商业级 3D MMO，也不是通用聊天式游戏编辑器。愿景指向个人服务器式共同世界与多工具创作；近程仍是先成为一个能生产、运行、观测、验证和治理 AI-driven gameplay 的 Rust 编辑器平台。
 
 ## 决策结论
 
@@ -18,8 +33,14 @@ WindWave 的主线方向收敛为：**面向 AI 可玩世界的 3D 游戏编辑�
 | 方向 | 结论 | 原因 |
 |---|---|---|
 | 通用 AI 游戏编辑器 | 不作为主叙事 | 容易退化成传统编辑器加聊天面板，差异化不足 |
-| 多工具 Agent Command Deck | 保留为后续能力 | 工具中枢有价值，但不能早于可玩闭环 |
+| 多工具 Agent Command Deck | 保留为后续能力 | 工具中枢有价值，但不能早于可玩证据与沙盘 |
 | AI 可玩世界编辑器 | 主线采用 | 与现有 `OpenWorldPlan`、`GameplayPrimitive`、`PlayableScenario`、`VerificationBundle` 最匹配 |
+
+**2026-07 已确认（锁定）**：
+
+1. 近程仍坚持「先可玩证据，再工具中枢」。
+2. 「3D MMO」= 个人服务器 + 邀请/加入 + AI↔AI + AI 理解 3D；非近期商业多人 MMO。
+3. 主窗口验收后下一刀优先 AI 居民沙盘；治理/回放并行加深，不抢主线。
 
 WindWave 的短期目标不是“大规模自治 AI 世界”，而是先证明一个小型 3D 世界切片中，AI 生成的玩法、世界对象、代理行为和验证证据可以闭环。
 
@@ -52,12 +73,12 @@ WindWave 的短期目标不是“大规模自治 AI 世界”，而是先证明�
 - 记录 AI 代理行为、权限裁决、失败原因和修正建议。
 - 支持现实时间驱动的代理日程、世界事件和长期记忆。
 
-### WindWave 暂不做
+### WindWave 暂不做（近程边界；不否定 North Star）
 
-- 不做完整商业级 3D MMO。
+- 近程不做完整商业级 3D MMO；邀请/加入他人世界是中期能力，排在沙盘与世界理解之后。
 - 不承诺自动生成最终美术质量。
 - 不让 LLM 自由散写 gameplay 代码作为主路径。
-- 不优先接入一整套外部工具生态。
+- 近程不优先接入一整套外部工具生态；工具管线排在可玩证据与 AI 居民沙盘之后（Phase 4）。
 - 不把纯模拟通过等同于真实窗口玩通。
 
 ## 目标架构
@@ -166,7 +187,7 @@ WindWave UI 需要从“面板集合”升级为可玩世界治理台。优先�
 
 ### Phase 2：现实时间和代理沙盘
 
-目标：在小型 3D 世界中证明 AI 居民能按现实时间和世界状态行动。
+目标：在小型 3D 世界中证明 AI 居民能按现实时间和世界状态行动（主窗口验收后的主线下一刀；通向 AI↔AI 与 3D 世界理解）。
 
 交付：
 
@@ -178,7 +199,7 @@ WindWave UI 需要从“面板集合”升级为可玩世界治理台。优先�
 
 ### Phase 3：治理、审计和回放工作台
 
-目标：让 WindWave 能管理 AI 行为风险，而不是只展示结果。
+目标：让 WindWave 能管理 AI 行为风险，而不是只展示结果。与 Phase 2 沙盘并行加深已有 Timeline，但不抢沙盘主线。
 
 交付：
 
@@ -190,7 +211,7 @@ WindWave UI 需要从“面板集合”升级为可玩世界治理台。优先�
 
 ### Phase 4：资产和外部工具管线
 
-目标：外部工具服务于 3D 可玩世界，而不是替代主线。
+目标：外部工具服务于 3D 可玩世界，而不是替代主线。排在可玩证据与 AI 居民沙盘之后。
 
 交付：
 
@@ -199,40 +220,44 @@ WindWave UI 需要从“面板集合”升级为可玩世界治理台。优先�
 - Terminal/Git adapter 只用于构建、测试、版本证据。
 - 资产预算、缺失依赖、导入失败进入 `VerificationBundle`。
 
-### Phase 5：小规模持续世界
+### Phase 5：个人服务器与持续世界
 
-目标：从单切片扩展到小型持续区域。
+目标：从单切片扩展到「每人自己的服务器」式小型持续世界；邀请/加入与 AI↔AI 在沙盘与世界理解就绪后进入。
 
 交付：
 
-- 多 `WorldChunk`。
+- 多 `WorldChunk`；世界实例按个人服务器边界隔离。
 - 现实时间驱动的事件循环。
 - 离线期间低风险世界变化。
-- AI 居民的长期记忆摘要。
+- AI 居民的长期记忆摘要；AI↔AI 受限通讯（经权限与审计）。
+- 邀请/加入他人世界（中期；依赖 Phase 2 沙盘与 3D 世界理解）。
 - 性能预算：实体数、帧时间、SceneIndex 更新时间、回放账本大小。
+
+说明：本阶段仍不是商业级多人在线 MMO；网络与会话形态服务于个人服务器 + 邀请/加入，而非大规模公服。
 
 ## 第一批新增 PRD 候选
 
 后续应拆出三份 PRD，而不是把所有细节堆进本总纲：
 
 1. `docs/prd/world-clock-and-real-time.md`  
-   状态：初版 Rust 类型已落地，2026-07-05。已新增 `agent_core::world_clock`、serde 测试、冻结/手动/实时推进、事件窗口、代理日程、离线上限和回放账本；已接入 `PlayableScenario`、`OpenWorldRuntimeEvent`、`VerificationBundle`、最小 `AgentSchedule` 商人营业 fixture、QA 落盘、core World Timeline DTO、每 tick `world_state` 快照、最小 agent-ui 时间线面板、`OpenWorldQuestPanel`、QA JSON 文件加载、Director 状态注入 API、Bevy resource 热更新、最小 Replay tick 控制、`bevy-adapter` replay state 组件应用、`Visibility`/交互可用性驱动、loot/combat interaction bridge、真实交互事件命令队列、SceneIndex 暴露、bundle 构造/SceneIndex 观测耗时 evidence、SceneIndex proxy 视觉检查 evidence、SceneIndex proxy PNG 写入 `screenshot_paths`、`bevy-adapter` frame delta evidence rows、`agent-ui` frame metrics 注入入口、World Timeline 面板生成 QA 按钮、UI QA 请求队列到统一 artifact writer 的可配置落盘接线，以及 UI QA 请求等待并消费 `bevy-adapter::ScreenshotQueue` framebuffer result。下一步进入完整 app 主窗口 framebuffer readback 运行时验收。
+   状态：初版 Rust 类型已落地，2026-07-05。已新增 `agent_core::world_clock`、serde 测试、冻结/手动/实时推进、事件窗口、代理日程、离线上限和回放账本；已接入 `PlayableScenario`、`OpenWorldRuntimeEvent`、`VerificationBundle`、最小 `AgentSchedule` 商人营业 fixture、QA 落盘、core World Timeline DTO、每 tick `world_state` 快照、最小 agent-ui 时间线面板、`OpenWorldQuestPanel`、QA JSON 文件加载、Director 状态注入 API、Bevy resource 热更新、最小 Replay tick 控制、`bevy-adapter` replay state 组件应用、`Visibility`/交互可用性驱动、loot/combat interaction bridge、真实交互事件命令队列、SceneIndex 暴露、bundle 构造/SceneIndex 观测耗时 evidence、SceneIndex proxy 视觉检查 evidence、SceneIndex proxy PNG 写入 `screenshot_paths`、`bevy-adapter` frame delta evidence rows、`agent-ui` frame metrics 注入入口、World Timeline 面板生成 QA 按钮、UI QA 请求队列到统一 artifact writer 的可配置落盘接线，以及 UI QA 请求等待并消费 `bevy-adapter::ScreenshotQueue` framebuffer result。**2026-07-11：完整 app 主窗口 framebuffer readback 运行时验收已通过**（`WINDWAVE_OPEN_WORLD_QA_ACCEPT=1` / `make accept-open-world-qa`，`screenshot_capture=bevy_framebuffer`，证据见 `docs/qa/open-world-slice01.md`）。下一步主线为 AI 居民沙盘。
 
 2. `docs/prd/ai-resident-sandbox.md`  
-   定义 Guard、Merchant、Quest NPC、Explorer 等受限代理，以及观察、意图、动作模板、风险裁决。
+   状态：**AiResidentSlice01 第一刀已实现（2026-07-11）** — Merchant + Guard；观察→意图→动作模板→权限裁决→证据链；QA：`docs/qa/ai-resident-slice01.md` / `make test-ai-resident`。Quest NPC / Explorer 等留给后续加深。
 
 3. `docs/prd/replay-and-governance-desk.md`  
    定义行为账本、回放、权限审计、异常检测、QA 报告和 UI 面板。
 
 ## 最近落地顺序
 
-建议不要立刻开三条新线。下一步仍应服务于 `OpenWorldSlice01`：
+截至 2026-07：WorldClock、自动 playtest、SceneIndex evidence、proxy 截图、Timeline/QA 接线等已大幅推进。三项产品决策已锁定（见上文「决策结论」）。
 
-1. 先补真实 Bevy gameplay 行为系统。
-2. 再让 `SceneIndex` 读到运行时状态。
-3. 再把截图和真实窗口证据写入 `VerificationBundle`。
-4. 然后创建 `WorldClock` PRD 和最小 Rust 类型。
-5. 最后把一个代理日程接到小岛场景中，例如夜晚巡逻守卫或按现实时间开关的商人。
+近程锁定顺序：
+
+1. **P0（已完成 2026-07-11）**：完整 app 主窗口 framebuffer readback 运行时验收；证据写入 `docs/qa/open-world-slice01.md`（`screenshot_capture=bevy_framebuffer`）。回归：`make accept-open-world-qa`。
+2. **AiResidentSlice01（已完成 2026-07-11）**：`docs/prd/ai-resident-sandbox.md` + `make test-ai-resident`；通向 AI 自玩、AI↔AI 雏形、3D 世界理解。
+3. **并行不抢线**：治理/回放加深已有 Timeline。
+4. **更后**：外部 3D/2D 工具中枢（Phase 4）；个人服务器持续世界与邀请/加入（Phase 5）；沙盘角色/事件加深。
 
 ## 成功标准
 
