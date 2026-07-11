@@ -2,6 +2,7 @@ use agent_core::{AgentInstanceId, BaseAgent, Message, MessageType};
 use agent_ui::*;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy_adapter::{LootContainer, OpenWorldObject};
+use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 struct MemoryTaskPanelBackend {
@@ -20,6 +21,22 @@ impl TaskPanelBackend for MemoryTaskPanelBackend {
     }
 }
 
+#[derive(Clone, Default)]
+struct SharedMemoryTaskPanelBackend {
+    inner: Arc<Mutex<MemoryTaskPanelBackend>>,
+}
+
+impl TaskPanelBackend for SharedMemoryTaskPanelBackend {
+    fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
+        Ok(self.inner.lock().unwrap().snapshot.clone())
+    }
+
+    fn handle(&mut self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
+        self.inner.lock().unwrap().commands.push(command);
+        Ok(())
+    }
+}
+
 #[test]
 fn task_panel_port_is_backend_agnostic() {
     let mut backend = MemoryTaskPanelBackend::default();
@@ -30,14 +47,60 @@ fn task_panel_port_is_backend_agnostic() {
 
 #[test]
 fn task_panel_state_applies_backend_snapshot() {
-    let task = TaskInfo::new("1".into(), "Quest".into(), "Find item".into());
+    let mut task = TaskInfo::new("1".into(), "Quest".into(), "Find item".into());
+    task.status = TaskStatus::InProgress;
+    let done = TaskInfo {
+        status: TaskStatus::Done,
+        ..TaskInfo::new("2".into(), "Return".into(), "Report back".into())
+    };
     let mut state = TaskPanelState::default();
+    state.selected_task = Some("1".into());
+    state.selected_ids = vec!["1".into(), "missing".into(), "2".into()];
+    state.show_delete_confirm = Some("missing".into());
     state.apply_snapshot(TaskPanelSnapshot {
-        tasks: vec![task],
+        tasks: vec![task.clone(), done.clone()],
         sync_status: SyncStatus::Synced,
     });
-    assert_eq!(state.total_count, 1);
+    assert_eq!(state.total_count, 2);
+    assert_eq!(state.status_counts.get(&TaskStatus::InProgress), Some(&1));
+    assert_eq!(state.status_counts.get(&TaskStatus::Done), Some(&1));
     assert_eq!(state.sync_status, SyncStatus::Synced);
+    assert_eq!(state.selected_task.as_deref(), Some("1"));
+    assert_eq!(state.selected_ids, vec!["1", "2"]);
+    assert_eq!(state.show_delete_confirm, None);
+
+    state.selected_task = Some("missing".into());
+    state.show_delete_confirm = Some("2".into());
+    state.apply_snapshot(TaskPanelSnapshot {
+        tasks: vec![task, done],
+        sync_status: SyncStatus::Synced,
+    });
+    assert_eq!(state.selected_task, None);
+    assert_eq!(state.show_delete_confirm.as_deref(), Some("2"));
+}
+
+#[test]
+fn task_panel_backend_resource_handles_commands_and_refreshes_snapshot() {
+    let backend = SharedMemoryTaskPanelBackend::default();
+    backend.inner.lock().unwrap().snapshot = TaskPanelSnapshot {
+        tasks: vec![TaskInfo::new(
+            "1".into(),
+            "Quest".into(),
+            "Find item".into(),
+        )],
+        sync_status: SyncStatus::Synced,
+    };
+    let resource = TaskPanelBackendResource::new(backend.clone());
+
+    resource.handle(TaskPanelCommand::Refresh).unwrap();
+    let snapshot = resource.snapshot().unwrap();
+
+    assert_eq!(
+        backend.inner.lock().unwrap().commands,
+        vec![TaskPanelCommand::Refresh]
+    );
+    assert_eq!(snapshot.tasks.len(), 1);
+    assert_eq!(snapshot.sync_status, SyncStatus::Synced);
 }
 
 #[test]

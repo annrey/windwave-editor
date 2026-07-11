@@ -240,6 +240,14 @@ impl TaskPanelState {
         {
             self.selected_task = None;
         }
+        self.selected_ids.retain(|id| self.tasks.contains_key(id));
+        if self
+            .show_delete_confirm
+            .as_ref()
+            .is_some_and(|id| !self.tasks.contains_key(id))
+        {
+            self.show_delete_confirm = None;
+        }
     }
 
     /// 添加任务

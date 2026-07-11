@@ -12,5 +12,5 @@ pub use port::{
 };
 pub use systems::{
     PanelSceneEventSubscriber, SceneEventQueue, SceneEventSubscriberId, TaskAction,
-    TaskBridgeResource, TaskPanelPlugin, TaskSynchronizerResource,
+    TaskBridgeResource, TaskPanelBackendResource, TaskPanelPlugin, TaskSynchronizerResource,
 };

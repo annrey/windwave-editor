@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -19,7 +19,10 @@ use multica_bridge::task_bridge::{TaskBridge, UnifiedTask, UnifiedTaskStatus};
 use multica_bridge::task_sync_module::{SyncStatus as ModuleSyncStatus, TaskSynchronizer};
 
 use super::model::{SyncStatus, TaskInfo, TaskPanelState, TaskStatus};
-use super::port::TaskPanelCommand;
+use super::port::{
+    TaskPanelBackend, TaskPanelBackendError, TaskPanelBackendErrorKind, TaskPanelCommand,
+    TaskPanelSnapshot,
+};
 use super::view::render_task_panel;
 
 /// 任务操作事件
@@ -61,6 +64,41 @@ impl TaskBridgeResource {
     /// Create from an already-shared TaskBridge
     pub fn from_arc(bridge: Arc<TaskBridge>) -> Self {
         Self { bridge }
+    }
+}
+
+/// Backend-agnostic task panel access used by Bevy systems.
+#[derive(Resource, Clone)]
+pub struct TaskPanelBackendResource {
+    backend: Arc<Mutex<Box<dyn TaskPanelBackend>>>,
+}
+
+impl TaskPanelBackendResource {
+    pub fn new(backend: impl TaskPanelBackend) -> Self {
+        Self {
+            backend: Arc::new(Mutex::new(Box::new(backend))),
+        }
+    }
+
+    pub fn handle(&self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
+        self.backend
+            .lock()
+            .map_err(|_| backend_unavailable("task panel backend lock poisoned"))?
+            .handle(command)
+    }
+
+    pub fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
+        self.backend
+            .lock()
+            .map_err(|_| backend_unavailable("task panel backend lock poisoned"))?
+            .snapshot()
+    }
+}
+
+fn backend_unavailable(message: impl Into<String>) -> TaskPanelBackendError {
+    TaskPanelBackendError {
+        kind: TaskPanelBackendErrorKind::Unavailable,
+        message: message.into(),
     }
 }
 
@@ -260,8 +298,95 @@ fn task_info_to_unified(task: &TaskInfo) -> UnifiedTask {
 /// `pending_actions`. Drains the queue and attempts to execute each action
 /// through the bridge. If no `TaskBridgeResource` is present, actions are
 /// silently skipped (the panel operates in standalone mode).
+#[derive(Clone)]
+struct MulticaTaskPanelBackend {
+    bridge: Arc<TaskBridge>,
+}
+
+impl MulticaTaskPanelBackend {
+    fn bridge_id(task_id: &str) -> Option<u64> {
+        task_id
+            .strip_prefix("task_bridge_")
+            .unwrap_or(task_id)
+            .parse()
+            .ok()
+    }
+}
+
+impl TaskPanelBackend for MulticaTaskPanelBackend {
+    fn snapshot(&self) -> Result<TaskPanelSnapshot, TaskPanelBackendError> {
+        let tasks = self
+            .bridge
+            .get_all_tasks()
+            .into_iter()
+            .map(|unified| {
+                let bridge_id = unified.id.bridge_id.to_string();
+                let mut task = TaskInfo::new(
+                    format!("task_bridge_{bridge_id}"),
+                    unified.title,
+                    unified.description,
+                );
+                task.status = unified_status_to_panel(&unified.status);
+                task.scene_id = unified.scene_id;
+                task.entity_ids = unified.entity_ids;
+                task.multica_id = Some(bridge_id);
+                task
+            })
+            .collect();
+        Ok(TaskPanelSnapshot {
+            tasks,
+            sync_status: SyncStatus::Synced,
+        })
+    }
+
+    fn handle(&mut self, command: TaskPanelCommand) -> Result<(), TaskPanelBackendError> {
+        match command {
+            TaskPanelCommand::Refresh => Ok(()),
+            TaskPanelCommand::Create(task) => {
+                self.bridge
+                    .register_task(task_info_to_unified(&task))
+                    .map_err(|error| {
+                        backend_unavailable(format!(
+                            "failed to create task '{}': {error:?}",
+                            task.title
+                        ))
+                    })?;
+                Ok(())
+            }
+            TaskPanelCommand::UpdateStatus { id, status } => {
+                let Some(bridge_id) = Self::bridge_id(&id) else {
+                    debug!("Task '{id}' has no bridge ID; status update applied locally only");
+                    return Ok(());
+                };
+                self.bridge
+                    .update_task_status(bridge_id, panel_status_to_unified(&status))
+                    .map_err(|error| {
+                        backend_unavailable(format!(
+                            "failed to update task '{id}' status: {error:?}"
+                        ))
+                    })?;
+                Ok(())
+            }
+            TaskPanelCommand::Delete { id } => {
+                let Some(bridge_id) = Self::bridge_id(&id) else {
+                    debug!("Task '{id}' has no bridge ID; deleted locally only");
+                    return Ok(());
+                };
+                self.bridge
+                    .update_task_status(bridge_id, UnifiedTaskStatus::Cancelled)
+                    .map_err(|error| {
+                        backend_unavailable(format!("failed to cancel task '{id}': {error:?}"))
+                    })?;
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Process pending commands through the backend port and refresh panel state.
 fn process_task_actions(
     mut task_state: ResMut<TaskPanelState>,
+    backend: Option<Res<TaskPanelBackendResource>>,
     bridge: Option<Res<TaskBridgeResource>>,
 ) {
     let actions: Vec<TaskPanelCommand> = std::mem::take(&mut task_state.pending_actions);
@@ -269,204 +394,35 @@ fn process_task_actions(
         return;
     }
 
-    let Some(bridge) = bridge else {
+    let multica_backend = bridge.map(|bridge| {
+        TaskPanelBackendResource::new(MulticaTaskPanelBackend {
+            bridge: bridge.bridge.clone(),
+        })
+    });
+    let backend = backend.as_deref().or(multica_backend.as_ref());
+
+    let Some(backend) = backend else {
         debug!(
-            "No TaskBridgeResource found; {} task actions remain unprocessed",
+            "No TaskPanelBackendResource found; {} task actions remain unprocessed",
             actions.len()
         );
-        // Re-queue actions so they can be processed once the bridge is available
         task_state.pending_actions = actions;
         return;
     };
 
-    for action in &actions {
-        dispatch_task_action(action, &bridge.bridge, &mut task_state);
+    for command in actions {
+        if let Err(error) = backend.handle(command) {
+            error!("Task panel backend command failed: {}", error.message);
+            task_state.sync_status = SyncStatus::SyncError(error.message);
+            return;
+        }
     }
-}
 
-/// Dispatch a single `TaskAction` to the `TaskBridge`.
-fn dispatch_task_action(
-    action: &TaskPanelCommand,
-    bridge: &TaskBridge,
-    state: &mut TaskPanelState,
-) {
-    match action {
-        TaskPanelCommand::Create(task_info) => {
-            let unified = task_info_to_unified(task_info);
-            let title = task_info.title.clone();
-
-            match bridge.register_task(unified) {
-                Ok(registered) => {
-                    // Link back the bridge ID to the panel task
-                    if let Some(panel_task) = state.tasks.get_mut(&task_info.id) {
-                        panel_task.multica_id = Some(registered.id.bridge_id.to_string());
-                    }
-                    info!(
-                        "Task bridged successfully: '{}' (bridge_id={})",
-                        title, registered.id.bridge_id
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to bridge task '{}' (id={}): {:?}",
-                        title, task_info.id, e
-                    );
-                    state.sync_status = SyncStatus::SyncError(format!(
-                        "Failed to create task '{}': {:?}",
-                        title, e
-                    ));
-                }
-            }
-        }
-
-        TaskPanelCommand::UpdateStatus {
-            id: task_id,
-            status: new_status,
-        } => {
-            let unified_status = panel_status_to_unified(new_status);
-
-            // Try to find the bridge ID from the task's multica_id
-            let bridge_id = state
-                .tasks
-                .get(task_id)
-                .and_then(|t| t.multica_id.as_ref())
-                .and_then(|mid| mid.parse::<u64>().ok());
-
-            if let Some(bridge_id) = bridge_id {
-                match bridge.update_task_status(bridge_id, unified_status) {
-                    Ok(_) => {
-                        info!(
-                            "Task '{}' status updated to {:?} via bridge",
-                            task_id, new_status
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to update task '{}' status via bridge: {:?}",
-                            task_id, e
-                        );
-                    }
-                }
-            } else {
-                debug!(
-                    "Task '{}' has no bridge ID; status update applied locally only",
-                    task_id
-                );
-            }
-        }
-
-        TaskPanelCommand::Delete { id: task_id } => {
-            // TaskBridge has no delete method; mark as cancelled via bridge
-            let bridge_id = state
-                .tasks
-                .get(task_id)
-                .and_then(|t| t.multica_id.as_ref())
-                .and_then(|mid| mid.parse::<u64>().ok());
-
-            if let Some(bridge_id) = bridge_id {
-                match bridge.update_task_status(bridge_id, UnifiedTaskStatus::Cancelled) {
-                    Ok(_) => {
-                        info!(
-                            "Task '{}' cancelled via bridge (bridge_id={})",
-                            task_id, bridge_id
-                        );
-                    }
-                    Err(e) => {
-                        warn!("Failed to cancel task '{}' via bridge: {:?}", task_id, e);
-                    }
-                }
-            } else {
-                debug!("Task '{}' has no bridge ID; deleted locally only", task_id);
-            }
-        }
-
-        TaskPanelCommand::Refresh => {
-            info!("Refreshing tasks from TaskBridge...");
-            let bridge_tasks = bridge.get_all_tasks();
-
-            // Sync tasks from bridge into panel state
-            let mut synced_count = 0;
-            for unified in &bridge_tasks {
-                let bridge_id_str = unified.id.bridge_id.to_string();
-                let panel_status = unified_status_to_panel(&unified.status);
-
-                // Find existing task by multica_id
-                let existing_id = state
-                    .tasks
-                    .iter()
-                    .find(|(_, t)| t.multica_id.as_deref() == Some(&bridge_id_str))
-                    .map(|(id, _)| id.clone());
-
-                if let Some(existing_id) = existing_id {
-                    // Check and collect changes before mutating
-                    let needs_status_update = {
-                        if let Some(task) = state.tasks.get(&existing_id) {
-                            task.status != panel_status
-                        } else {
-                            false
-                        }
-                    };
-                    let old_status = state.tasks.get(&existing_id).map(|t| t.status.clone());
-                    let needs_scene_update = {
-                        if let Some(task) = state.tasks.get(&existing_id) {
-                            if let Some(ref scene_id) = unified.scene_id {
-                                task.scene_id.as_deref() != Some(scene_id.as_str())
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    };
-
-                    // Apply status update
-                    if needs_status_update {
-                        if let Some(task) = state.tasks.get_mut(&existing_id) {
-                            task.status = panel_status.clone();
-                        }
-                        if let Some(old) = old_status {
-                            state.update_task_status_counts(&old, &panel_status);
-                            synced_count += 1;
-                        }
-                    }
-                    // Update scene association if available
-                    if needs_scene_update {
-                        if let Some(task) = state.tasks.get_mut(&existing_id) {
-                            if let Some(ref scene_id) = unified.scene_id {
-                                task.scene_id = Some(scene_id.clone());
-                            }
-                        }
-                    }
-                    // Sync entity IDs
-                    if let Some(task) = state.tasks.get_mut(&existing_id) {
-                        for entity_id in &unified.entity_ids {
-                            if !task.entity_ids.contains(entity_id) {
-                                task.entity_ids.push(entity_id.clone());
-                            }
-                        }
-                    }
-                } else {
-                    // New task from bridge - add to panel
-                    let mut task = TaskInfo::new(
-                        format!("task_bridge_{}", bridge_id_str),
-                        unified.title.clone(),
-                        unified.description.clone(),
-                    );
-                    task.status = panel_status;
-                    task.scene_id = unified.scene_id.clone();
-                    task.entity_ids = unified.entity_ids.clone();
-                    task.multica_id = Some(bridge_id_str);
-
-                    state.add_task(task);
-                    synced_count += 1;
-                }
-            }
-
-            info!(
-                "Task refresh complete: {} tasks synced from bridge ({} total in panel)",
-                synced_count, state.total_count
-            );
-            state.sync_status = SyncStatus::Synced;
+    match backend.snapshot() {
+        Ok(snapshot) => task_state.apply_snapshot(snapshot),
+        Err(error) => {
+            error!("Task panel backend snapshot failed: {}", error.message);
+            task_state.sync_status = SyncStatus::SyncError(error.message);
         }
     }
 }
