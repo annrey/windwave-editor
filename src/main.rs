@@ -571,8 +571,7 @@ fn vgrc_bridge_system(
                 });
             }
             agent_core::director::EditorEvent::DirectExecutionCompleted {
-                success: true,
-                ..
+                success: true, ..
             } => {
                 vis_state.add_goal_check(GoalCheckResult {
                     timestamp: std::time::SystemTime::now()
