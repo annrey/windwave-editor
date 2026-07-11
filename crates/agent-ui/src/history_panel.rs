@@ -457,14 +457,14 @@ fn render_timeline_item(
             ui.allocate_exact_size(egui::Vec2::new(20.0, 20.0), egui::Sense::click());
         let painter = ui.painter();
         painter.circle_filled(rect.center(), 8.0, fill_color);
-        painter.circle_stroke(rect.center(), 8.0, egui::Stroke::new(2.0, border_color));
+        painter.circle_stroke(rect.center(), 8.0, egui::Stroke::new(2.0_f32, border_color));
 
         // Line to next item
         if idx < total_count.saturating_sub(1) {
             let next_x = rect.max.x + 40.0;
             painter.line_segment(
                 [rect.right_center(), egui::pos2(next_x, rect.center().y)],
-                egui::Stroke::new(2.0, border_color),
+                egui::Stroke::new(2.0_f32, border_color),
             );
         }
 
